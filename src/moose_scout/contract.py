@@ -251,6 +251,7 @@ def build(ctx: Context) -> dict:
                          "huntability": p.get("mean_huntability"),
                          "centroid": p.get("centroid"),
                          "why": p.get("why"), "pros": p.get("pros"), "cons": p.get("cons"),
+                         "access_flag": p.get("access_flag"), "boat_required": p.get("boat_required", False),
                          "stats": p.get("stats"), "conf": p.get("conf"),
                          "geometry": a["geometry"]})
 
@@ -273,7 +274,12 @@ def build(ctx: Context) -> dict:
                  "radius_km": ctx.aoi.bbox_halfwidth_km,
                  "target_dates": ctx.aoi.season.target_dates,
                  "residency": ctx.aoi.hunter.residency,
-                 "extraction_modes": ctx.aoi.hunter.extraction_modes},
+                 "extraction_modes": ctx.aoi.hunter.extraction_modes,
+                 "watercraft": getattr(ctx.aoi.hunter, "watercraft", "none"),
+                 "hunt_style": getattr(ctx.aoi.hunter, "hunt_style", "spike"),
+                 "walk_access_km": getattr(ctx.aoi.hunter, "walk_access_km", 6.0),
+                 "walk_hunt_km": getattr(ctx.aoi.hunter, "walk_hunt_km", 3.0),
+                 "rut_emphasis": None},
         "legal": {"zone": la.zone, "north_of_52": la.north_of_52,
                   "diy_possible": la.diy_possible,
                   "huntable_tenures": [t.value for t in la.huntable_tenures],

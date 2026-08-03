@@ -46,6 +46,8 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 # --- models ------------------------------------------------------------------
 Residency = Literal["quebec_resident", "non_resident_canada", "non_resident_foreign"]
 ExtractionMode = Literal["truck", "canoe", "atv", "backpack"]
+Watercraft = Literal["none", "canoe", "motor"]
+HuntStyle = Literal["spike", "vehicle"]
 
 
 class LatLon(BaseModel):
@@ -65,6 +67,11 @@ class HunterCfg(BaseModel):
         default_factory=lambda: ["truck", "canoe", "atv", "backpack"]
     )
     party_size: int = 2
+    # Setup constraints that must actually shape the spatial analysis:
+    watercraft: Watercraft = "none"      # none → rivers are foot barriers, no water access
+    hunt_style: HuntStyle = "spike"      # spike = can camp out; vehicle = return to truck nightly
+    walk_access_km: float = 6.0          # how far off a road you'll walk in (road → camp/area)
+    walk_hunt_km: float = 3.0            # how far from camp you'll hunt (camp → site)
 
 
 class AOI(BaseModel):

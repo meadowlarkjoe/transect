@@ -109,6 +109,12 @@ class ScoutReq(BaseModel):
     target_dates: list[str] | None = None
     residency: str = "quebec_resident"
     zone_hint: str | None = None
+    # Setup constraints that shape the analysis (not just the display)
+    watercraft: str = "none"          # none | canoe | motor
+    hunt_style: str = "spike"         # spike | vehicle
+    walk_access_km: float = 6.0
+    walk_hunt_km: float = 3.0
+    party_size: int = 2
 
 
 def _run(job_id: str, req: ScoutReq) -> None:
@@ -122,7 +128,14 @@ def _run(job_id: str, req: ScoutReq) -> None:
             zone_hint=req.zone_hint,
             season=SeasonCfg(year=2026,
                              target_dates=req.target_dates or ["2026-09-25", "2026-10-05"]),
-            hunter=HunterCfg(residency=req.residency),
+            hunter=HunterCfg(
+                residency=req.residency,
+                watercraft=req.watercraft if req.watercraft in ("none", "canoe", "motor") else "none",
+                hunt_style=req.hunt_style if req.hunt_style in ("spike", "vehicle") else "spike",
+                walk_access_km=max(0.5, min(30.0, float(req.walk_access_km))),
+                walk_hunt_km=max(0.3, min(20.0, float(req.walk_hunt_km))),
+                party_size=max(1, min(12, int(req.party_size))),
+            ),
         )
         # Scale analysis resolution with AOI size so a big area doesn't blow past RAM.
         # The grid is (2*halfwidth*1000 / res) px per side, and memory grows with px² —

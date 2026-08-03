@@ -157,9 +157,13 @@ def _lc_frac(lc, sel, classes):
     return float(np.isin(lc[sel], classes).mean())
 
 
-def _explain_area(sel, L, res, med):
+def _explain_area(sel, L, res, med, hunter=None):
     """Data-driven pros/cons + a 'why' sentence for one focus area."""
     import numpy as np
+
+    wc = getattr(hunter, "watercraft", "none")
+    walk_km = float(getattr(hunter, "walk_access_km", 6.0) or 6.0)
+    style = getattr(hunter, "hunt_style", "spike")
 
     def mean(a):
         return float(np.nanmean(a[sel])) if (a is not None and sel.any()) else None
@@ -181,8 +185,8 @@ def _explain_area(sel, L, res, med):
         pros.append("strong cover↔opening edge (mature conifer beside forage)")
     if dr is not None and dr < 1500:
         pros.append(f"truck-accessible (~{int(dr)} m to a road)")
-    elif dw is not None and dw < 300:
-        pros.append("canoe/water extraction (retrieve down to the nearest water)")
+    elif wc != "none" and dw is not None and dw < 300:
+        pros.append(f"{'motor-boat' if wc=='motor' else 'canoe'}/water extraction (retrieve down to the nearest water)")
     if pres is not None and pres < 0.15:
         pros.append("low hunter pressure (off the main road)")
     if rutv is not None and rutv > 0.4:
@@ -202,6 +206,20 @@ def _explain_area(sel, L, res, med):
         cons.append("few thermal refuges — tougher midday hunting if it's warm")
     if f_cover < 0.2:
         cons.append("open — limited security cover, bulls may hold elsewhere midday")
+    # --- Setup-aware access gating: does THIS hunter's kit actually reach here? ---
+    access_flag, boat_required = None, False
+    if dr is not None:
+        if wc == "none" and dr >= 5e5:
+            access_flag = "⚠ No boat: this ground is cut off from the road by a river — not reachable on foot. A canoe/boat would open it."
+            boat_required = True
+            cons.insert(0, "cut off from the road by a river (needs a boat)")
+        elif wc == "none" and dr > walk_km * 1000:
+            access_flag = (f"⚠ ~{dr/1000:.1f} km on foot from the nearest road — beyond your "
+                           f"~{walk_km:.0f} km walk-in. Expect a hard pack-out.")
+            cons.insert(0, f"~{dr/1000:.1f} km walk-in on foot (past your {walk_km:.0f} km limit)")
+        elif style == "vehicle" and dr > walk_km * 1000:
+            access_flag = (f"~{dr/1000:.1f} km from a road — tough to return to the truck nightly; "
+                           "consider a spike camp.")
     if not cons:
         cons.append("verify access and sign on the ground before committing")
 
@@ -211,6 +229,7 @@ def _explain_area(sel, L, res, med):
            f"{'Retrievable and low-pressure' if (extr and extr>0.6 and pres and pres<0.2) else 'Weigh the access/extraction trade-off'} "
            f"for the rut window.")
     return {"why": why, "pros": pros, "cons": cons,
+            "access_flag": access_flag, "boat_required": boat_required,
             "stats": {"dist_water_m": None if dw is None else int(dw),
                       "dist_road_m": None if dr is None else int(dr),
                       "mean_slope_deg": None if slp is None else round(slp, 1)}}
@@ -268,7 +287,7 @@ def run(ctx: Context) -> None:
         if f["properties"]["legend"] == "focus_area":
             sel = mask_by_rank.get(f["properties"]["rank"])
             if sel is not None:
-                f["properties"].update(_explain_area(sel, Lyr, res, None))
+                f["properties"].update(_explain_area(sel, Lyr, res, None, ctx.aoi.hunter))
                 f["properties"]["conf"] = _conf.area_confidence(sel, Lyr)
 
     def _best_in(arr, mask, k):

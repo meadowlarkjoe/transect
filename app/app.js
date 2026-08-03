@@ -397,13 +397,18 @@ function areaCard(a){
   const pros=(a.pros||[]).slice(0,3).map(p=>`<span class="pill pro">${p}</span>`).join('');
   const cf=a.conf?`<span class="pill" style="background:#20303a;color:#8fd0f2">conf ${Math.round(a.conf.score*100)}%</span>`:'';
   const dr=(a.stats||{}).dist_road_m||0;
-  const far=SETUP.huntStyle==='vehicle' && dr>reachKm()*1000;
-  const farPill=far?`<span class="pill con">beyond day-return (${km(dr/1000)} to road)</span>`:'';
+  // Engine-authoritative access gate (no-boat river barrier / beyond walk-in), with a
+  // client fallback for older data that lacks the flag.
+  const boat=a.boat_required;
+  const far=boat || (SETUP.huntStyle==='vehicle' && dr>reachKm()*1000);
+  const flagPill=a.access_flag
+    ? `<span class="pill con" title="${a.access_flag.replace(/"/g,'')}">${boat?'🚫 needs a boat':'⚠ far walk-in'}</span>`
+    : (far?`<span class="pill con">beyond day-return (${km(dr/1000)} to road)</span>`:'');
   return `<div class="card ${far?'dim':''}" data-rank="${a.rank}"><div class="top">
     <div class="badge ${a.rank<=2?'top':''}">${a.rank}</div>
     <div><div><b>Area ${a.rank}</b> · ${a.area_km2} km²</div>
     <div class="meta">huntability ${a.huntability} · camp ${a.camp}</div></div></div>
-    <div class="why">${(a.why||'').slice(0,150)}</div><div>${pros}${cf}${farPill}</div></div>`;
+    <div class="why">${(a.why||'').slice(0,150)}</div><div>${pros}${cf}${flagPill}</div></div>`;
 }
 
 /* ---------------- drilldown (area detail) ---------------- */
@@ -421,6 +426,7 @@ function selectArea(rank){
   d.innerHTML=`<div class="back">← all areas</div>
     <h2><span class="badge ${rank<=2?'top':''}" style="display:inline-flex;vertical-align:middle">${rank}</span> Area ${rank} · ${a.area_km2} km²</h2>
     <div class="meta">huntability ${a.huntability} · camp ${a.camp} · ${a.centroid[1].toFixed(4)}, ${a.centroid[0].toFixed(4)}</div>
+    ${a.access_flag?`<div class="warn">${a.access_flag}</div>`:''}
     <p class="why">${a.why||''}</p>
     <div class="dd"><b>Why it scored</b>
       <div class="ddgrid">
@@ -855,7 +861,10 @@ function runAnalysis(){
   const req={species:'moose',lat:draft.center[1],lon:draft.center[0],
     radius_km:Math.max(3,Math.min(120,draft.radius)),
     target_dates:(draft.dates&&draft.dates.length===2)?draft.dates:['2026-09-25','2026-10-05'],
-    residency:'quebec_resident'};
+    residency:'quebec_resident',
+    // Setup constraints now shape the analysis (no-boat river barriers, walk range, rut-phase weighting)
+    watercraft:SETUP.watercraft, hunt_style:SETUP.huntStyle,
+    walk_access_km:draft.walkAccess, walk_hunt_km:draft.walkHunt};
   setBtn('ANALYSING… 0%',true);
   fetch(API_URL+'/scout',{method:'POST',headers:{'Content-Type':'application/json','X-API-Key':API_KEY},body:JSON.stringify(req)})
     .then(r=>r.json()).then(j=>{
@@ -934,6 +943,7 @@ function renderBrief(){
     <h3>Legal / access</h3>
     <p>Zone <b>${g.zone}</b> · ${g.diy_possible?'DIY possible':'restricted'} · ${(g.huntable_tenures||[]).join(', ')||'—'}</p>
     <h3>Why this ground</h3>
+    ${a.access_flag?`<div class="warn">${a.access_flag}</div>`:''}
     <p><b>Pros:</b> ${(a.pros||[]).join('; ')}.</p>
     <p><b>Watch-outs:</b> ${(a.cons||[]).join('; ')}.</p>`;
   if(st.dist_water_m!=null) h+=`<p class="s">water ${metres(st.dist_water_m)} · to road ${km((st.dist_road_m||0)/1000)} · slope ${st.mean_slope_deg}°</p>`;
