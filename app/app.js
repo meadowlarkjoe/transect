@@ -63,6 +63,7 @@ function baseStyle(){
       topo:{type:'raster',tiles:[ESRI('World_Topo_Map')],tileSize:256,attribution:'Esri'},
       relief:{type:'raster',tiles:[ESRI('Elevation/World_Hillshade')],tileSize:256,attribution:'Esri — Hillshade'},
       trans:{type:'raster',tiles:[ESRI('Reference/World_Transportation')],tileSize:256},
+      boundaries:{type:'raster',tiles:[ESRI('Reference/World_Boundaries_and_Places')],tileSize:256},
       dem:{type:'raster-dem',tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
            encoding:'terrarium',tileSize:256,maxzoom:14}
     },
@@ -70,7 +71,11 @@ function baseStyle(){
       {id:'satellite',type:'raster',source:'satellite'},
       {id:'topo',type:'raster',source:'topo',layout:{visibility:'none'}},
       {id:'relief',type:'raster',source:'relief',layout:{visibility:'none'}},
-      {id:'trans',type:'raster',source:'trans',layout:{visibility:'none'}}
+      // map-level reference overlays (independent of the analysis): roads (dense when
+      // zoomed in) + admin boundaries/places (dense when zoomed out). Owned by their
+      // own layer toggles; default on.
+      {id:'trans',type:'raster',source:'trans',layout:{visibility:'none'}},
+      {id:'boundaries',type:'raster',source:'boundaries',layout:{visibility:'none'}}
     ],
     sky:{}
   };
@@ -355,7 +360,7 @@ function init(){
 
   buildShooters(); buildThermal();
   buildPanel(); buildWeather(); buildLegend(); buildTools();
-  setVis(LYR_MAP.roads,true);   // roads on by default in every view
+  setVis(LYR_MAP.roads,true); setVis(LYR_MAP.boundaries,true);   // roads + borders on by default in every view
   renderSetup(); renderBrief(); wireTabs(); initPlans(); initExport(); setTab('overview');
   map.fitBounds(bbox(DOC.areas),{padding:{top:80,left:400,right:200,bottom:120}});
 }
@@ -517,6 +522,7 @@ function setVis(ids,on){(ids||[]).forEach(id=>map.getLayer(id)&&map.setLayoutPro
 const LYR_MAP={areas:['areas-fill','areas-line','area-badges'],sites:['sites'],camps2:['camps','staging'],
   packin:['packin'],water:['lakes','lakes-line','rivers'],crossings:['crossings'],
   roads:['roads','roads-case','rail','trans'],   // 'trans' = global roads overlay, always available regardless of analysis
+  boundaries:['boundaries'],   // provincial/state/national boundaries + places (map level, independent of analysis)
   shooters:['shooters','shooters-label','shooterLines'],thermal:['thermal']};
 function buildTools(){
   const t=document.getElementById('tools');       // Map / basemap only
@@ -548,6 +554,7 @@ function buildTools(){
        <label><input type="checkbox" data-lyr="thermal"> Thermal drift <span class="s" id="thermLbl"></span></label>`)
     + grp('Access &amp; hydro',
       `<label><input type="checkbox" data-lyr="roads" checked> Roads &amp; rail</label>
+       <label><input type="checkbox" data-lyr="boundaries" checked> Borders &amp; places</label>
        <label><input type="checkbox" data-lyr="water" checked> Rivers &amp; lakes</label>
        <label><input type="checkbox" data-lyr="crossings" checked> River crossings</label>`)
     + `</div>`;
@@ -832,7 +839,7 @@ function applyDoc(newDoc){        // re-bind the whole map + panels to fresh eng
   setD('rivers',S.rivers); setD('lakes',S.lakes); setD('crossings',S.crossings); setD('infra',S.infra);
   setD('areas',S.areas); setD('areaLabels',S.areaLabels); setD('camps',S.camps);
   setD('staging',S.staging); setD('packin',fc(S.packin)); setD('sites',fc(window._sites));
-  setVis(LYR_MAP.roads,true);   // keep roads visible after a recompute too
+  setVis(LYR_MAP.roads,true); setVis(LYR_MAP.boundaries,true);   // keep roads + borders visible after a recompute too
   window._aoi={huntZones:S.huntZones,browseZones:S.browseZones,rivers:S.rivers,lakes:S.lakes,
     refugeZones:S.refugeZones,funnelZones:S.funnelZones};
   Object.keys(AREA_DETAIL).forEach(k=>delete AREA_DETAIL[k]);   // deep detail is stale for a new AOI
