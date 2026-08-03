@@ -46,14 +46,22 @@ def run(ctx: Context) -> None:
     tpi = demf - uniform_filter(demf, size=win)
 
     # --- wetness proxy: valley bottoms & flats (low slope AND low TPI) ---
-    wet = ru.normalize(-tpi) * ru.normalize(slope, invert=True)
+    # FIXED PHYSICAL BOUNDS, not percentiles: a percentile stretch makes every output
+    # a within-AOI rank, so "0.85" means something different in every search box and
+    # nothing is comparable between areas (or to a deep sub-box of itself).
+    # TPI in metres below/above the 500 m neighbourhood; slope in degrees.
+    wet = ru.normalize(-tpi, lo=-5.0, hi=15.0) * ru.normalize(slope, lo=0.0, hi=15.0, invert=True)
 
     # --- funnels / passes: Hessian eigenvalues of opposite sign = saddle ---
     Hxx, Hxy, Hyy = hessian_matrix(demf, sigma=max(1.0, 60.0 / res), order="rc",
                                    use_gaussian_derivatives=False)
     l1, l2 = hessian_matrix_eigvals([Hxx, Hxy, Hyy])
     saddle = np.where(l1 * l2 < 0, -(l1 * l2), 0.0)  # opposite signs -> pass
-    funnel = ru.normalize(saddle) * ru.normalize(slope, invert=True)
+    # NOTE: saddle magnitude is DEM-curvature-scale dependent, so this one stays a
+    # within-AOI rank. It is the weakest layer in the model (on <2.5° ground the
+    # Hessian is largely resampling noise) and is default-OFF in the app for that
+    # reason — treat funnel zones as a hint, not a measurement.
+    funnel = ru.normalize(saddle) * ru.normalize(slope, lo=0.0, hi=15.0, invert=True)
 
     # --- cool (north-facing) aspect 0..1 for thermal refuge ---
     cool = (np.cos(np.radians(aspect)) + 1) / 2  # 1 at N(0/360), 0 at S(180)

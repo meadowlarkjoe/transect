@@ -137,26 +137,32 @@ def run(ctx: Context) -> None:
     # --- water/forage proximity ---
     water_score = _prox(dist_water, W.get("wetland_optimal_m", 150), W.get("wetland_falloff_m", 800))
 
-    # --- terrain: valley bottoms, wet flats, gentle ground ---
-    terr = ru.normalize(-tpi) * 0.5 + ru.normalize(wet) * 0.3 \
-        + ru.normalize(slope, invert=True) * 0.2
+    # --- terrain: valley bottoms, wet flats, gentle ground (fixed bounds) ---
+    terr = ru.normalize(-tpi, lo=-5.0, hi=15.0) * 0.5 + np.clip(np.nan_to_num(wet), 0, 1) * 0.3 \
+        + ru.normalize(slope, lo=0.0, hi=15.0, invert=True) * 0.2
     steep = slope > sp.terrain.get("avoid_steep_slope_deg", 25)
 
+    # ABSOLUTE SCALE. The weights sum to 1 and every component is already on a real
+    # 0..1 scale, so the weighted sum is natively 0..1 — it needs a clip, NOT another
+    # percentile stretch. Re-ranking here is what made "huntability 0.85" mean only
+    # "top of whatever box you happened to draw"; now it means the same thing in
+    # every AOI, which is also the precondition for validating the model at all.
     wts = sp.hsm_weights
     hsm = (wts.get("browse", .35) * np.nan_to_num(browse)
            + wts.get("cover", .2) * np.nan_to_num(cover)
            + wts.get("water", .25) * np.nan_to_num(water_score)
            + wts.get("terrain", .1) * np.nan_to_num(terr)
            + wts.get("edge_density", .1) * np.nan_to_num(edge))
-    hsm = ru.normalize(hsm)
+    hsm = np.clip(hsm, 0, 1)
+    hsm[steep] = hsm[steep] * 0.3     # discount steep ground (before masking)
     hsm[water_mask] = np.nan          # can't hunt open water
-    hsm[steep] = hsm[steep] * 0.3     # heavily discount steep ground
     ru.write(cache / "hsm.tif", hsm.astype("float32"), prof)
 
     # Persist the sub-scores so the behavioral stage (behavior.py) can build
     # time/temperature occupancy surfaces without recomputing the veg model.
+    # These are already 0..1 — clip, don't re-stretch.
     for nm, arr in (("browse", browse), ("cover", cover), ("edge", edge)):
-        a = ru.normalize(np.nan_to_num(arr))
+        a = np.clip(np.nan_to_num(arr), 0, 1)
         a[water_mask] = np.nan
         ru.write(cache / f"{nm}.tif", a.astype("float32"), prof)
 
