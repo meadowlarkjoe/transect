@@ -2,10 +2,11 @@
 let DOC = window.TRANSECT_DATA;
 let selectedDay = null;
 // Live engine API (Setup → RUN ANALYSIS recomputes for a new species/area/radius).
-// Overridable via window.TRANSECT_API or ?api= for a stable/tunnel URL.
-const API_URL = (typeof window!=='undefined' && window.TRANSECT_API) ||
-  (new URLSearchParams(location.search).get('api')) ||
-  'https://pmid-pharmacology-gear-polls.trycloudflare.com';
+// URL + key come from config.js (deployed, not in the repo); ?api= overrides for tests.
+const API_URL = (new URLSearchParams(location.search).get('api')) ||
+  (typeof window!=='undefined' && window.TRANSECT_API) ||
+  'https://api.joejmeadows.com';
+const API_KEY = (typeof window!=='undefined' && window.TRANSECT_API_KEY) || '';
 
 /* ---------------- hunt setup state ---------------- */
 let SETUP = { watercraft:'canoe', huntStyle:'spike' };   // watercraft: none|canoe|motor ; huntStyle: spike|vehicle
@@ -504,12 +505,14 @@ const LYR_MAP={areas:['areas-fill','areas-line','area-badges'],sites:['sites'],c
   packin:['packin'],water:['lakes','lakes-line','rivers'],crossings:['crossings'],
   shooters:['shooters','shooters-label','shooterLines'],thermal:['thermal']};
 function buildTools(){
-  const t=document.getElementById('tools');
+  const t=document.getElementById('tools');       // Map / basemap only
+  const hp=document.getElementById('hunting');     // Hunting layers (zones + sites)
   const grp=(title,html)=>`<div class="tgroup"><div class="tlabel">${title}</div><div class="tbody">${html}</div></div>`;
-  t.innerHTML =
-    grp('Map',
+  t.innerHTML = grp('Map',
       `<div class="chips">${BASEMAPS.map(b=>`<button data-base="${b}" class="${curBase===b?'on':''}">${BASE_LABEL[b]}</button>`).join('')}</div>
-       <button id="btn3d" class="wbtn">3D terrain</button>`)
+       <button id="btn3d" class="wbtn">3D terrain</button>`);
+  hp.innerHTML =
+      `<div class="hhead">Hunting layers</div>`
     + grp('Model zones',
       `<label><input type="checkbox" data-hz="high" checked> <b style="color:${HUNT_CLS.high.c}">■</b> High likelihood</label>
        <label><input type="checkbox" data-hz="medium" checked> <b style="color:${HUNT_CLS.medium.c}">■</b> Medium</label>
@@ -517,34 +520,33 @@ function buildTools(){
        <label><input id="refugeOn" type="checkbox" checked> <b style="color:${REFUGE_COL}">▨</b> Thermal refuge</label>
        <label><input id="funnelOn" type="checkbox" checked> <b style="color:${FUNNEL_COL}">▨</b> Funnels / passes</label>
        <label><input id="browseOn" type="checkbox"> <b style="color:#22a884">▨</b> Browse / feeding</label>`)
-    + grp('Hydrography',
-      `<label><input type="checkbox" data-lyr="water" checked> Rivers &amp; lakes</label>
-       <label><input type="checkbox" data-lyr="crossings" checked> River crossings</label>`)
-    + grp('Field features',
-      `<label><input type="checkbox" data-lyr="areas" checked> Focus areas</label>
-       <label><input type="checkbox" data-lyr="sites" checked> Sites</label>
+    + grp('Sites &amp; features',
+      `<label><input type="checkbox" data-lyr="sites" checked> Hunt sites (calling/glassing…)</label>
        <label><input type="checkbox" data-lyr="camps2" checked> Camps &amp; staging</label>
        <label><input type="checkbox" data-lyr="packin" checked> Pack-in routes</label>
        <label><input type="checkbox" data-lyr="shooters" checked> Caller / shooter</label>
-       <label><input type="checkbox" data-lyr="thermal"> Thermal drift <span class="s" id="thermLbl"></span></label>`);
+       <label><input type="checkbox" data-lyr="areas" checked> Focus-area outlines</label>
+       <label><input type="checkbox" data-lyr="thermal"> Thermal drift <span class="s" id="thermLbl"></span></label>`)
+    + grp('Hydrography',
+      `<label><input type="checkbox" data-lyr="water" checked> Rivers &amp; lakes</label>
+       <label><input type="checkbox" data-lyr="crossings" checked> River crossings</label>`);
 
   t.querySelectorAll('[data-base]').forEach(b=>b.onclick=()=>switchBase(b.dataset.base));
   let on3d=false;
   document.getElementById('btn3d').onclick=e=>{on3d=!on3d;e.target.classList.toggle('on',on3d);
     if(on3d){map.setTerrain({source:'dem',exaggeration:1.4});map.easeTo({pitch:60});}
     else{map.setTerrain(null);map.easeTo({pitch:0});}};
-  const applyHZ=()=>{const on=[...t.querySelectorAll('[data-hz]')].filter(c=>c.checked).map(c=>c.dataset.hz);
+  const applyHZ=()=>{const on=[...hp.querySelectorAll('[data-hz]')].filter(c=>c.checked).map(c=>c.dataset.hz);
     map.setFilter('huntZones',['in',['get','cls'],['literal',on.length?on:['__none__']]]);
     map.setFilter('huntZones-line',['in',['get','cls'],['literal',on.length?on:['__none__']]]);};
-  t.querySelectorAll('[data-hz]').forEach(cb=>cb.onchange=applyHZ);
+  hp.querySelectorAll('[data-hz]').forEach(cb=>cb.onchange=applyHZ);
   document.getElementById('refugeOn').onchange=e=>setVis(['refugeZones','refugeZones-line'],e.target.checked);
   document.getElementById('funnelOn').onchange=e=>setVis(['funnelZones','funnelZones-line'],e.target.checked);
   document.getElementById('browseOn').onchange=e=>{showBrowse=e.target.checked;setVis(['browseZones','browseZones-line'],showBrowse);};
-  t.querySelectorAll('[data-lyr]').forEach(cb=>cb.onchange=()=>{
+  hp.querySelectorAll('[data-lyr]').forEach(cb=>cb.onchange=()=>{
     setVis(LYR_MAP[cb.dataset.lyr],cb.checked);
     if(cb.dataset.lyr==='thermal'&&cb.checked){const hr=document.getElementById('hour');updateThermal(hr?+hr.value:12);}});
-  // collapsible sections (click the header caret)
-  t.querySelectorAll('.tgroup .tlabel').forEach(lbl=>lbl.onclick=()=>lbl.parentElement.classList.toggle('collapsed'));
+  [t,hp].forEach(pnl=>pnl.querySelectorAll('.tgroup .tlabel').forEach(lbl=>lbl.onclick=()=>lbl.parentElement.classList.toggle('collapsed')));
 
   setupDraw();          // annotation source/layers + map handlers (once)
   buildDrawToolbar();   // the separate floating draw/measure strip
@@ -678,7 +680,8 @@ function hav(a,b){const R=6371,dLat=(b[1]-a[1])*Math.PI/180,dLon=(b[0]-a[0])*Mat
 
 /* ---------------- Setup (redesigned) ---------------- */
 let draft={center:[DOC.meta.center.lon,DOC.meta.center.lat],radius:DOC.meta.radius_km||50,
-  walkAccess:2.0,walkHunt:4.0,leaving:'Baie-Comeau'};
+  walkAccess:2.0,walkHunt:4.0,leaving:'Baie-Comeau',
+  dates:((DOC.meta&&DOC.meta.target_dates)||['2026-09-25','2026-10-05']).slice()};
 function renderSetup(){
   const el=document.getElementById('setup');
   el.innerHTML=`
@@ -693,6 +696,10 @@ function renderSetup(){
       <div class="coordline"><span class="s">or paste coordinates</span>
         <input id="coord" placeholder="lat, lon" value="${draft.center[1].toFixed(4)}, ${draft.center[0].toFixed(4)}"></div>
     </div>
+
+    <div class="fld"><label>Hunt dates <span class="s">— drives rut timing, weather &amp; behaviour</span></label>
+      <div class="numrow"><input id="dateStart" type="date" value="${draft.dates[0]}">
+        <span>→</span><input id="dateEnd" type="date" value="${draft.dates[1]}"></div></div>
 
     <div class="fld"><label>Species</label>
       <div class="radii"><button class="on" disabled>Moose</button></div></div>
@@ -753,6 +760,8 @@ function renderSetup(){
   rad.oninput=()=>{draft.radius=fromU(+rad.value);document.getElementById('radVal').textContent=(+rad.value)+' '+unitBig();drawDraft();};
   document.getElementById('walkAccess').onchange=e=>{draft.walkAccess=fromU(+e.target.value);applyHunt();};
   document.getElementById('walkHunt').onchange=e=>draft.walkHunt=fromU(+e.target.value);
+  document.getElementById('dateStart').onchange=e=>{if(e.target.value)draft.dates[0]=e.target.value;};
+  document.getElementById('dateEnd').onchange=e=>{if(e.target.value)draft.dates[1]=e.target.value;};
   document.getElementById('dragBox').onclick=()=>startBoxDraw();
   document.getElementById('uMetric').onclick=()=>setUnits('metric');
   document.getElementById('uImperial').onclick=()=>setUnits('imperial');
@@ -813,10 +822,10 @@ function runAnalysis(){
   const setBtn=(t,dis)=>{if(btn){btn.textContent=t;btn.disabled=!!dis;}};
   const req={species:'moose',lat:draft.center[1],lon:draft.center[0],
     radius_km:Math.max(3,Math.min(120,draft.radius)),
-    target_dates:(DOC.meta&&DOC.meta.target_dates)||['2026-09-25','2026-10-05'],
+    target_dates:(draft.dates&&draft.dates.length===2)?draft.dates:['2026-09-25','2026-10-05'],
     residency:'quebec_resident'};
   setBtn('ANALYSING… 0%',true);
-  fetch(API_URL+'/scout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(req)})
+  fetch(API_URL+'/scout',{method:'POST',headers:{'Content-Type':'application/json','X-API-Key':API_KEY},body:JSON.stringify(req)})
     .then(r=>r.json()).then(j=>{
       if(!j.job_id) throw new Error('no job');
       const poll=()=>fetch(API_URL+'/jobs/'+j.job_id).then(r=>r.json()).then(s=>{
@@ -995,7 +1004,7 @@ function currentPlan(name){
   return {id:uuid(), name:name||('Plan '+new Date().toLocaleDateString()), savedAt:Date.now(),
     aoi:(DOC.meta&&DOC.meta.title)||'', units:UNITS,
     setup:{center:draft.center.slice(),radius:draft.radius,walkAccess:draft.walkAccess,walkHunt:draft.walkHunt,
-      leaving:draft.leaving,watercraft:SETUP.watercraft,huntStyle:SETUP.huntStyle},
+      leaving:draft.leaving,watercraft:SETUP.watercraft,huntStyle:SETUP.huntStyle,dates:draft.dates.slice()},
     area:lastSel, annot:JSON.parse(JSON.stringify(drawSaved||[]))};
 }
 function applyPlan(p){
@@ -1004,6 +1013,7 @@ function applyPlan(p){
   draft.center=(s.center||draft.center).slice(); draft.radius=s.radius||draft.radius;
   draft.walkAccess=s.walkAccess??draft.walkAccess; draft.walkHunt=s.walkHunt??draft.walkHunt;
   draft.leaving=s.leaving||draft.leaving;
+  if(s.dates&&s.dates.length===2) draft.dates=s.dates.slice();
   SETUP.watercraft=s.watercraft||SETUP.watercraft; SETUP.huntStyle=s.huntStyle||SETUP.huntStyle;
   UNITS=p.units||UNITS;
   drawSaved=JSON.parse(JSON.stringify(p.annot||[])); if(map.getSource('annot')) renderAnnot();

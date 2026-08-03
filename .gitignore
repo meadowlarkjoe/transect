@@ -10,3 +10,4 @@ venv/
 .wrangler/
 .DS_Store
 node_modules/
+app/config.js

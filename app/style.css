@@ -189,3 +189,12 @@ details summary{cursor:pointer;color:var(--muted);font-size:12px;margin-top:4px}
 /* warning / caveat box */
 .warn{background:#31160f;border:1px solid #7a3a1f;border-radius:8px;padding:8px 10px;margin:8px 0;
   color:#f2b98a;font-size:12px;line-height:1.45}
+
+/* ---- split panels: Map (top-right) + Hunting layers (below) ---- */
+#tools{width:186px;padding:0;max-height:none;overflow:visible}
+#hunting{position:absolute;z-index:5;background:var(--panel);border:1px solid var(--line);border-radius:12px;
+  box-shadow:0 6px 24px #0008;top:214px;right:14px;width:186px;max-height:calc(100vh - 232px);overflow:auto}
+#hunting .hhead{padding:9px 10px;font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:#e6c98a;
+  border-bottom:1px solid var(--line);font-weight:700}
+/* draw toolbar clear of the left panel */
+#drawtools{left:auto;right:214px;top:62px}
