@@ -37,6 +37,15 @@ def run(ctx: Context) -> dict[str, str]:
             ox.settings.max_query_area_size = 5_000_000_000  # m² (5,000 km²)
         except Exception:
             pass
+        # overpass-api.de (osmnx's default) and its kumi mirror BLOCK this droplet's
+        # DigitalOcean IP outright (fast connection-refused) → every OSM fetch came
+        # back empty (roads/water = infra:0). This mirror answers from cloud IPs and
+        # has global coverage. Overridable via env if it ever goes down.
+        try:
+            ox.settings.overpass_url = os.environ.get(
+                "OVERPASS_URL", "https://maps.mail.ru/osm/tools/overpass/api")
+        except Exception:
+            pass
     except Exception:
         pass
 
