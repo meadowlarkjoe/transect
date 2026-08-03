@@ -458,7 +458,16 @@ function buildPanel(){
        <span class="t-micro" style="color:${g.diy_possible?'var(--good)':'var(--danger)'}">${g.diy_possible?'DIY POSSIBLE':'RESTRICTED'}</span>
        ${cf?`<span class="row" style="gap:7px"><span class="t-micro">CONF ${Math.round(cf.score*100)}%</span>${confGauge(cf.score)}</span>`:''}
      </div>
-     <div class="t-data" style="margin-top:6px;color:var(--text-2)">ZONE ${g.zone} · ${g.north_of_52?'N':'S'} OF 52°N · ${(g.huntable_tenures||[]).join(', ')||'—'}</div>`
+     <div class="t-data" style="margin-top:6px;color:var(--text-2)">${g.zone?('ZONE '+g.zone):'ZONE NOT RESOLVED'} · ${g.north_of_52?'N':'S'} OF 52°N · ${(g.huntable_tenures||[]).join(', ')||'—'}</div>`
+    + (DOC.access_unknown?`<div class="callout" data-kind="danger"><span class="mark">✕</span><div class="body">
+        <b>No road network for this box — access not modelled</b>
+        The road download timed out (large or road-dense area), so pack-out, hunter pressure
+        and camp siting could not be computed, and no focus areas were ranked. This is a DATA
+        gap, not a judgement about the ground. Try a smaller radius (≤40 km) and re-run.</div></div>`:'')
+    + ((DOC.areas||[]).length===0&&!DOC.access_unknown?`<div class="callout" data-kind="warn"><span class="mark">!</span><div class="body">
+        <b>No focus areas met the bar here</b>
+        The model found no ground clearing its absolute thresholds in this box. That is a real
+        answer, not an error — try a different area, a larger radius, or different dates.</div></div>`:'')
     + ((g.flags||[]).length?`<div class="callout" data-kind="warn"><span class="mark">!</span><div class="body"><b>${(g.flags||[]).length} thing${g.flags.length>1?'s':''} to confirm before you go</b>${(g.flags||[]).join('<br>')}</div></div>`:'')
     + (cf&&cf.caveats?`<div class="callout" data-kind="info"><span class="mark">i</span><div class="body">${[].concat(cf.caveats).join(' ')}</div></div>`:'')
     + (DOC.strategy&&DOC.strategy.density_per_10km2?`<div class="s" style="margin-top:8px">Density ≈ <b class="mono">${DOC.strategy.density_per_10km2}</b> moose/10 km² (${DOC.strategy.density_is_estimate?'estimate':'survey'}) — expect long silences; coverage beats sitting.</div>`:'');
@@ -1115,11 +1124,37 @@ function applyDoc(newDoc){        // re-bind the whole map + panels to fresh eng
   try{buildThermal();}catch(e){} buildShooters();
   buildPanel(); buildWeather(); buildLayersDock(); lastSel=1;
   document.getElementById('subtitle').textContent=`${DOC.meta.title} · ${DOC.meta.species} · ${(DOC.meta.target_dates||[]).join(' – ')}`;
+  setPlanName(planTitle(),false);   // a recompute is a NEW area — don't keep the old plan's name
   const b=newDoc.box; if(b) map.fitBounds([[b.w,b.s],[b.e,b.n]],{padding:60});
+}
+/* Runtime estimate from the actual box size. Two components, because they scale
+   differently: a roughly FIXED cost (several sequential Overpass queries against a
+   slow public mirror, plus STAC lookups) and an AREA-SCALED cost (DEM, land-cover,
+   Sentinel-2 and burn tiles for the box). The raster stages don't blow up with area
+   because the API caps the grid at ~2400 px/side by coarsening resolution.
+   Calibrated against measured runs: r=16 km ≈ 3.5 min, r=18 km ≈ 4.2 min. */
+function estimateMinutes(radiusKm){
+  const sideKm = 2 * Math.max(3, radiusKm);
+  const areaKm2 = sideKm * sideKm;
+  // Calibrated against measured runs — and the headline is that runtime is much FLATTER
+  // in area than you'd expect: r=16 km took 3.5 min, r=18 km 4.2 min, r=67 km 4.4 min.
+  // Most of the cost is a fixed pipeline of sequential Overpass/STAC queries, and the
+  // raster stages can't blow up because the API caps the grid at ~2400 px/side by
+  // coarsening resolution. So: big constant, gentle area term.
+  const mins = 3.2 + areaKm2 / 18000;
+  const lo = Math.max(2, Math.round(mins * 0.85));
+  const hi = Math.max(lo + 1, Math.round(mins * 1.6));
+  return {lo, hi, mins};
+}
+function fmtElapsed(ms){
+  const s = Math.floor(ms / 1000);
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 }
 function runAnalysis(){
   const btn=document.getElementById('runBtn');
   const setBtn=(t,dis)=>{if(btn){btn.textContent=t;btn.disabled=!!dis;}};
+  const est=estimateMinutes(draft.radius), t0=Date.now();
+  const line=(head)=>`${head}\n${fmtElapsed(Date.now()-t0)} elapsed · ~${est.lo}–${est.hi} min for this ${Math.round(draft.radius)} km box`;
   const req={species:'moose',lat:draft.center[1],lon:draft.center[0],
     radius_km:Math.max(3,Math.min(120,draft.radius)),
     target_dates:(draft.dates&&draft.dates.length===2)?draft.dates:['2026-09-25','2026-10-05'],
@@ -1127,21 +1162,29 @@ function runAnalysis(){
     // Setup constraints now shape the analysis (no-boat river barriers, walk range, rut-phase weighting)
     watercraft:SETUP.watercraft, hunt_style:SETUP.huntStyle,
     walk_access_km:draft.walkAccess, walk_hunt_km:draft.walkHunt};
-  setBtn('ANALYSING… 0%',true);
+  setBtn(line('ANALYSING… starting'),true);
+  // tick the elapsed clock even between polls so it never looks frozen
+  let lastHead='ANALYSING… starting', tick=setInterval(()=>setBtn(line(lastHead),true),1000);
+  const stop=()=>{ clearInterval(tick); };
   fetch(API_URL+'/scout',{method:'POST',headers:{'Content-Type':'application/json','X-API-Key':API_KEY},body:JSON.stringify(req)})
     .then(r=>r.json()).then(j=>{
       if(!j.job_id) throw new Error('no job');
+      const STAGE={acquire:'fetching terrain, imagery, burns & hydro',terrain:'terrain analysis',
+        habitat:'habitat model',behavior:'behavioural surfaces',access:'access & pack-out',
+        synth:'placing areas & sites',contract:'building your plan'};
       const poll=()=>fetch(API_URL+'/jobs/'+j.job_id).then(r=>r.json()).then(s=>{
-        if(s.status==='done'){ setBtn('RUN ANALYSIS →',false); applyDoc(s.scout); setTab('overview'); }
-        else if(s.status==='error'){ setBtn('RUN ANALYSIS →',false); alert('Analysis failed: '+(s.error||'unknown')); }
-        else if(s.status==='unknown'){ setBtn('RUN ANALYSIS →',false); alert('The engine restarted — please run again.'); }
+        if(s.status==='done'){ stop(); setBtn('RUN ANALYSIS →',false); applyDoc(s.scout); setTab('overview'); }
+        else if(s.status==='error'){ stop(); setBtn('RUN ANALYSIS →',false); alert('Analysis failed: '+(s.error||'unknown')); }
+        else if(s.status==='unknown'){ stop(); setBtn('RUN ANALYSIS →',false); alert('The engine restarted — please run again.'); }
         else {
-          const msg = s.stage==='acquire'
-            ? 'ANALYSING… fetching terrain + imagery (2–4 min)'
-            : 'ANALYSING… '+Math.round((s.progress||0)*100)+'% · '+(s.stage||'');
-          setBtn(msg,true); setTimeout(poll,2500);
+          const st=s.stage||'', nm=STAGE[st]||st;
+          // acquire has no sub-progress to report, so say what it's doing, not 0%
+          lastHead = (st==='acquire')
+            ? `ANALYSING… ${nm}`
+            : `ANALYSING… ${nm} · ${Math.round((s.progress||0)*100)}%`;
+          setBtn(line(lastHead),true); setTimeout(poll,2500);
         }
-      }).catch(()=>{ setBtn('RUN ANALYSIS →',false); alert('Lost connection to the engine.'); });
+      }).catch(()=>{ stop(); setBtn('RUN ANALYSIS →',false); alert('Lost connection to the engine.'); });
       poll();
     })
     .catch(()=>{ setBtn('RUN ANALYSIS →',false);

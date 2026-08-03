@@ -164,9 +164,25 @@ def run(ctx: Context) -> None:
         water_decay = decay * (1.8 if wc == "motor" else 1.2)   # a motor reaches further
         canoe = np.exp(-dist_water / water_decay)
         extraction = np.maximum(truck, canoe).astype("float32")
+
+    # ACCESS UNKNOWN ≠ ACCESS IMPOSSIBLE. If no road network was acquired (a big box can
+    # blow the Overpass budget), dist_road is 1e6 and exp(-1e6/2500) underflows to 0 —
+    # which, with no watercraft, zeroes huntability across the ENTIRE AOI and returns an
+    # empty map. That is the model asserting "nothing here is reachable" on the basis of
+    # having no data at all, which is exactly backwards. Fall back to a neutral,
+    # explicitly-flagged value and let the contract tell the user access wasn't modelled.
+    access_unknown = not has_roads
+    if access_unknown:
+        extraction = np.full(hsm.shape, 0.85, dtype="float32")
     ru.write(cache / "extraction.tif", extraction, prof)
+    try:
+        (cache / "access_unknown.flag").write_text("1" if access_unknown else "0")
+    except Exception:
+        pass
 
     pressure = np.exp(-dist_road / road_decay).astype("float32")
+    if access_unknown:
+        pressure = np.zeros(hsm.shape, dtype="float32")   # unknown roads → don't invent pressure
     ru.write(cache / "pressure.tif", pressure, prof)
 
     # --- phase-weighted habitat: let the HUNT DATES steer what "good" means -------

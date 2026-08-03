@@ -67,7 +67,12 @@ def run(ctx: Context) -> dict[str, str]:
     # the budget we abandon it and press on with a degraded-but-complete result.
     from concurrent.futures import ThreadPoolExecutor
     from concurrent.futures import TimeoutError as _FTimeout
-    src_timeout = int(os.environ.get("ACQUIRE_SOURCE_TIMEOUT", "200"))
+    # Scale the budget with the box: a 134 km-wide AOI asks Overpass for vastly more
+    # than a 32 km one, and losing the road network is not a cosmetic failure — with no
+    # watercraft it used to zero out extraction across the whole map.
+    _hw = float(getattr(ctx.aoi, "bbox_halfwidth_km", 35) or 35)
+    src_timeout = int(os.environ.get(
+        "ACQUIRE_SOURCE_TIMEOUT", str(int(min(600, max(200, 120 + 5.5 * _hw))))))
     status: dict[str, str] = {}
     for name, fn in steps:
         pool = ThreadPoolExecutor(max_workers=1)

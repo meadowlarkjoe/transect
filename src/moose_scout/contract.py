@@ -431,6 +431,13 @@ def build(ctx: Context) -> dict:
     except Exception:
         doc["recommendations"] = []
 
+    # Tell the app plainly when the road network never arrived, so "no areas" reads as
+    # a DATA gap rather than a verdict about the ground.
+    try:
+        doc["access_unknown"] = (cache / "access_unknown.flag").read_text().strip() == "1"
+    except Exception:
+        doc["access_unknown"] = False
+
     # BURN REGENERATION — the strongest browse predictor we have, and the only one with
     # local validation (old burns correlate with moose numbers at r=0.62 in this zone).
     # It drives the browse score, so it must be visible: a hunter should be able to see
