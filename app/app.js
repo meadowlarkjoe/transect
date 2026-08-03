@@ -1,6 +1,11 @@
 /* Transect on MapLibre — binds window.TRANSECT_DATA (engine transect.json). */
-const DOC = window.TRANSECT_DATA;
+let DOC = window.TRANSECT_DATA;
 let selectedDay = null;
+// Live engine API (Setup → RUN ANALYSIS recomputes for a new species/area/radius).
+// Overridable via window.TRANSECT_API or ?api= for a stable/tunnel URL.
+const API_URL = (typeof window!=='undefined' && window.TRANSECT_API) ||
+  (new URLSearchParams(location.search).get('api')) ||
+  'https://pmid-pharmacology-gear-polls.trycloudflare.com';
 
 /* ---------------- hunt setup state ---------------- */
 let SETUP = { watercraft:'canoe', huntStyle:'spike' };   // watercraft: none|canoe|motor ; huntStyle: spike|vehicle
@@ -787,8 +792,45 @@ function applyHunt(){
   if(document.getElementById('list')) buildPanel();
 }
 function setUnits(u){ if(u===UNITS)return; UNITS=u; renderSetup(); buildPanel(); if(!document.getElementById('detail').classList.contains('hidden')){} }
-function runAnalysis(){ // engine API not wired — just show current scout
-  setTab('overview'); map.fitBounds(bbox(DOC.areas),{padding:{top:80,left:400,right:200,bottom:120}});
+function applyDoc(newDoc){        // re-bind the whole map + panels to fresh engine data
+  DOC=newDoc; window.TRANSECT_DATA=newDoc;
+  const S=buildSources();
+  const setD=(id,data)=>{const s=map.getSource(id); if(s&&data) s.setData(data);};
+  setD('huntZones',S.huntZones); setD('browseZones',S.browseZones);
+  setD('refugeZones',S.refugeZones); setD('funnelZones',S.funnelZones);
+  setD('rivers',S.rivers); setD('lakes',S.lakes); setD('crossings',S.crossings);
+  setD('areas',S.areas); setD('areaLabels',S.areaLabels); setD('camps',S.camps);
+  setD('staging',S.staging); setD('packin',fc(S.packin)); setD('sites',fc(window._sites));
+  window._aoi={huntZones:S.huntZones,browseZones:S.browseZones,rivers:S.rivers,lakes:S.lakes,
+    refugeZones:S.refugeZones,funnelZones:S.funnelZones};
+  Object.keys(AREA_DETAIL).forEach(k=>delete AREA_DETAIL[k]);   // deep detail is stale for a new AOI
+  deepActive=null;
+  try{buildThermal();}catch(e){} buildShooters();
+  buildPanel(); buildWeather(); buildLegend(); lastSel=1;
+  document.getElementById('subtitle').textContent=`${DOC.meta.title} · ${DOC.meta.species} · ${(DOC.meta.target_dates||[]).join(' – ')}`;
+  const b=newDoc.box; if(b) map.fitBounds([[b.w,b.s],[b.e,b.n]],{padding:60});
+}
+function runAnalysis(){
+  const btn=document.getElementById('runBtn');
+  const setBtn=(t,dis)=>{if(btn){btn.textContent=t;btn.disabled=!!dis;}};
+  const req={species:'moose',lat:draft.center[1],lon:draft.center[0],
+    radius_km:Math.max(3,Math.min(120,draft.radius)),
+    target_dates:(DOC.meta&&DOC.meta.target_dates)||['2026-09-25','2026-10-05'],
+    residency:'quebec_resident'};
+  setBtn('ANALYSING… 0%',true);
+  fetch(API_URL+'/scout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(req)})
+    .then(r=>r.json()).then(j=>{
+      if(!j.job_id) throw new Error('no job');
+      const poll=()=>fetch(API_URL+'/jobs/'+j.job_id).then(r=>r.json()).then(s=>{
+        if(s.status==='done'){ setBtn('RUN ANALYSIS →',false); applyDoc(s.scout); setTab('overview'); }
+        else if(s.status==='error'){ setBtn('RUN ANALYSIS →',false); alert('Analysis failed: '+(s.error||'unknown')); }
+        else { setBtn('ANALYSING… '+Math.round((s.progress||0)*100)+'% · '+(s.stage||''),true); setTimeout(poll,2500); }
+      }).catch(()=>{ setBtn('RUN ANALYSIS →',false); alert('Lost connection to the engine.'); });
+      poll();
+    })
+    .catch(()=>{ setBtn('RUN ANALYSIS →',false);
+      alert('Engine API not reachable — showing the current scout. (RUN ANALYSIS needs the engine online.)');
+      setTab('overview'); });
 }
 
 /* draft AOI box preview on the map (radius → box) */

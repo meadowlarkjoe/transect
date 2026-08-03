@@ -32,7 +32,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                    allow_headers=["*"])
 
 JOBS: dict[str, dict] = {}
-STAGES = ["acquire", "terrain", "habitat", "behavior", "access", "synth", "export"]
+STAGES = ["acquire", "terrain", "habitat", "behavior", "access", "synth", "contract"]
 SPECIES = {"moose", "whitetail_deer", "black_bear"}
 
 
@@ -63,9 +63,9 @@ def _run(job_id: str, req: ScoutReq) -> None:
         for i, stage in enumerate(STAGES):
             JOBS[job_id].update(stage=stage, progress=round(i / len(STAGES), 2))
             pipeline.run_stage(stage, ctx)
-        raw = (outputs_dir(name) / "scout-data.js").read_text().strip()
-        scout = json.loads(raw[len("window.SCOUT_DATA = "):].rstrip(";").strip())
-        JOBS[job_id].update(status="done", stage="done", progress=1.0, scout=scout)
+        # return the app's data contract (transect.json), same shape the app binds to
+        doc = json.loads((outputs_dir(name) / "transect.json").read_text())
+        JOBS[job_id].update(status="done", stage="done", progress=1.0, scout=doc)
     except Exception as e:  # noqa: BLE001
         JOBS[job_id].update(status="error", error=str(e),
                             trace=traceback.format_exc()[-1200:])
