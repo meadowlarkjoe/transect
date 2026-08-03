@@ -14,7 +14,7 @@
      ?stay=1 keeps you here on purpose. */
   try{
     var q=new URLSearchParams(location.search);
-    if(!q.has('stay') && localStorage.getItem('transect_seen')) location.replace('/app');
+    if(!q.has('stay') && localStorage.getItem('transect_seen')) location.replace('app');
   }catch(e){}
 </script>
 </head>
@@ -28,8 +28,8 @@
   <a class="lnk" href="#honesty">What it won't do</a>
   <a class="lnk" href="https://github.com/meadowlarkjoe/transect">Source</a>
   <div class="divider"></div>
-  <a class="lnk" href="/signin">Sign in</a>
-  <a class="btn btn--primary" href="/app">Start scouting</a>
+  <a class="lnk" href="signin">Sign in</a>
+  <a class="btn btn--primary" href="app">Start scouting</a>
 </header>
 
 <div class="hero">
@@ -42,7 +42,7 @@
     <p class="sub">Built for one hunt in northern Québec and opened up in case someone else wants it.
       No subscription, no upsell, no roadmap.</p>
     <div class="ctas">
-      <a class="btn btn--primary btn--lg" href="/signin?mode=create">Create a free account</a>
+      <a class="btn btn--primary btn--lg" href="signin?mode=create">Create a free account</a>
       <a class="btn btn--secondary btn--lg" href="https://github.com/meadowlarkjoe/transect">Read the source</a>
     </div>
     <div class="trust">NO CARD &nbsp;·&nbsp; NO TRACKING &nbsp;·&nbsp; EXPORTS GPX / KML</div>
@@ -128,7 +128,7 @@
   <div class="brand" style="font-size:12px">TRANSECT</div>
   <span>MIT licensed</span><span>·</span>
   <a href="https://github.com/meadowlarkjoe/transect">Source</a><span>·</span>
-  <a href="/app">Open the app</a>
+  <a href="app">Open the app</a>
   <div style="flex:1"></div>
   <span>Symbology follows Les Cartes Xperts / Charles Dorris.</span>
 </footer>

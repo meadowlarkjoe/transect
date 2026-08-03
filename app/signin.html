@@ -11,7 +11,7 @@
 </head>
 <body>
 <div class="authwrap">
-  <div style="position:absolute;top:26px;left:34px"><a class="brand" href="/?stay=1" style="color:var(--text)">TRANSECT</a></div>
+  <div style="position:absolute;top:26px;left:34px"><a class="brand" href="./?stay=1" style="color:var(--text)">TRANSECT</a></div>
 
   <div class="authcard">
     <div class="seg" id="modeSeg">
@@ -86,7 +86,7 @@ $('f').onsubmit=async e=>{
     localStorage.setItem('transect_tok', d.token);
     localStorage.setItem('transect_email', d.email||email);
     localStorage.setItem('transect_seen','1');
-    location.href='/plans';
+    location.href='plans';
   }catch(err){
     m.className='msg err'; m.textContent=err.message||'Something went wrong.';
     $('go').disabled=false; paint();

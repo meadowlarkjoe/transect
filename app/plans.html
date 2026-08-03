@@ -13,13 +13,13 @@
 <div class="wrap">
 
 <header class="nav">
-  <a class="brand" href="/?stay=1" style="color:var(--text)">TRANSECT</a>
+  <a class="brand" href="./?stay=1" style="color:var(--text)">TRANSECT</a>
   <div class="divider"></div>
   <span style="font:500 12.5px/1 var(--sans);color:var(--text-2)">Hunt plans</span>
   <div class="sp"></div>
   <span id="who" style="font:500 11.5px/1 var(--mono);color:var(--text-3)"></span>
   <button class="btn btn--ghost" id="out" style="display:none">Sign out</button>
-  <a class="btn btn--secondary" id="signinLink" href="/signin">Sign in</a>
+  <a class="btn btn--secondary" id="signinLink" href="signin">Sign in</a>
 </header>
 
 <div class="plans-head">
@@ -28,7 +28,7 @@
     <p>Each plan is an area, a set of dates and a hunter profile. Open one to pick up exactly
        where you left off — the analysis is cached, so it loads without recomputing.</p>
   </div>
-  <a class="btn btn--primary" href="/app?tab=setup">+ New hunt plan</a>
+  <a class="btn btn--primary" href="app?tab=setup">+ New hunt plan</a>
 </div>
 
 <div class="toolbar">
@@ -46,7 +46,7 @@
 <footer>
   <span>Plans sync to your account when signed in; otherwise they stay in this browser.</span>
   <div style="flex:1"></div>
-  <a href="/app">Open the app</a>
+  <a href="app">Open the app</a>
 </footer>
 </div>
 
@@ -92,7 +92,7 @@ function card(p){
     </div>
     <div class="pfoot">
       <span class="saved">${ago(p.updated?p.updated*1000:(s.savedAt||0))}</span>
-      <a class="btn btn--secondary btn--sm" style="padding:7px 11px;font-size:11px" href="/app?plan=${encodeURIComponent(p.id)}">Open</a>
+      <a class="btn btn--secondary btn--sm" style="padding:7px 11px;font-size:11px" href="app?plan=${encodeURIComponent(p.id)}">Open</a>
       <button class="btn btn--ghost btn--sm" data-del="${esc(p.id)}" style="padding:7px 9px;font-size:11px">✕</button>
     </div></div>`;
 }
@@ -112,7 +112,7 @@ function render(){
   else list.sort((a,b)=>((b.updated||0)-(a.updated||0)) || (((b.data||b).savedAt||0)-((a.data||a).savedAt||0)));
 
   $('grid').innerHTML = list.map(card).join('') +
-    `<a class="newcard" href="/app?tab=setup"><div><div style="font-size:22px;line-height:1">+</div>
+    `<a class="newcard" href="app?tab=setup"><div><div style="font-size:22px;line-height:1">+</div>
       <div style="font:500 12.5px/1.4 var(--sans);margin-top:8px">New hunt plan</div>
       <div style="font:400 11px/1.5 var(--sans);color:var(--text-4);margin-top:3px">
         Draw a box, set your dates,<br>run the analysis</div></div></a>`;
@@ -121,7 +121,7 @@ function render(){
   if(!list.length){
     $('empty').innerHTML = tok()
       ? 'No saved plans yet. Draw a box in the app and save it — it will show up here on every device you sign in from.'
-      : 'No plans in this browser yet. <a href="/signin">Sign in</a> to sync plans across devices, or just start one in the app.';
+      : 'No plans in this browser yet. <a href="signin">Sign in</a> to sync plans across devices, or just start one in the app.';
   }
   $('grid').querySelectorAll('[data-del]').forEach(b=>b.onclick=async e=>{
     e.preventDefault();
