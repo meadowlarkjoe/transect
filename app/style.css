@@ -198,3 +198,11 @@ details summary{cursor:pointer;color:var(--muted);font-size:12px;margin-top:4px}
   border-bottom:1px solid var(--line);font-weight:700}
 /* draw toolbar clear of the left panel */
 #drawtools{left:auto;right:214px;top:62px}
+/* accounts UI in plans panel */
+#plans .authbar{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;
+  background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:7px 10px}
+#plans .authbox{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px}
+#plans .authbox .prow{margin:4px 0}
+#plans .authbox input{flex:1;background:#20272b;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px}
+#plans .authbox button{flex:1;background:var(--accent);color:#fff;border:0;border-radius:8px;padding:8px;cursor:pointer;font-weight:600}
+#plans .authbox button.ghost{background:#20272b;border:1px solid var(--line);color:#cdd7dc}

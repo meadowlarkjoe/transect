@@ -211,7 +211,8 @@ function buildSources(){
     properties:{type:z.type,what:z.what,when:z.when,area_km2:z.area_km2}})));
   const zFC=(zones)=>fc((zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},properties:{area_km2:z.area_km2}})));
   const refugeZones=zFC(DOC.refuge_zones), funnelZones=zFC(DOC.funnel_zones);
-  return {areas,areaLabels,camps,staging,packin,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones};
+  const infra=fc((DOC.infra||[]).map(o=>({type:'Feature',geometry:{type:'LineString',coordinates:o.ll},properties:{t:o.t}})));
+  return {areas,areaLabels,camps,staging,packin,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones,infra};
 }
 
 function init(){
@@ -267,6 +268,15 @@ function init(){
         8,['case',['==',['get','cls'],'river'],1.0,0.35],
         11,['case',['==',['get','cls'],'river'],2.4,1.1],
         14,['case',['==',['get','cls'],'river'],4.5,2.2]]}});
+
+  // roads + rail (OSM) — access is critical for a hunt map (pack-in, staging, pressure)
+  map.addSource('infra',{type:'geojson',data:S.infra});
+  map.addLayer({id:'roads-case',type:'line',source:'infra',filter:['==',['get','t'],'road'],
+    paint:{'line-color':'#20160a','line-width':['interpolate',['linear'],['zoom'],8,1.6,12,3.4,15,5.5],'line-opacity':0.55}});
+  map.addLayer({id:'roads',type:'line',source:'infra',filter:['==',['get','t'],'road'],
+    paint:{'line-color':'#f0dfb0','line-width':['interpolate',['linear'],['zoom'],8,0.8,12,2,15,3.4],'line-opacity':0.95}});
+  map.addLayer({id:'rail',type:'line',source:'infra',filter:['==',['get','t'],'rail'],
+    paint:{'line-color':'#c7cdc3','line-width':1.5,'line-dasharray':[2,3],'line-opacity':0.9}});
 
   map.addLayer({id:'areas-fill',type:'fill',source:'areas',
     paint:{'fill-color':['case',['<=',['get','rank'],2],'#2fbf5b','#e2c044'],'fill-opacity':0.10}});
@@ -503,6 +513,7 @@ function toggleType(t,row){
 function setVis(ids,on){(ids||[]).forEach(id=>map.getLayer(id)&&map.setLayoutProperty(id,'visibility',on?'visible':'none'));}
 const LYR_MAP={areas:['areas-fill','areas-line','area-badges'],sites:['sites'],camps2:['camps','staging'],
   packin:['packin'],water:['lakes','lakes-line','rivers'],crossings:['crossings'],
+  roads:['roads','roads-case','rail'],
   shooters:['shooters','shooters-label','shooterLines'],thermal:['thermal']};
 function buildTools(){
   const t=document.getElementById('tools');       // Map / basemap only
@@ -527,8 +538,9 @@ function buildTools(){
        <label><input type="checkbox" data-lyr="shooters" checked> Caller / shooter</label>
        <label><input type="checkbox" data-lyr="areas" checked> Focus-area outlines</label>
        <label><input type="checkbox" data-lyr="thermal"> Thermal drift <span class="s" id="thermLbl"></span></label>`)
-    + grp('Hydrography',
-      `<label><input type="checkbox" data-lyr="water" checked> Rivers &amp; lakes</label>
+    + grp('Access &amp; hydro',
+      `<label><input type="checkbox" data-lyr="roads" checked> Roads &amp; rail</label>
+       <label><input type="checkbox" data-lyr="water" checked> Rivers &amp; lakes</label>
        <label><input type="checkbox" data-lyr="crossings" checked> River crossings</label>`);
 
   t.querySelectorAll('[data-base]').forEach(b=>b.onclick=()=>switchBase(b.dataset.base));
@@ -805,7 +817,7 @@ function applyDoc(newDoc){        // re-bind the whole map + panels to fresh eng
   const setD=(id,data)=>{const s=map.getSource(id); if(s&&data) s.setData(data);};
   setD('huntZones',S.huntZones); setD('browseZones',S.browseZones);
   setD('refugeZones',S.refugeZones); setD('funnelZones',S.funnelZones);
-  setD('rivers',S.rivers); setD('lakes',S.lakes); setD('crossings',S.crossings);
+  setD('rivers',S.rivers); setD('lakes',S.lakes); setD('crossings',S.crossings); setD('infra',S.infra);
   setD('areas',S.areas); setD('areaLabels',S.areaLabels); setD('camps',S.camps);
   setD('staging',S.staging); setD('packin',fc(S.packin)); setD('sites',fc(window._sites));
   window._aoi={huntZones:S.huntZones,browseZones:S.browseZones,rivers:S.rivers,lakes:S.lakes,
@@ -1023,24 +1035,69 @@ function applyPlan(p){
   document.getElementById('plans').classList.add('hidden');
   alert('Loaded "'+p.name+'". Its Setup + drawings are restored — hit RUN ANALYSIS to recompute this area, or browse the current scout.');
 }
-function renderPlans(){
-  const el=document.getElementById('plans'); const plans=loadPlans();
+/* accounts — token in localStorage; plans sync to the server when signed in */
+const authTok=()=>localStorage.getItem('transect_token')||'';
+const authEmail=()=>localStorage.getItem('transect_email')||'';
+const isAuthed=()=>!!authTok();
+function apiF(path,opts){ opts=opts||{}; opts.headers=Object.assign(
+  {'Content-Type':'application/json','X-API-Key':API_KEY,'Authorization':'Bearer '+authTok()},opts.headers||{});
+  return fetch(API_URL+path,opts); }
+async function doAuth(kind,email,pw){
+  const r=await fetch(API_URL+'/auth/'+kind,{method:'POST',headers:{'Content-Type':'application/json','X-API-Key':API_KEY},
+    body:JSON.stringify({email,password:pw})});
+  const d=await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(d.detail||'failed');
+  localStorage.setItem('transect_token',d.token); localStorage.setItem('transect_email',d.email); return d;
+}
+function signOut(){ apiF('/auth/logout',{method:'POST'}).catch(()=>{});
+  localStorage.removeItem('transect_token'); localStorage.removeItem('transect_email'); renderPlans(); }
+async function serverPlans(){
+  try{ const r=await apiF('/plans'); if(!r.ok) return null;
+    return (await r.json()).plans.map(p=>Object.assign({},p.data,{id:p.id,name:p.name,savedAt:(p.updated||0)*1000})); }
+  catch(e){ return null; } }
+
+async function renderPlans(){
+  const el=document.getElementById('plans'); const authed=isAuthed();
+  const auth = authed
+    ? `<div class="authbar">Signed in as <b>${authEmail()}</b> <button id="signOut" class="ghost">Sign out</button></div>`
+    : `<div class="authbox"><div class="prow"><input id="aEmail" type="email" placeholder="email"><input id="aPw" type="password" placeholder="password"></div>
+       <div class="prow"><button id="aLogin">Sign in</button><button id="aSignup" class="ghost">Create account</button></div>
+       <div class="s" id="aErr" style="color:#f79"></div></div>`;
+  let plans = authed ? await serverPlans() : loadPlans();
+  if(plans===null) plans=loadPlans();
   el.innerHTML=`<div class="phead"><b>Hunt plans</b><button id="plansClose" class="ghost">✕</button></div>
-    <div class="prow"><input id="planName" placeholder="Name this plan…"><button id="planSave">Save current</button></div>
-    <div class="s" style="margin:2px 0 8px">Saved in this browser. Accounts &amp; cross-device sync arrive with the hosted server.</div>
+    ${auth}
+    <div class="prow" style="margin-top:8px"><input id="planName" placeholder="Name this plan…"><button id="planSave">Save current</button></div>
+    <div class="s" style="margin:2px 0 8px">${authed?'Synced to your account — available on any device.':'Saved in this browser. Sign in to sync across devices.'}</div>
     ${plans.length?plans.map(p=>`<div class="plan" data-id="${p.id}">
-        <div><b>${p.name}</b><div class="s">${new Date(p.savedAt).toLocaleString()} · ${p.aoi||''} · r=${p.setup?p.setup.radius:'?'}km</div></div>
+        <div><b>${p.name||'Plan'}</b><div class="s">${p.savedAt?new Date(p.savedAt).toLocaleString():''} · ${p.aoi||''} · r=${p.setup?p.setup.radius:'?'}km</div></div>
         <div class="pacts"><button data-act="load" data-id="${p.id}">Load</button><button data-act="del" data-id="${p.id}" class="ghost">Delete</button></div>
       </div>`).join(''):'<div class="s">No saved plans yet.</div>'}`;
   document.getElementById('plansClose').onclick=()=>el.classList.add('hidden');
-  document.getElementById('planSave').onclick=()=>{
-    const nm=document.getElementById('planName').value.trim();
-    const arr=loadPlans(); arr.unshift(currentPlan(nm)); savePlans(arr); renderPlans();
+  if(authed){
+    document.getElementById('signOut').onclick=signOut;
+  } else {
+    const err=document.getElementById('aErr');
+    const go=(kind)=>()=>{const e=document.getElementById('aEmail').value.trim(),p=document.getElementById('aPw').value;
+      doAuth(kind,e,p).then(()=>renderPlans()).catch(x=>{err.textContent=x.message;});};
+    document.getElementById('aLogin').onclick=go('login');
+    document.getElementById('aSignup').onclick=go('signup');
+  }
+  document.getElementById('planSave').onclick=async ()=>{
+    const p=currentPlan(document.getElementById('planName').value.trim());
+    if(isAuthed()){ await apiF('/plans',{method:'PUT',body:JSON.stringify({id:p.id,name:p.name,data:p})}); }
+    else { const arr=loadPlans(); arr.unshift(p); savePlans(arr); }
+    renderPlans();
   };
-  el.querySelectorAll('button[data-act]').forEach(b=>b.onclick=()=>{
-    const arr=loadPlans(), id=b.dataset.id;
-    if(b.dataset.act==='del'){ savePlans(arr.filter(x=>x.id!==id)); renderPlans(); }
-    else { applyPlan(arr.find(x=>x.id===id)); }
+  el.querySelectorAll('button[data-act]').forEach(b=>b.onclick=async ()=>{
+    const id=b.dataset.id;
+    if(b.dataset.act==='del'){
+      if(isAuthed()) await apiF('/plans/'+id,{method:'DELETE'}); else savePlans(loadPlans().filter(x=>x.id!==id));
+      renderPlans();
+    } else {
+      const src = isAuthed()? (await serverPlans()||[]) : loadPlans();
+      applyPlan(src.find(x=>x.id===id));
+    }
   });
 }
 function initPlans(){
