@@ -211,8 +211,10 @@ function buildSources(){
     properties:{type:z.type,what:z.what,when:z.when,area_km2:z.area_km2}})));
   const zFC=(zones)=>fc((zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},properties:{area_km2:z.area_km2}})));
   const refugeZones=zFC(DOC.refuge_zones), funnelZones=zFC(DOC.funnel_zones);
+  const burnZones=fc((DOC.burn_zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},
+    properties:{cls:z.cls,area_km2:z.area_km2}})));
   const infra=fc((DOC.infra||[]).map(o=>({type:'Feature',geometry:{type:'LineString',coordinates:o.ll},properties:{t:o.t}})));
-  return {areas,areaLabels,camps,staging,packin,routes,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones,infra};
+  return {areas,areaLabels,camps,staging,packin,routes,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones,burnZones,infra};
 }
 
 function init(){
@@ -250,6 +252,13 @@ function init(){
     layout:{visibility:'none'},paint:{'fill-pattern':'stipple','fill-opacity':0.9}});
   map.addLayer({id:'browseZones-line',type:'line',source:'browseZones',
     layout:{visibility:'none'},paint:{'line-color':brCol,'line-width':1.5,'line-opacity':1,'line-dasharray':[2,1]}});
+  // burn regeneration — prime (15–22 yr) reads hotter than the wider regen band
+  map.addSource('burnZones',{type:'geojson',data:S.burnZones});
+  const burnCol=['case',['==',['get','cls'],'prime'],'#E07B39','#8A5A2B'];
+  map.addLayer({id:'burnZones',type:'fill',source:'burnZones',
+    layout:{visibility:'none'},paint:{'fill-color':burnCol,'fill-opacity':FILL_ALPHA}});
+  map.addLayer({id:'burnZones-line',type:'line',source:'burnZones',
+    layout:{visibility:'none'},paint:{'line-color':burnCol,'line-width':1.5,'line-opacity':1,'line-dasharray':[5,2]}});
   // thermal refuge + funnel ZONES (areas, not points)
   map.addSource('refugeZones',{type:'geojson',data:S.refugeZones});
   map.addSource('funnelZones',{type:'geojson',data:S.funnelZones});
@@ -357,9 +366,18 @@ function init(){
       .setHTML(`<h4>${p.type} · ${p.area_km2} km²</h4><div class="s">${p.what}</div><div class="s" style="margin-top:4px"><b>When:</b> ${p.when}</div>`).addTo(map);});
   map.on('click','refugeZones',e=>{ new maplibregl.Popup().setLngLat(e.lngLat)
     .setHTML(`<h4><span style="color:${REFUGE_COL}">▨</span> Thermal refuge · ${e.features[0].properties.area_km2} km²</h4><div class="s">${ZONE_WHY.refuge}</div>`).addTo(map);});
+  map.on('click','burnZones',e=>{ const p=e.features[0].properties;
+    const prime=p.cls==='prime';
+    const bm=DOC.burn_meta||{};
+    new maplibregl.Popup().setLngLat(e.lngLat).setHTML(
+      `<h4><span style="color:${prime?'#E07B39':'#8A5A2B'}">▨</span> Burn regeneration · ${prime?'prime':'regen'} · ${p.area_km2} km²</h4>`+
+      `<div class="s">${prime
+        ? 'Peak browse window (~15–22 yr post-fire): willow, birch and aspen at reachable height with cover alongside. In this black-spruce country the unburned matrix is close to a food desert, so burns of this age are where the animals concentrate.'
+        : 'Regenerating burn, either side of the peak. Under ~8 yr the browse is below reachable height with no security cover; past ~30 yr the canopy closes and it grows out of reach.'}</div>`+
+      (bm.first_year?`<div class="s" style="margin-top:4px;opacity:.75">Mapped fires ${bm.first_year}–${bm.last_year} (NBAC) · ${bm.pct_of_aoi}% of this area burned.</div>`:'')).addTo(map);});
   map.on('click','funnelZones',e=>{ new maplibregl.Popup().setLngLat(e.lngLat)
     .setHTML(`<h4><span style="color:${FUNNEL_COL}">▨</span> Funnel / pass · ${e.features[0].properties.area_km2} km²</h4><div class="s">${ZONE_WHY.funnel}</div>`).addTo(map);});
-  ['huntZones','browseZones','refugeZones','funnelZones'].forEach(l=>{map.on('mouseenter',l,()=>map.getCanvas().style.cursor='pointer');map.on('mouseleave',l,()=>map.getCanvas().style.cursor='');});
+  ['huntZones','browseZones','refugeZones','funnelZones','burnZones'].forEach(l=>{map.on('mouseenter',l,()=>map.getCanvas().style.cursor='pointer');map.on('mouseleave',l,()=>map.getCanvas().style.cursor='');});
   map.on('click','crossings',e=>{ const p=e.features[0].properties;
     const river=p.kind==='river', noBoat=SETUP.watercraft==='none';
     const msg = river ? (noBoat
@@ -620,7 +638,8 @@ const LYR_MAP={areas:['areas-fill','areas-line','area-badges'],sites:['sites','s
   huntZones:['huntZones','huntZones-line'],
   refuge:['refugeZones','refugeZones-line'],
   funnel:['funnelZones','funnelZones-line'],
-  browse:['browseZones','browseZones-line']};
+  browse:['browseZones','browseZones-line'],
+  burns:['burnZones','burnZones-line']};
 
 const LAYERS=[
  {group:'Model zones', rows:[
@@ -635,6 +654,9 @@ const LAYERS=[
    {k:'browse', kind:'stipple', c:'var(--browse)', name:'Browse / feeding',
     note:'Regen & riparian forage — the food itself', on:false, lyr:'browse',
     count:()=>(DOC.browse_zones||[]).length},
+   {k:'burns', kind:'zone', c:'#C86A2E', name:'Burn regeneration',
+    note:'Mapped fire perimeters by age — browse peaks 15–22 yr after a burn. The single strongest predictor here.',
+    on:false, lyr:'burns', count:()=>(DOC.burn_zones||[]).length},
    {k:'funnel', kind:'zone', c:'var(--z-med)', name:'Funnels / passes',
     note:'Terrain pinch points — inferred from the DEM, weakly evidenced', on:false, lyr:'funnel',
     count:()=>(DOC.funnel_zones||[]).length},
@@ -1080,7 +1102,7 @@ function applyDoc(newDoc){        // re-bind the whole map + panels to fresh eng
   const S=buildSources();
   const setD=(id,data)=>{const s=map.getSource(id); if(s&&data) s.setData(data);};
   setD('huntZones',S.huntZones); setD('browseZones',S.browseZones);
-  setD('refugeZones',S.refugeZones); setD('funnelZones',S.funnelZones);
+  setD('refugeZones',S.refugeZones); setD('funnelZones',S.funnelZones); setD('burnZones',S.burnZones);
   setD('rivers',S.rivers); setD('lakes',S.lakes); setD('crossings',S.crossings); setD('infra',S.infra);
   setD('areas',S.areas); setD('areaLabels',S.areaLabels); setD('camps',S.camps);
   setD('staging',S.staging); setD('packin',fc(S.packin)); setD('sites',fc(window._sites));

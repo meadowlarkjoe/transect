@@ -431,6 +431,28 @@ def build(ctx: Context) -> dict:
     except Exception:
         doc["recommendations"] = []
 
+    # BURN REGENERATION — the strongest browse predictor we have, and the only one with
+    # local validation (old burns correlate with moose numbers at r=0.62 in this zone).
+    # It drives the browse score, so it must be visible: a hunter should be able to see
+    # WHY a zone scored, and burns are the answer more often than anything else here.
+    try:
+        doc["burn_zones"] = _polygonize(ctx, cache, "burn_browse.tif",
+                                        [("regen", 0.35), ("prime", 0.80)])
+        yrs = {}
+        try:
+            by, _p = ru.read(cache / "burn_year.tif")
+            import numpy as _np
+            v = by[_np.isfinite(by) & (by > 0)]
+            if v.size:
+                yrs = {"first_year": int(v.min()), "last_year": int(v.max()),
+                       "pct_of_aoi": round(float((by > 0).mean()) * 100, 1)}
+        except Exception:
+            pass
+        doc["burn_meta"] = yrs
+    except Exception:
+        doc["burn_zones"] = []
+        doc["burn_meta"] = {}
+
     # classified suitability + browse zones (defined clickable areas, not heat)
     try:
         # ABSOLUTE thresholds on an absolute surface. The old bands (0.42/0.6/0.76)
