@@ -12,6 +12,8 @@ const km = (v) => UNITS === 'imperial' ? (v / KM_MI).toFixed(1) + ' mi' : v.toFi
 const metres = (m) => UNITS === 'imperial' ? Math.round(m * 1.09361) + ' yd' : Math.round(m) + ' m';
 const unitBig = () => UNITS === 'imperial' ? 'mi' : 'km';
 const unitSmall = () => UNITS === 'imperial' ? 'yd' : 'm';
+const toU = (kmVal) => UNITS === 'imperial' ? kmVal / KM_MI : kmVal;   // km -> display-unit number
+const fromU = (v) => UNITS === 'imperial' ? v * KM_MI : v;            // display-unit -> km
 
 /* ---------------- palette / labels ---------------- */
 const COLORS = {
@@ -250,6 +252,17 @@ function init(){
     paint:{'line-color':'#ffffff','line-width':2,'line-opacity':0.9,'line-dasharray':[3,2]}});
   map.addLayer({id:'packin',type:'line',source:'packin',
     paint:{'line-color':'#b98a3e','line-width':1.6,'line-dasharray':[2,2],'line-opacity':0.75}});
+  // caller/shooter pairs: the shooter sets up ~70 m downwind of each calling
+  // station, because a bull circles downwind to scent-check before showing.
+  map.addSource('shooterLines',{type:'geojson',data:fc([])});
+  map.addSource('shooters',{type:'geojson',data:fc([])});
+  map.addLayer({id:'shooterLines',type:'line',source:'shooterLines',
+    paint:{'line-color':'#e6e9e3','line-width':1.2,'line-dasharray':[2,2],'line-opacity':0.85}});
+  map.addLayer({id:'shooters',type:'circle',source:'shooters',
+    paint:{'circle-radius':4,'circle-color':'#0b0f0d','circle-stroke-color':'#e6e9e3','circle-stroke-width':2}});
+  map.addLayer({id:'shooters-label',type:'symbol',source:'shooters',minzoom:11,
+    layout:{'text-field':'SHOOTER','text-size':9,'text-offset':[0,-1.3],'text-font':['Open Sans Bold'],'text-allow-overlap':true},
+    paint:{'text-color':'#e6e9e3','text-halo-color':'#0b0f0d','text-halo-width':1.5}});
   map.addLayer({id:'sites',type:'symbol',source:'sites',
     layout:{'icon-image':['get','type'],'icon-size':0.55,'icon-allow-overlap':true}});
   map.addLayer({id:'staging',type:'symbol',source:'staging',
@@ -292,6 +305,7 @@ function init(){
     map.on('mouseenter',l,()=>map.getCanvas().style.cursor='pointer');
     map.on('mouseleave',l,()=>map.getCanvas().style.cursor='');});
 
+  buildShooters();
   buildPanel(); buildWeather(); buildLegend(); buildTools();
   renderSetup(); renderBrief(); wireTabs(); setTab('overview');
   map.fitBounds(bbox(DOC.areas),{padding:{top:80,left:400,right:200,bottom:120}});
@@ -404,6 +418,7 @@ function applyWind(){
   window._sites.forEach(f=>f.properties.windok=windState(f));
   // recolour site halos via a data-driven approach: use a circle underlay
   const src=map.getSource('sites'); if(src) src.setData(fc(window._sites));
+  buildShooters();   // shooter sits downwind of the chosen day's wind
 }
 function updateHour(h){
   const lbl=document.getElementById('hourlbl');
@@ -439,6 +454,7 @@ function toggleType(t,row){
   // site type: filter the sites layer
   const active=SITE_TYPES.filter(x=>!hideTypes[x]);
   map.setFilter('sites',['in',['get','type'],['literal',active]]);
+  if(t==='rut_calling') buildShooters();   // show/hide the paired shooters too
 }
 
 /* ---------------- tools panel ---------------- */
@@ -496,6 +512,22 @@ function wireMeasure(){
     let d=0;for(let i=1;i<pts.length;i++)d+=hav(pts[i-1],pts[i]);
     if(pts.length>1)label.setLngLat(e.lngLat).setHTML(`<b>${km(d)}</b>`).addTo(map);});
 }
+function destPoint(lon,lat,brgDeg,km){const R=6371,d2r=Math.PI/180,br=brgDeg*d2r,la1=lat*d2r,lo1=lon*d2r;
+  const la2=Math.asin(Math.sin(la1)*Math.cos(km/R)+Math.cos(la1)*Math.sin(km/R)*Math.cos(br));
+  const lo2=lo1+Math.atan2(Math.sin(br)*Math.sin(km/R)*Math.cos(la1),Math.cos(km/R)-Math.sin(la1)*Math.sin(la2));
+  return [lo2/d2r,la2/d2r];}
+function buildShooters(){
+  if(!map.getSource('shooters'))return;
+  const wdir=(selectedDay&&selectedDay.wind_from_deg!=null)?selectedDay.wind_from_deg:270;
+  const down=(wdir+180)%360;   // shooter sits downwind of the caller
+  const pts=[],lines=[];
+  (window._sites||[]).filter(f=>f.properties.type==='rut_calling'&&!hideTypes.rut_calling).forEach(f=>{
+    const c=f.geometry.coordinates, s=destPoint(c[0],c[1],down,0.07);
+    pts.push({type:'Feature',geometry:{type:'Point',coordinates:s},properties:{}});
+    lines.push({type:'Feature',geometry:{type:'LineString',coordinates:[c,s]},properties:{}});});
+  map.getSource('shooters').setData(fc(pts));
+  map.getSource('shooterLines').setData(fc(lines));
+}
 function hav(a,b){const R=6371,dLat=(b[1]-a[1])*Math.PI/180,dLon=(b[0]-a[0])*Math.PI/180,
   s=Math.sin(dLat/2)**2+Math.cos(a[1]*Math.PI/180)*Math.cos(b[1]*Math.PI/180)*Math.sin(dLon/2)**2;
   return 2*R*Math.asin(Math.sqrt(s));}
@@ -521,8 +553,8 @@ function renderSetup(){
     <div class="fld"><label>Species</label>
       <div class="radii"><button class="on" disabled>Moose</button></div></div>
 
-    <div class="fld"><label>Search radius — <b id="radVal">${draft.radius} ${unitBig()}</b></label>
-      <input id="radius" type="range" min="5" max="120" step="1" value="${draft.radius}"></div>
+    <div class="fld"><label>Search radius — <b id="radVal">${Math.round(toU(draft.radius))} ${unitBig()}</b></label>
+      <input id="radius" type="range" min="${UNITS==='imperial'?3:5}" max="${UNITS==='imperial'?75:120}" step="1" value="${Math.round(toU(draft.radius))}"></div>
 
     <div class="fld"><label>How you'll hunt</label>
       <div class="radii wide"><button id="hsSpike" class="${SETUP.huntStyle==='spike'?'on':''}">Spike camp in the woods</button>
@@ -535,9 +567,9 @@ function renderSetup(){
         <button id="wcMotor" class="${SETUP.watercraft==='motor'?'on':''}">Motorboat</button></div></div>
 
     <div class="fld"><label>Walk from access → base camp (max)</label>
-      <div class="numrow"><input id="walkAccess" type="number" step="0.1" value="${draft.walkAccess}"><span id="uAccess">${unitBig()}</span></div></div>
+      <div class="numrow"><input id="walkAccess" type="number" step="0.1" value="${toU(draft.walkAccess).toFixed(1)}"><span id="uAccess">${unitBig()}</span></div></div>
     <div class="fld"><label>Walk from base camp → hunting (max)</label>
-      <div class="numrow"><input id="walkHunt" type="number" step="0.1" value="${draft.walkHunt}"><span id="uHunt">${unitBig()}</span></div></div>
+      <div class="numrow"><input id="walkHunt" type="number" step="0.1" value="${toU(draft.walkHunt).toFixed(1)}"><span id="uHunt">${unitBig()}</span></div></div>
 
     <div class="fld"><label>Leaving from</label>
       <div class="searchrow"><input id="leaveSearch" placeholder="Search departure town…" value="${draft.leaving}">
@@ -573,9 +605,9 @@ function renderSetup(){
   document.getElementById('coord').onchange=e=>{const m=e.target.value.split(',').map(s=>parseFloat(s.trim()));
     if(m.length===2&&!isNaN(m[0])&&!isNaN(m[1])){draft.center=[m[1],m[0]];map.flyTo({center:draft.center,zoom:10});drawDraft();}};
   const rad=document.getElementById('radius');
-  rad.oninput=()=>{draft.radius=+rad.value;document.getElementById('radVal').textContent=draft.radius+' '+unitBig();drawDraft();};
-  document.getElementById('walkAccess').onchange=e=>draft.walkAccess=+e.target.value;
-  document.getElementById('walkHunt').onchange=e=>draft.walkHunt=+e.target.value;
+  rad.oninput=()=>{draft.radius=fromU(+rad.value);document.getElementById('radVal').textContent=(+rad.value)+' '+unitBig();drawDraft();};
+  document.getElementById('walkAccess').onchange=e=>{draft.walkAccess=fromU(+e.target.value);applyHunt();};
+  document.getElementById('walkHunt').onchange=e=>draft.walkHunt=fromU(+e.target.value);
   document.getElementById('dragBox').onclick=()=>startBoxDraw();
   document.getElementById('uMetric').onclick=()=>setUnits('metric');
   document.getElementById('uImperial').onclick=()=>setUnits('imperial');
@@ -598,7 +630,7 @@ function updateHsNote(){ const n=document.getElementById('hsNote'); if(!n)return
   n.textContent=SETUP.huntStyle==='vehicle'
     ? 'Analysis favours areas within your access-walk of a road — backcountry spots are dimmed.'
     : 'Backcountry spike camps allowed — remote areas stay in play.'; }
-function reachKm(){ return (draft.walkAccess||2)*(UNITS==='imperial'?1.609344:1); }
+function reachKm(){ return draft.walkAccess||2; }   // draft.walkAccess is canonical km
 function applyHunt(){
   if(!map.getLayer('areas-fill'))return;
   const veh=SETUP.huntStyle==='vehicle', rk=reachKm()*1000;
