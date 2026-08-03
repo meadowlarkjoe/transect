@@ -4,64 +4,73 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Transect — Scouting</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="vendor/maplibre-gl.css">
-<link rel="stylesheet" href="style.css?v=27">
+<link rel="stylesheet" href="style.css?v=33">
 </head>
 <body>
 <div id="map"></div>
 
-<!-- Top: app tabs -->
+<!-- Top: brand · numbered steps · plan identity · actions -->
 <nav id="tabbar">
   <div class="brand">TRANSECT</div>
-  <button data-tab="setup">Setup</button>
-  <button data-tab="overview" class="on">Overview</button>
-  <button data-tab="field">Field</button>
-  <button data-tab="brief">Brief</button>
-  <button id="plansBtn" class="ghost">Plans</button>
-  <button id="exportBtn" class="ghost">Export</button>
-  <div id="exportMenu" class="hidden">
-    <div class="s" style="margin-bottom:6px">Export this plan's waypoints, routes &amp; areas:</div>
-    <button data-fmt="gpx">GPX — OnX / Garmin</button>
-    <button data-fmt="kml">KML — Google Earth</button>
-    <label class="s" style="display:block;margin-top:8px"><input type="checkbox" id="exZones" checked> include model zones (high/med/low, refuge, funnel, browse)</label>
+  <div class="steps">
+    <button data-tab="setup"><span class="n">1</span>Setup</button>
+    <span class="sep"></span>
+    <button data-tab="overview" class="on"><span class="n">2</span>Overview</button>
+    <span class="sep"></span>
+    <button data-tab="field"><span class="n">3</span>Field</button>
+    <span class="sep"></span>
+    <button data-tab="brief"><span class="n">4</span>Brief</button>
   </div>
-  <div id="subtitle">loading…</div>
+  <div id="planbar">
+    <div class="pname"><span id="planName">—</span><span class="savedot" id="saveDot" data-s="unsaved">UNSAVED</span></div>
+    <div class="pmeta" id="subtitle">loading…</div>
+  </div>
+  <button id="plansBtn" class="btn btn--secondary btn--sm">Plans</button>
+  <button id="exportBtn" class="btn btn--secondary btn--sm">Export</button>
 </nav>
 
-<!-- floating draw / measure toolbar (separate from layer controls) -->
-<div id="drawtools"></div>
-<!-- saved hunt plans -->
-<aside id="plans" class="hidden"></aside>
-
-<!-- Overview: ranked areas + pros/cons (Phase 1) / detail (Phase 2) -->
+<!-- Left ledger -->
 <aside id="panel" class="tabpanel">
   <div id="gate" class="gate"></div>
   <div id="method" class="method"></div>
   <div id="list"></div>
   <div id="detail" class="hidden"></div>
 </aside>
-
-<!-- Setup: scout parameters -->
 <aside id="setup" class="tabpanel hidden"></aside>
-
-<!-- Brief: full rationale document -->
 <aside id="brief" class="tabpanel hidden"></aside>
 
-<!-- Right: map/basemap controls (built in app.js) -->
-<aside id="tools"></aside>
-<!-- Right: hunting layers (sites/zones) — separate from map + tools -->
-<aside id="hunting"></aside>
+<!-- Right: persistent icon rail; transient cards open from their own button -->
+<div id="rail"></div>
+<div id="layersDock" class="dock hidden"></div>
+<div id="baseDock" class="dock hidden"></div>
 
-<!-- Bottom: weather / wind calendar -->
+<!-- Map controls -->
+<div id="mapctl"></div>
+
+<!-- Bottom: weather / wind days -->
 <div id="weather"></div>
 
-<!-- Legend -->
+<!-- popovers -->
+<aside id="plans" class="hidden"></aside>
+<div id="exportMenu" class="hidden">
+  <div class="s" style="margin-bottom:8px">Export this plan's waypoints, routes &amp; areas:</div>
+  <button data-fmt="gpx">GPX — OnX / Garmin</button>
+  <button data-fmt="kml">KML — Google Earth</button>
+  <label class="s" style="display:block;margin-top:10px"><input type="checkbox" id="exZones" checked> include model zones</label>
+</div>
+
+<!-- legacy hooks kept so handlers bind cleanly -->
+<div id="drawtools"></div>
 <div id="legend"></div>
 
 <script src="vendor/maplibre-gl.js"></script>
 <script src="config.js"></script>
-<script src="data.js?v=27"></script>
-<script src="area_detail.js?v=27"></script>
-<script src="app.js?v=27"></script>
+<script src="data.js?v=33"></script>
+<script src="area_detail.js?v=33"></script>
+<script src="app.js?v=33"></script>
 </body>
 </html>

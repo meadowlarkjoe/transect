@@ -22,12 +22,26 @@ const toU = (kmVal) => UNITS === 'imperial' ? kmVal / KM_MI : kmVal;   // km -> 
 const fromU = (v) => UNITS === 'imperial' ? v * KM_MI : v;            // display-unit -> km
 
 /* ---------------- palette / labels ---------------- */
+/* Cartes Xperts symbology — FROZEN. Québec moose hunters read these hexes fluently
+   off the paper sheets; they are not ours to redesign. The chrome accent moved to
+   brass precisely so it would stop colliding with --z-high red. */
 const COLORS = {
-  focus_area:'#111111', rut_calling:'#e2231a', thermal_refuge:'#ff3fb4',
-  saline_blind:'#3d7bff', funnel:'#ff8c00', glassing:'#2fbf5b',
-  validate_ground:'#c9d1d6', base_camp:'#b98a3e', parking:'#e0c06a',
-  route_best:'#e2231a', route_midday_hot:'#ff3fb4'
+  focus_area:'#CBD5DA', rut_calling:'#E2231A', thermal_refuge:'#FF00C8',
+  saline_blind:'#0047FF', funnel:'#FF8C00', glassing:'#1F6F3F',
+  validate_ground:'#CBD5DA', base_camp:'#C8963E', parking:'#DCA94D',
+  route_best:'#E2231A', route_midday_hot:'#FF00C8', route_access:'#CBD5DA'
 };
+const FILL_ALPHA = 0.14;
+/* browse stipple — texture survives overlapping the likelihood bands; a fifth flat
+   fill in that stack is unreadable */
+function stippleImage(){
+  const S=16,cv=document.createElement('canvas');cv.width=cv.height=S;
+  const c=cv.getContext('2d');
+  c.clearRect(0,0,S,S); c.fillStyle='#8FB43A';
+  [[3,3],[11,7],[7,11],[15,15]].forEach(([x,y])=>{c.beginPath();c.arc(x,y,1.6,0,7);c.fill();});
+  const d=c.getImageData(0,0,S,S);
+  return {width:S,height:S,data:new Uint8Array(d.data)};
+}
 const LABELS = {
   rut_calling:'Rut / calling (≥30 min)', thermal_refuge:'Thermal refuge',
   saline_blind:'Saline / feeding', funnel:'Funnel / pass', glassing:'Glassing knob',
@@ -39,12 +53,12 @@ const SHAPE = {
 };
 // Sites = POINT features. thermal_refuge + funnel are AREAS now (zones), not points.
 const SITE_TYPES = ['rut_calling','saline_blind','glassing','validate_ground'];
-const REFUGE_COL='#c94fa4', FUNNEL_COL='#e08a24';
+const REFUGE_COL='#FF00C8', FUNNEL_COL='#FF8C00';
 const ZONE_WHY={
   refuge:'Thermal-refuge bedding — cool mature conifer / north aspect near water. Where a bull holds through a warm midday. Hunt the shade, approach from above/downwind.',
   funnel:'Terrain funnel / pass — a pinch point that concentrates travelling bulls between cover and feed. Sit downwind of the throat during movement windows.'};
 // Huntability likelihood classes (defined zones, not heat) — red = best.
-const HUNT_CLS = {high:{c:'#e2231a',label:'High likelihood'},medium:{c:'#ff8c00',label:'Medium likelihood'},low:{c:'#f2d02a',label:'Low likelihood'}};
+const HUNT_CLS = {high:{c:'#E2231A',label:'High likelihood'},medium:{c:'#FF8C00',label:'Medium likelihood'},low:{c:'#FFD400',label:'Low likelihood'}};
 const HUNT_WHY = {
   high:'Top of the model here — the browse/water/edge/terrain factors line up best. Prime ground to hunt.',
   medium:'Solid ground — a good mix of the factors, worth hunting especially near the high zones and edges.',
@@ -100,41 +114,9 @@ const map = new maplibregl.Map({container:'map',style:baseStyle(),
 map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'bottom-right');
 map.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-right');
 
-/* ---------------- turbo colormap + heat surface ---------------- */
-function turbo(t){
-  // clean 5-stop heat ramp: deep blue → teal → green → yellow → red
-  t=Math.max(0,Math.min(1,t));
-  const stops=[[46,26,110],[38,120,180],[46,180,120],[238,214,58],[214,48,28]];
-  const x=t*(stops.length-1), i=Math.min(stops.length-2,Math.floor(x)), f=x-i;
-  const a=stops[i], b=stops[i+1];
-  return [Math.round(a[0]+(b[0]-a[0])*f),Math.round(a[1]+(b[1]-a[1])*f),Math.round(a[2]+(b[2]-a[2])*f)];
-}
-let HEAT = { thresh:0.42, source:'hunt', on:true, opacity:0.7 };
-function gridFor(name){
-  const g=DOC.grid||{};
-  if(name==='browse') return g.browse;
-  if(DOC.behavior && DOC.behavior.grids && DOC.behavior.grids[name]) return DOC.behavior.grids[name];
-  return g.hunt;
-}
-function heatURL(){
-  const g=DOC.grid||{}, gw=g.gw||260, gh=g.gh||175, arr=gridFor(HEAT.source)||g.hunt||[];
-  const cv=document.createElement('canvas'); cv.width=gw; cv.height=gh;
-  const cx=cv.getContext('2d'); const img=cx.createImageData(gw,gh);
-  for(let i=0;i<gw*gh;i++){
-    const v=arr[i];
-    if(v==null||v<0||v<HEAT.thresh){ img.data[i*4+3]=0; continue; }
-    const [r,gg,b]=turbo(v);
-    img.data[i*4]=r; img.data[i*4+1]=gg; img.data[i*4+2]=b; img.data[i*4+3]=255;
-  }
-  cx.putImageData(img,0,0);
-  return cv.toDataURL();
-}
-function heatCoords(){ const b=DOC.box; return [[b.w,b.n],[b.e,b.n],[b.e,b.s],[b.w,b.s]]; }
-function updateHeat(){
-  const src=map.getSource('heat'); if(!src)return;
-  try{ src.updateImage({url:heatURL(),coordinates:heatCoords()}); }catch(e){/* image load race — ignore */}
-  if(map.getLayer('heat')) map.setPaintProperty('heat','raster-opacity',HEAT.on?HEAT.opacity:0);
-}
+/* The raster heat pipeline was removed with the switch to classified zones — the
+   contract no longer ships behaviour grids, so it was ~60 lines targeting a source
+   that is never added. Zones (huntZones/browse/refuge/funnel) carry that job now. */
 
 /* ---------------- distinct site icons (canvas -> addImage) ---------------- */
 function iconData(shape,color){
@@ -176,7 +158,12 @@ function bbox(areas){let a=180,b=90,c=-180,d=-90;
 function angDiff(a,b){return Math.abs(((a-b+180)%360)-180);}
 function windState(w){
   if(selectedDay==null) return 0;
-  const opt=(w.properties.optimal_wind||{}).from_deg; if(opt==null) return 0;
+  // the site feature carries the optimal bearing as `opt` (buildSources), NOT as a
+  // nested optimal_wind object — reading the wrong key is why the promised wind ring
+  // never rendered.
+  const p=w.properties||{};
+  const opt=(p.opt!=null)?p.opt:((p.optimal_wind||{}).from_deg);
+  if(opt==null) return 0;
   return angDiff(opt,selectedDay.wind_from_deg)<=45?1:-1;
 }
 
@@ -199,11 +186,14 @@ function buildSources(){
     properties:{type:w.type,area:w.properties.focus_area,
       windnote:(w.properties.optimal_wind||{}).note||'', opt:(w.properties.optimal_wind||{}).from_deg??null,
       when:w.properties.when||'', elev:w.properties.elev_m||null, windok:0}}));
-  // camp → area pack-in routes
+  // REAL engine routes (terrain/water cost-following). Typed so the map can style
+  // access vs best vs midday-hot distinctly. A straight camp→centroid line is a
+  // fiction, so we no longer draw one.
+  const RT={route_access:'access',route_paddle:'access',route_best:'best',route_midday_hot:'hot'};
+  const routes=fc((DOC.routes||[]).filter(r=>Array.isArray(r.coords)&&r.coords.length>1)
+    .map(r=>({type:'Feature',geometry:{type:'LineString',coordinates:r.coords},
+      properties:{t:RT[r.type]||'access',kind:r.type}})));
   const packin=[];
-  DOC.camps.forEach(c=>{ (c.member_areas||[]).forEach(rk=>{
-    const a=DOC.areas.find(x=>x.rank===rk); if(a) packin.push({type:'Feature',
-      geometry:{type:'LineString',coordinates:[[c.site.lon,c.site.lat],a.centroid]},properties:{}});});});
   // exact vector hydrography (rivers carry a class: river=boat, stream=fordable)
   const h=DOC.hydro||{rivers:[],lakes:[]};
   const rivers=fc((h.rivers||[]).map(o=>{
@@ -219,12 +209,15 @@ function buildSources(){
   const zFC=(zones)=>fc((zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},properties:{area_km2:z.area_km2}})));
   const refugeZones=zFC(DOC.refuge_zones), funnelZones=zFC(DOC.funnel_zones);
   const infra=fc((DOC.infra||[]).map(o=>({type:'Feature',geometry:{type:'LineString',coordinates:o.ll},properties:{t:o.t}})));
-  return {areas,areaLabels,camps,staging,packin,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones,infra};
+  return {areas,areaLabels,camps,staging,packin,routes,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones,infra};
 }
 
 function init(){
   document.getElementById('subtitle').textContent =
-    `${DOC.meta.title} · ${DOC.meta.species} · ${DOC.meta.target_dates.join(' – ')}`;
+    `${DOC.meta.species} · ${DOC.meta.target_dates.join(' – ')} · r${DOC.meta.radius_km} km · zone ${(DOC.legal||{}).zone||'?'}`;
+  // Plans auto-name from the AOI — naming something before you know it's worth
+  // keeping is friction at exactly the wrong moment.
+  setPlanName(`${DOC.meta.title} — ${DOC.meta.species}`, false);
   if(!document.getElementById('deepBadge')){const b=document.createElement('div');b.id='deepBadge';b.style.display='none';document.body.appendChild(b);}
   addIcons();
   const S=buildSources();
@@ -235,26 +228,34 @@ function init(){
   map.addSource('huntZones',{type:'geojson',data:S.huntZones});
   map.addSource('browseZones',{type:'geojson',data:S.browseZones});
   const clsColor=['match',['get','cls'],'high',HUNT_CLS.high.c,'medium',HUNT_CLS.medium.c,'low',HUNT_CLS.low.c,'#888'];
+  // Areal fills render at 14% with a full-saturation 1.5px stroke: solid fills were
+  // muddying the satellite imagery, which is the layer that actually reveals the
+  // logging roads and cutblocks the vector data misses. The stroke keeps identity.
   map.addLayer({id:'huntZones',type:'fill',source:'huntZones',
-    paint:{'fill-color':clsColor,'fill-opacity':['match',['get','cls'],'high',0.42,'medium',0.3,'low',0.18,0.2]}});
+    paint:{'fill-color':clsColor,'fill-opacity':FILL_ALPHA}});
   map.addLayer({id:'huntZones-line',type:'line',source:'huntZones',
-    paint:{'line-color':clsColor,'line-width':1.4,'line-opacity':0.85}});
+    paint:{'line-color':clsColor,'line-width':1.5,'line-opacity':1}});
   const brCol=['match',['get','type'],
     'Shrub / regen browse',BROWSE_COL['Shrub / regen browse'],
     'Riparian / wetland browse',BROWSE_COL['Riparian / wetland browse'],
     'Herbaceous opening',BROWSE_COL['Herbaceous opening'],
     'Forest-edge browse',BROWSE_COL['Forest-edge browse'],'#7ad151'];
+  // Browse draws as a STIPPLE, not a fifth flat wash: it frequently sits *under*
+  // the likelihood bands, and texture survives overlap where another fill can't.
+  map.addImage('stipple', stippleImage(), {pixelRatio:2});
   map.addLayer({id:'browseZones',type:'fill',source:'browseZones',
-    layout:{visibility:'none'},paint:{'fill-color':brCol,'fill-opacity':0.4}});
+    layout:{visibility:'none'},paint:{'fill-pattern':'stipple','fill-opacity':0.9}});
   map.addLayer({id:'browseZones-line',type:'line',source:'browseZones',
-    layout:{visibility:'none'},paint:{'line-color':brCol,'line-width':1.2,'line-opacity':0.9,'line-dasharray':[2,1]}});
+    layout:{visibility:'none'},paint:{'line-color':brCol,'line-width':1.5,'line-opacity':1,'line-dasharray':[2,1]}});
   // thermal refuge + funnel ZONES (areas, not points)
   map.addSource('refugeZones',{type:'geojson',data:S.refugeZones});
   map.addSource('funnelZones',{type:'geojson',data:S.funnelZones});
-  map.addLayer({id:'refugeZones',type:'fill',source:'refugeZones',paint:{'fill-color':REFUGE_COL,'fill-opacity':0.28}});
-  map.addLayer({id:'refugeZones-line',type:'line',source:'refugeZones',paint:{'line-color':REFUGE_COL,'line-width':1.3,'line-opacity':0.9,'line-dasharray':[4,2]}});
-  map.addLayer({id:'funnelZones',type:'fill',source:'funnelZones',paint:{'fill-color':FUNNEL_COL,'fill-opacity':0.3}});
-  map.addLayer({id:'funnelZones-line',type:'line',source:'funnelZones',paint:{'line-color':FUNNEL_COL,'line-width':1.4,'line-opacity':0.95}});
+  map.addLayer({id:'refugeZones',type:'fill',source:'refugeZones',paint:{'fill-color':REFUGE_COL,'fill-opacity':FILL_ALPHA}});
+  map.addLayer({id:'refugeZones-line',type:'line',source:'refugeZones',paint:{'line-color':REFUGE_COL,'line-width':1.5,'line-opacity':1,'line-dasharray':[4,2]}});
+  map.addLayer({id:'funnelZones',type:'fill',source:'funnelZones',
+    layout:{visibility:'none'},paint:{'fill-color':FUNNEL_COL,'fill-opacity':FILL_ALPHA}});
+  map.addLayer({id:'funnelZones-line',type:'line',source:'funnelZones',
+    layout:{visibility:'none'},paint:{'line-color':FUNNEL_COL,'line-width':1.5,'line-opacity':1}});
 
   map.addSource('lakes',{type:'geojson',data:S.lakes});
   map.addSource('rivers',{type:'geojson',data:S.rivers});
@@ -289,8 +290,17 @@ function init(){
     paint:{'fill-color':['case',['<=',['get','rank'],2],'#2fbf5b','#e2c044'],'fill-opacity':0.10}});
   map.addLayer({id:'areas-line',type:'line',source:'areas',
     paint:{'line-color':'#ffffff','line-width':2,'line-opacity':0.9,'line-dasharray':[3,2]}});
-  map.addLayer({id:'packin',type:'line',source:'packin',
-    paint:{'line-color':'#b98a3e','line-width':1.6,'line-dasharray':[2,2],'line-opacity':0.75}});
+  // REAL routes from the engine (terrain/water-cost following, hundreds of points).
+  // These were computed and exported but never drawn — the map used to show a
+  // straight camp→centroid dash instead, which is exactly the wrong line to trust
+  // when the crossings markers are anchored to the real one.
+  map.addSource('routes',{type:'geojson',data:S.routes});
+  map.addLayer({id:'route-access',type:'line',source:'routes',filter:['==',['get','t'],'access'],
+    paint:{'line-color':COLORS.route_access,'line-width':2,'line-opacity':0.85,'line-dasharray':[3,2]}});
+  map.addLayer({id:'route-hot',type:'line',source:'routes',filter:['==',['get','t'],'hot'],
+    paint:{'line-color':COLORS.route_midday_hot,'line-width':2,'line-opacity':0.9,'line-dasharray':[4,2]}});
+  map.addLayer({id:'route-best',type:'line',source:'routes',filter:['==',['get','t'],'best'],
+    paint:{'line-color':COLORS.route_best,'line-width':2.4,'line-opacity':0.95}});
   // thermal-drift arrow field (off by default; toggle in tools)
   if(!map.hasImage('thermal-arrow')) map.addImage('thermal-arrow',arrowIcon(),{pixelRatio:2});
   map.addSource('thermal',{type:'geojson',data:fc([])});
@@ -310,6 +320,14 @@ function init(){
     layout:{'text-field':'SHOOTER','text-size':10,'text-offset':[0,-1.4],'text-font':['Open Sans Bold'],'text-allow-overlap':true},
     paint:{'text-color':'#e6e9e3','text-halo-color':'#0b0f0d','text-halo-width':1.5}});
   const SITE_SZ=['interpolate',['linear'],['zoom'],8,0.7,11,1.05,13,1.45,15,1.9];
+  // WIND-FIT RING — the legend has promised this since day one and no layer ever
+  // read `windok`. Green = the chosen day's wind suits this setup, red = it doesn't.
+  map.addLayer({id:'sites-wind',type:'circle',source:'sites',
+    filter:['!=',['get','windok'],0],
+    paint:{'circle-radius':['interpolate',['linear'],['zoom'],9,9,12,14,15,20],
+      'circle-color':'rgba(0,0,0,0)','circle-stroke-width':2.4,
+      'circle-stroke-color':['case',['==',['get','windok'],1],'#3FBF6E','#C9564A'],
+      'circle-stroke-opacity':0.95}});
   map.addLayer({id:'sites',type:'symbol',source:'sites',
     layout:{'icon-image':['get','type'],'icon-size':SITE_SZ,'icon-allow-overlap':true}});
   map.addLayer({id:'staging',type:'symbol',source:'staging',
@@ -366,49 +384,100 @@ function init(){
 }
 
 /* wait for style, then init once */
-let _inited=false;
+let _inited=false, _chromeUp=false;
 function go(){ if(_inited)return; _inited=true; init();
   [0,200,600,1200].forEach(t=>setTimeout(()=>map.resize(),t)); }
+/* If basemap tiles are slow or blocked (remote camp wifi, a dead CDN), the map
+   'load' event may never fire — but the ledger, rail and brief don't need tiles.
+   Build the chrome anyway so the plan is still readable. */
+function chromeFallback(){
+  if(_inited||_chromeUp) return; _chromeUp=true;
+  try{ buildPanel(); }catch(e){}
+  try{ buildTools(); }catch(e){}
+  try{ buildWeather(); }catch(e){}
+  try{ renderSetup(); renderBrief(); wireTabs(); initPlans(); initExport(); }catch(e){}
+  try{ setPlanName(planTitle(),false);
+    document.getElementById('subtitle').textContent=
+      `${DOC.meta.species} · ${DOC.meta.target_dates.join(' – ')} · r${DOC.meta.radius_km} km`; }catch(e){}
+}
 map.on('load',go);
 map.on('styledata',()=>{ if(map.isStyleLoaded()) go(); });
+setTimeout(chromeFallback,4000);
 window.addEventListener('resize',()=>map.resize());
 
 /* ---------------- overview panel ---------------- */
+/* Confidence as a five-bar gauge, not 11px grey text — the honesty machinery is a
+   first-class UI element, not fine print. */
+function confGauge(score){
+  const n=Math.max(0,Math.min(5,Math.round((score||0)*5)));
+  const lvl=n>=4?'high':(n<=2?'low':'mid');
+  return `<span class="conf" data-level="${lvl}" title="Confidence is about DATA quality, not a guarantee animals are present">`+
+    [0,1,2,3,4].map(i=>`<i ${i<n?'data-on':''}></i>`).join('')+`</span>`;
+}
+/* PACK-OUT REALITY — the decision that should veto an area for a foot hunter. A bull
+   is ~200 kg of usable meat; a hard boned-out load is ~30 kg, so it is trips, not one
+   carry. Walking loaded over boreal ground is ~2 km/h. */
+function packout(a){
+  const drKm=((a.stats||{}).dist_road_m||0)/1000;
+  if(!drKm) return null;
+  const loads=Math.max(3,Math.ceil(200/30));               // ≈7 loads for one bull
+  const oneWay=drKm/2.0;                                   // hours, loaded
+  const hrs=loads*oneWay*1.6;                              // out loaded + back empty
+  const days=hrs/8;
+  const boat=SETUP.watercraft!=='none';
+  return {drKm,loads,hrs,days,
+    text:`Kill here ⇒ ~${km(drKm)} to the nearest road ⇒ ~${loads} loads on foot ≈ `+
+      (days>=1?`${days.toFixed(days<2?1:0)} hard day${days>=2?'s':''}`:`${Math.round(hrs)} h`)+
+      (boat?' — or one trip if you can float it out.':'.')};
+}
 function buildPanel(){
-  const g=DOC.legal;
+  const g=DOC.legal, cf=DOC.confidence||null;
   document.getElementById('gate').innerHTML=
-    `<span class="diy ${g.diy_possible?'ok':'no'}">${g.diy_possible?'DIY POSSIBLE':'RESTRICTED'}</span>
-     &nbsp;Zone ${g.zone} · ${g.north_of_52?'N':'S'} of 52°N · ${(g.huntable_tenures||[]).join(', ')||'—'}
-     ${DOC.confidence?`<span class="pill" style="background:#20303a;color:#8fd0f2;float:right">confidence ${Math.round(DOC.confidence.score*100)}%</span>`:''}
-     <div class="flag">${(g.flags||[]).slice(0,2).join('<br>')}</div>`;
+    `<div class="row" style="justify-content:space-between">
+       <span class="t-micro" style="color:${g.diy_possible?'var(--good)':'var(--danger)'}">${g.diy_possible?'DIY POSSIBLE':'RESTRICTED'}</span>
+       ${cf?`<span class="row" style="gap:7px"><span class="t-micro">CONF ${Math.round(cf.score*100)}%</span>${confGauge(cf.score)}</span>`:''}
+     </div>
+     <div class="t-data" style="margin-top:6px;color:var(--text-2)">ZONE ${g.zone} · ${g.north_of_52?'N':'S'} OF 52°N · ${(g.huntable_tenures||[]).join(', ')||'—'}</div>`
+    + ((g.flags||[]).length?`<div class="callout" data-kind="warn"><span class="mark">!</span><div class="body"><b>${(g.flags||[]).length} thing${g.flags.length>1?'s':''} to confirm before you go</b>${(g.flags||[]).join('<br>')}</div></div>`:'')
+    + (cf&&cf.caveats?`<div class="callout" data-kind="info"><span class="mark">i</span><div class="body">${[].concat(cf.caveats).join(' ')}</div></div>`:'')
+    + (DOC.strategy&&DOC.strategy.density_per_10km2?`<div class="s" style="margin-top:8px">Density ≈ <b class="mono">${DOC.strategy.density_per_10km2}</b> moose/10 km² (${DOC.strategy.density_is_estimate?'estimate':'survey'}) — expect long silences; coverage beats sitting.</div>`:'');
   const m=DOC.methodology;
   document.getElementById('method').innerHTML=
-    `<details><summary>What I'm looking for</summary><p>${m.summary}</p>
-     <b>Weighted:</b> ${(m.factors_weighted||[]).join('; ')}</details>`;
+    `<details><summary class="t-micro" style="cursor:pointer">What I'm looking for</summary>
+       <p class="s" style="margin:8px 0">${m.summary}</p>
+       <div class="s"><b>Weighted:</b> ${(m.factors_weighted||[]).join('; ')}</div>
+       ${(m.caveats||[]).map(c=>`<div class="callout" data-kind="info"><span class="mark">i</span><div class="body">${c}</div></div>`).join('')}
+     </details>`;
   let html='';
   DOC.camps.forEach(c=>{
-    html+=`<div class="camp">Camp ${c.id} · areas ${c.member_areas.join(', ')} · pack-in ≤ ${km(c.max_packin_km)}</div>`;
+    html+=`<div class="grouphead"><span class="g">Camp ${c.id}</span>
+      <span class="g">${(c.member_areas||[]).length} areas · pack-in ≤ ${km(c.max_packin_km)}</span></div>`;
     DOC.areas.filter(a=>a.camp===c.id).sort((x,y)=>x.rank-y.rank).forEach(a=>{html+=areaCard(a);});
   });
   const list=document.getElementById('list'); list.innerHTML=html;
   list.querySelectorAll('.card').forEach(el=>el.onclick=()=>selectArea(+el.dataset.rank));
 }
 function areaCard(a){
-  const pros=(a.pros||[]).slice(0,3).map(p=>`<span class="pill pro">${p}</span>`).join('');
-  const cf=a.conf?`<span class="pill" style="background:#20303a;color:#8fd0f2">conf ${Math.round(a.conf.score*100)}%</span>`:'';
   const dr=(a.stats||{}).dist_road_m||0;
-  // Engine-authoritative access gate (no-boat river barrier / beyond walk-in), with a
-  // client fallback for older data that lacks the flag.
   const boat=a.boat_required;
   const far=boat || (SETUP.huntStyle==='vehicle' && dr>reachKm()*1000);
-  const flagPill=a.access_flag
-    ? `<span class="pill con" title="${a.access_flag.replace(/"/g,'')}">${boat?'🚫 needs a boat':'⚠ far walk-in'}</span>`
-    : (far?`<span class="pill con">beyond day-return (${km(dr/1000)} to road)</span>`:'');
-  return `<div class="card ${far?'dim':''}" data-rank="${a.rank}"><div class="top">
-    <div class="badge ${a.rank<=2?'top':''}">${a.rank}</div>
-    <div><div><b>Area ${a.rank}</b> · ${a.area_km2} km²</div>
-    <div class="meta">huntability ${a.huntability} · camp ${a.camp}</div></div></div>
-    <div class="why">${(a.why||'').slice(0,150)}</div><div>${pros}${cf}${flagPill}</div></div>`;
+  const po=packout(a);
+  // Evidence lines: six saturated green pills read as one green block; a hairline row
+  // with a single coloured operator scans far faster.
+  const ev=[]
+    .concat((a.pros||[]).slice(0,4).map(t=>({k:'pro',t})))
+    .concat((a.cons||[]).slice(0,3).map(t=>({k:'con',t})))
+    .map(e=>`<div class="ev" data-kind="${e.k}"><span class="op">${e.k==='pro'?'+':'!'}</span><span class="txt">${e.t}</span></div>`).join('');
+  return `<div class="card ${far?'dim':''}" data-rank="${a.rank}">
+    <div class="top"><div class="badge ${a.rank<=2?'top':''}">${a.rank}</div>
+      <div class="ttl">Area ${a.rank}</div><div class="val">${a.area_km2} km²</div></div>
+    <div class="metaline">${a.conf?confGauge(a.conf.score)+`<span>conf ${Math.round(a.conf.score*100)}%</span>`:''}
+      <span>${km(dr/1000)} to road</span><span>score ${a.huntability}</span></div>
+    ${a.access_flag?`<div class="callout" data-kind="${boat?'danger':'warn'}"><span class="mark">${boat?'✕':'!'}</span><div class="body">${a.access_flag}</div></div>`:''}
+    <div class="why">${(a.why||'').slice(0,190)}</div>
+    ${ev}
+    ${po?`<div class="ev" data-kind="con"><span class="op">⇈</span><span class="txt">${po.text}</span></div>`:''}
+  </div>`;
 }
 
 /* ---------------- drilldown (area detail) ---------------- */
@@ -483,124 +552,209 @@ function applyWind(){
   const src=map.getSource('sites'); if(src) src.setData(fc(window._sites));
   buildShooters();   // shooter sits downwind of the chosen day's wind
 }
+/* Moose activity is bimodal and light-triggered, but the afternoon peak sits ~1.5–2.5 h
+   BEFORE dusk (GAMM on 622 GPS-collared moose), not at last light — so "be in position
+   by early afternoon" is the actionable correction over the usual last-light advice. */
 function updateHour(h){
   const lbl=document.getElementById('hourlbl');
-  const sr=(DOC.grid&&6.3), ss=18.5;
-  let period='dawn', src='feed';
   const em=(DOC.behavior&&DOC.behavior.expected_midday)||{};
   const warm=(em.refuge_weight||0)>=0.5;
-  if(h<6.0){period='pre-dawn';src='feed';}
-  else if(h<9.0){period='first light — feeding';src='feed';}
-  else if(h<16.0){period=warm?'midday — thermal refuge':'midday — still feeding';src=warm?'midday_warm':'midday_cool';}
-  else if(h<20.5){period='last light — feeding';src='feed';}
-  else {period='night';src='feed';}
+  let period;
+  if(h<6.0) period='pre-dawn — bedded';
+  else if(h<9.0) period='first light — feeding peak';
+  else if(h<13.0) period=warm?'late morning — moving to shade':'late morning — loafing';
+  else if(h<16.5) period=(warm?'afternoon — thermal refuge; ':'')+'afternoon activity building (peak ~15:00–16:00)';
+  else if(h<19.0) period='evening — feeding peak';
+  else period='night — travel';
   if(lbl) lbl.textContent=`${Math.floor(h)}:${String(Math.round((h%1)*60)).padStart(2,'0')} · ${period}`;
-  if(HEAT.source!==src){ HEAT.source=src; updateHeat(); }
   updateThermal(h);
   const tl=document.getElementById('thermLbl');
   if(tl) tl.textContent=thermalRising(h)?'· ↑ upslope':'· ↓ downslope';
 }
 
-/* ---------------- legend (per-type show/hide) ---------------- */
-function buildLegend(){
-  const el=document.getElementById('legend');
-  let h='<b>Sites</b> <span class="s">(click to hide)</span>';
-  SITE_TYPES.forEach(t=>h+=`<div class="row tog" data-t="${t}"><i style="background:${COLORS[t]}"></i>${LABELS[t]}</div>`);
-  h+=`<div class="row tog" data-t="base_camp"><i style="background:${COLORS.base_camp}"></i>Base camp</div>`;
-  h+=`<div class="row tog" data-t="parking"><i style="background:${COLORS.parking}"></i>Vehicle staging</div>`;
-  h+='<div class="row s" style="color:#9fb;margin-top:4px">green ring = wind-right for the chosen day</div>';
-  el.innerHTML=h;
-  el.querySelectorAll('.tog').forEach(r=>r.onclick=()=>toggleType(r.dataset.t,r));
-}
-function toggleType(t,row){
-  hideTypes[t]=!hideTypes[t]; row.style.opacity=hideTypes[t]?0.4:1;
-  const vis=hideTypes[t]?'none':'visible';
-  if(t==='base_camp'){ ['camps'].forEach(l=>map.getLayer(l)&&map.setLayoutProperty(l,'visibility',vis)); return; }
-  if(t==='parking'){ map.getLayer('staging')&&map.setLayoutProperty('staging','visibility',vis); return; }
-  // site type: filter the sites layer
-  const active=SITE_TYPES.filter(x=>!hideTypes[x]);
-  map.setFilter('sites',['in',['get','type'],['literal',active]]);
-  if(t==='rut_calling') buildShooters();   // show/hide the paired shooters too
-}
+function buildLegend(){ /* the separate legend is gone — colour meaning now lives in
+  the layer rows themselves (each swatch previews how that layer actually draws), so
+  panel and map cannot drift apart. See LAYERS below. */ }
 
-/* ---------------- tools panel ---------------- */
+/* ---------------- layer catalogue -------------------------------------------
+   ONE array drives both the Layers card and the map. A row's swatch is a preview
+   of how the layer really renders (hatched chip for zones, stipple for browse, the
+   real dash for routes, the real glyph on its halo for point sites), which is why
+   there is no longer a separate legend to hold in your head.
+   `count` lets a row honestly report NO DATA instead of silently showing nothing. */
 function setVis(ids,on){(ids||[]).forEach(id=>map.getLayer(id)&&map.setLayoutProperty(id,'visibility',on?'visible':'none'));}
-const LYR_MAP={areas:['areas-fill','areas-line','area-badges'],sites:['sites'],camps2:['camps','staging'],
-  packin:['packin'],water:['lakes','lakes-line','rivers'],crossings:['crossings'],
-  roads:['roads','roads-case','rail','trans'],   // 'trans' = global roads overlay, always available regardless of analysis
-  boundaries:['boundaries'],   // provincial/state/national boundaries + places (map level, independent of analysis)
-  shooters:['shooters','shooters-label','shooterLines'],thermal:['thermal']};
-function buildTools(){
-  const t=document.getElementById('tools');       // Map / basemap only
-  const hp=document.getElementById('hunting');     // Hunting layers (zones + sites)
-  const grp=(title,html)=>`<div class="tgroup"><div class="tlabel">${title}</div><div class="tbody">${html}</div></div>`;
-  t.innerHTML =
-      `<div class="phead"><span class="ptitle">Basemap</span><button class="panelMin" title="Collapse">–</button></div>`
-    + `<div class="pbody">`
-    + grp('Map',
-      `<div class="chips">${BASEMAPS.map(b=>`<button data-base="${b}" class="${curBase===b?'on':''}">${BASE_LABEL[b]}</button>`).join('')}</div>
-       <button id="btn3d" class="wbtn">3D terrain</button>`)
-    + `</div>`;
-  hp.innerHTML =
-      `<div class="hhead"><span class="ptitle">Hunting layers</span><button class="panelMin" title="Collapse">–</button></div>`
-    + `<div class="pbody">`
-    + grp('Model zones',
-      `<label><input type="checkbox" data-hz="high" checked> <b style="color:${HUNT_CLS.high.c}">■</b> High likelihood</label>
-       <label><input type="checkbox" data-hz="medium" checked> <b style="color:${HUNT_CLS.medium.c}">■</b> Medium</label>
-       <label><input type="checkbox" data-hz="low" checked> <b style="color:${HUNT_CLS.low.c}">■</b> Low</label>
-       <label><input id="refugeOn" type="checkbox" checked> <b style="color:${REFUGE_COL}">▨</b> Thermal refuge</label>
-       <label><input id="funnelOn" type="checkbox" checked> <b style="color:${FUNNEL_COL}">▨</b> Funnels / passes</label>
-       <label><input id="browseOn" type="checkbox"> <b style="color:#22a884">▨</b> Browse / feeding</label>`)
-    + grp('Sites &amp; features',
-      `<label><input type="checkbox" data-lyr="sites" checked> Hunt sites (calling/glassing…)</label>
-       <label><input type="checkbox" data-lyr="camps2" checked> Camps &amp; staging</label>
-       <label><input type="checkbox" data-lyr="packin" checked> Pack-in routes</label>
-       <label><input type="checkbox" data-lyr="shooters" checked> Caller / shooter</label>
-       <label><input type="checkbox" data-lyr="areas" checked> Focus-area outlines</label>
-       <label><input type="checkbox" data-lyr="thermal"> Thermal drift <span class="s" id="thermLbl"></span></label>`)
-    + grp('Access &amp; hydro',
-      `<label><input type="checkbox" data-lyr="roads" checked> Roads &amp; rail</label>
-       <label><input type="checkbox" data-lyr="boundaries" checked> Borders &amp; places</label>
-       <label><input type="checkbox" data-lyr="water" checked> Rivers &amp; lakes</label>
-       <label><input type="checkbox" data-lyr="crossings" checked> River crossings</label>`)
-    + `</div>`;
+const LYR_MAP={areas:['areas-fill','areas-line','area-badges'],sites:['sites','sites-wind'],
+  camps2:['camps','staging'],routes:['route-access','route-best','route-hot'],
+  water:['lakes','lakes-line','rivers'],crossings:['crossings'],
+  roads:['roads','roads-case','rail','trans'],
+  boundaries:['boundaries'],
+  shooters:['shooters','shooters-label','shooterLines'],thermal:['thermal'],
+  huntZones:['huntZones','huntZones-line'],
+  refuge:['refugeZones','refugeZones-line'],
+  funnel:['funnelZones','funnelZones-line'],
+  browse:['browseZones','browseZones-line']};
 
-  // collapse each panel down to a small square (click the – / ☰ button)
-  [t,hp].forEach(pnl=>{const b=pnl.querySelector('.panelMin'); if(b) b.onclick=()=>{
-    const m=pnl.classList.toggle('mini'); b.textContent=m?'☰':'–'; b.title=m?'Expand':'Collapse';};});
-  t.querySelectorAll('[data-base]').forEach(b=>b.onclick=()=>switchBase(b.dataset.base));
-  let on3d=false;
-  document.getElementById('btn3d').onclick=e=>{on3d=!on3d;e.target.classList.toggle('on',on3d);
+const LAYERS=[
+ {group:'Model zones', rows:[
+   {k:'hz-high', kind:'zone', c:'var(--z-high)', name:'High likelihood', note:'Model score in the top band',
+    on:true, hz:'high', count:()=>(DOC.hunt_zones||[]).filter(z=>z.cls==='high').length},
+   {k:'hz-medium', kind:'zone', c:'var(--z-med)', name:'Medium', note:'Scored, second band',
+    on:true, hz:'medium', count:()=>(DOC.hunt_zones||[]).filter(z=>z.cls==='medium').length},
+   {k:'hz-low', kind:'zone', c:'var(--z-low)', name:'Low', note:'Scored but not prioritised',
+    on:true, hz:'low', count:()=>(DOC.hunt_zones||[]).filter(z=>z.cls==='low').length},
+   {k:'refuge', kind:'zone', c:'var(--thermal)', name:'Thermal refuge', note:'Cool midday bedding',
+    on:true, lyr:'refuge', count:()=>(DOC.refuge_zones||[]).length},
+   {k:'browse', kind:'stipple', c:'var(--browse)', name:'Browse / feeding',
+    note:'Regen & riparian forage — the food itself', on:false, lyr:'browse',
+    count:()=>(DOC.browse_zones||[]).length},
+   {k:'funnel', kind:'zone', c:'var(--z-med)', name:'Funnels / passes',
+    note:'Terrain pinch points — inferred from the DEM, weakly evidenced', on:false, lyr:'funnel',
+    count:()=>(DOC.funnel_zones||[]).length},
+ ]},
+ {group:'Sites & features', rows:[
+   {k:'sites', kind:'point', c:'var(--z-high)', glyph:'g-circle', name:'Hunt sites',
+    note:'Calling, feeding, glassing, ground-truth', on:true, lyr:'sites',
+    count:()=>(DOC.waypoints||[]).filter(w=>SITE_TYPES.includes(w.type)).length},
+   {k:'camps2', kind:'point', c:'var(--accent)', glyph:'g-gable', name:'Camps & staging',
+    note:'Where you sleep; where the truck sits', on:true, lyr:'camps2',
+    count:()=>(DOC.camps||[]).length},
+   {k:'shooters', kind:'point', c:'var(--z-low)', glyph:'g-diamond', name:'Caller / shooter',
+    note:'Shooter ~70 m downwind of the caller', on:true, lyr:'shooters'},
+   {k:'areas', kind:'outline', c:'var(--ref-outline)', name:'Focus-area outlines',
+    note:'Plan extent', on:true, lyr:'areas', count:()=>(DOC.areas||[]).length},
+   {k:'thermal', kind:'line', c:'var(--text-3)', dash:'dashed', name:'Thermal drift',
+    note:'Modelled slope airflow — an inference, not a measurement', on:false, lyr:'thermal'},
+ ]},
+ {group:'Access & hydro', rows:[
+   {k:'routes', kind:'line', c:'var(--z-high)', name:'Routes', note:'Access in, and the best line to hunt',
+    on:true, lyr:'routes', count:()=>(DOC.routes||[]).length},
+   {k:'roads', kind:'line', c:'var(--ref-outline)', name:'Roads & rail',
+    note:'Reference geography, not a model output', on:true, lyr:'roads'},
+   {k:'boundaries', kind:'outline', c:'var(--ref-outline)', name:'Borders & places',
+    note:'Reference geography', on:true, lyr:'boundaries'},
+   {k:'water', kind:'line', c:'var(--water-shore)', name:'Rivers & lakes',
+    note:'Mapped hydrography (OSM)', on:true, lyr:'water',
+    count:()=>((DOC.hydro||{}).rivers||[]).length},
+   {k:'crossings', kind:'point', c:'var(--saline)', glyph:'g-triangle', name:'River crossings',
+    note:'Red = needs a boat · amber = fordable', on:true, lyr:'crossings',
+    count:()=>(DOC.crossings||[]).length},
+ ]},
+];
+
+function lpHTML(r){
+  const st=`--c:${r.c}`;
+  if(r.kind==='zone')    return `<span class="lp lp--zone" style="${st}"><i></i></span>`;
+  if(r.kind==='stipple') return `<span class="lp lp--stipple" style="${st}"><i></i></span>`;
+  if(r.kind==='outline') return `<span class="lp lp--outline" style="${st}"></span>`;
+  if(r.kind==='line')    return `<span class="lp lp--line" style="${st};--dash:${r.dash||'solid'}"><i></i></span>`;
+  return `<span class="lp lp--point" style="${st}"><i class="${r.glyph||'g-circle'}"></i></span>`;
+}
+let showMeaning=true;
+function buildLayersDock(){
+  const d=document.getElementById('layersDock');
+  let h=`<div class="dhead"><h4>Hunting layers</h4><button class="dclose" title="Close">✕</button></div>
+    <div class="drow"><span class="t-micro">What each colour means</span>
+      <label class="sw"><input type="checkbox" id="meaningOn" ${showMeaning?'checked':''}><i></i></label></div>
+    <div class="dbody">`;
+  LAYERS.forEach(g=>{
+    const tot=g.rows.reduce((n,r)=>n+(r.count?(r.count()||0):0),0);
+    h+=`<div class="grouplabel">${g.group}<span class="ct">${tot||''}</span></div>`;
+    g.rows.forEach(r=>{
+      const n=r.count?r.count():null;
+      const nodata=(n===0);
+      h+=`<label class="layer-row" data-k="${r.k}" data-state="${nodata?'nodata':(r.on?'on':'off')}">
+        <input type="checkbox" ${r.on?'checked':''} ${nodata?'disabled':''}>
+        ${lpHTML(r)}
+        <span><span class="name">${r.name}</span>${showMeaning&&r.note?`<span class="note">${r.note}</span>`:''}</span>
+        <span class="count">${nodata?'NO DATA':(n!=null?n:'')}</span></label>`;
+    });
+  });
+  d.innerHTML=h+`</div>`;
+  d.querySelector('.dclose').onclick=()=>closeDocks();
+  d.querySelector('#meaningOn').onchange=e=>{showMeaning=e.target.checked;buildLayersDock();};
+  d.querySelectorAll('.layer-row').forEach(row=>{
+    const cb=row.querySelector('input'); if(cb.disabled) return;
+    cb.onchange=()=>{
+      const r=LAYERS.flatMap(g=>g.rows).find(x=>x.k===row.dataset.k); if(!r) return;
+      r.on=cb.checked; row.dataset.state=r.on?'on':'off';
+      if(r.hz) applyHuntZoneFilter();
+      else if(r.lyr){ setVis(LYR_MAP[r.lyr],r.on);
+        if(r.lyr==='browse') showBrowse=r.on;
+        if(r.lyr==='thermal'&&r.on){const hr=document.getElementById('hour');updateThermal(hr?+hr.value:12);} }
+    };
+  });
+}
+function applyHuntZoneFilter(){
+  const on=LAYERS[0].rows.filter(r=>r.hz&&r.on).map(r=>r.hz);
+  ['huntZones','huntZones-line'].forEach(id=>map.getLayer(id)&&
+    map.setFilter(id,['in',['get','cls'],['literal',on.length?on:['__none__']]]));
+}
+function buildBaseDock(){
+  const d=document.getElementById('baseDock');
+  d.innerHTML=`<div class="dhead"><h4>Basemap</h4><button class="dclose" title="Close">✕</button></div>
+    <div class="dbody" style="padding:12px">
+      <div class="seg" id="baseSeg">${BASEMAPS.map(b=>`<button data-base="${b}" ${curBase===b?'aria-pressed="true"':''}>${BASE_LABEL[b]}</button>`).join('')}</div>
+      <button id="btn3d" class="btn btn--secondary btn--block" style="margin-top:10px">3D terrain</button>
+    </div>`;
+  d.querySelector('.dclose').onclick=()=>closeDocks();
+  d.querySelectorAll('[data-base]').forEach(b=>b.onclick=()=>{switchBase(b.dataset.base);buildBaseDock();openDock('baseDock','railBase');});
+  let on3d=!!map.getTerrain;
+  d.querySelector('#btn3d').onclick=e=>{on3d=!on3d;e.target.classList.toggle('btn--primary',on3d);
     if(on3d){map.setTerrain({source:'dem',exaggeration:1.4});map.easeTo({pitch:60});}
     else{map.setTerrain(null);map.easeTo({pitch:0});}};
-  const applyHZ=()=>{const on=[...hp.querySelectorAll('[data-hz]')].filter(c=>c.checked).map(c=>c.dataset.hz);
-    map.setFilter('huntZones',['in',['get','cls'],['literal',on.length?on:['__none__']]]);
-    map.setFilter('huntZones-line',['in',['get','cls'],['literal',on.length?on:['__none__']]]);};
-  hp.querySelectorAll('[data-hz]').forEach(cb=>cb.onchange=applyHZ);
-  document.getElementById('refugeOn').onchange=e=>setVis(['refugeZones','refugeZones-line'],e.target.checked);
-  document.getElementById('funnelOn').onchange=e=>setVis(['funnelZones','funnelZones-line'],e.target.checked);
-  document.getElementById('browseOn').onchange=e=>{showBrowse=e.target.checked;setVis(['browseZones','browseZones-line'],showBrowse);};
-  hp.querySelectorAll('[data-lyr]').forEach(cb=>cb.onchange=()=>{
-    setVis(LYR_MAP[cb.dataset.lyr],cb.checked);
-    if(cb.dataset.lyr==='thermal'&&cb.checked){const hr=document.getElementById('hour');updateThermal(hr?+hr.value:12);}});
-  [t,hp].forEach(pnl=>pnl.querySelectorAll('.tgroup .tlabel').forEach(lbl=>lbl.onclick=()=>lbl.parentElement.classList.toggle('collapsed')));
+}
+/* A card must appear where you clicked — anchor it to the rail button that opened it. */
+function openDock(id,btnId){
+  closeDocks(id);
+  const d=document.getElementById(id), b=document.getElementById(btnId);
+  if(!d||!b) return;
+  const r=b.getBoundingClientRect();
+  d.style.top=Math.max(62,r.top-6)+'px';
+  d.style.right=(window.innerWidth-r.left+10)+'px';
+  d.classList.remove('hidden'); b.classList.add('on');
+}
+function closeDocks(except){
+  ['layersDock','baseDock'].forEach(id=>{ if(id===except) return;
+    const d=document.getElementById(id); if(d) d.classList.add('hidden'); });
+  ['railLayers','railBase'].forEach(id=>{const b=document.getElementById(id);
+    if(b && !(except&&((except==='layersDock'&&id==='railLayers')||(except==='baseDock'&&id==='railBase')))) b.classList.remove('on');});
+}
+function toggleDock(id,btnId){
+  const d=document.getElementById(id);
+  if(d && !d.classList.contains('hidden')) closeDocks(); else { if(id==='layersDock') buildLayersDock(); else buildBaseDock(); openDock(id,btnId); }
+}
 
-  setupDraw();          // annotation source/layers + map handlers (once)
-  buildDrawToolbar();   // the separate floating draw/measure strip
-}
-function buildDrawToolbar(){
-  const d=document.getElementById('drawtools'); if(!d) return;
-  d.innerHTML=`<div class="dt-title">TOOLS</div>
-    <button data-tool="dist" title="Measure distance">📏</button>
-    <button data-tool="area" title="Measure area">▱</button>
-    <button data-tool="line" title="Draw line">✎</button>
-    <button data-tool="route" title="Build route">➤</button>
-    <button data-tool="waypoint" title="Drop waypoint">📍</button>
-    <button id="drawClear" title="Clear drawings">✕</button>
-    <div class="dt-hint" id="drawhint"></div>`;
-  d.querySelectorAll('button[data-tool]').forEach(b=>b.onclick=()=>setDrawTool(b.dataset.tool));
+/* ---------------- right rail: persistent tools, transient cards ------------- */
+function buildTools(){
+  const rail=document.getElementById('rail');
+  rail.innerHTML=`
+    <button id="railLayers" data-tip="Hunting layers">▤</button>
+    <button id="railBase" data-tip="Basemap">◱</button>
+    <div class="sep"></div>
+    <button data-tool="dist" data-tip="Measure distance">↔</button>
+    <button data-tool="area" data-tip="Measure area">▱</button>
+    <button data-tool="line" data-tip="Draw line">✎</button>
+    <button data-tool="route" data-tip="Build route">➤</button>
+    <button data-tool="waypoint" data-tip="Drop waypoint">◉</button>
+    <button id="drawClear" data-tip="Clear drawings">✕</button>`;
+  document.getElementById('railLayers').onclick=()=>toggleDock('layersDock','railLayers');
+  document.getElementById('railBase').onclick=()=>toggleDock('baseDock','railBase');
+  rail.querySelectorAll('button[data-tool]').forEach(b=>b.onclick=()=>setDrawTool(b.dataset.tool));
   document.getElementById('drawClear').onclick=()=>{clearDraw();setDrawTool(null);};
+
+  const mc=document.getElementById('mapctl');
+  mc.innerHTML=`<button id="mcN" data-tip="North up">N</button>
+    <button id="mcIn">+</button><button id="mcOut">−</button>
+    <button id="mcSat">SAT</button>`;
+  document.getElementById('mcN').onclick=()=>map.easeTo({bearing:0,pitch:0});
+  document.getElementById('mcIn').onclick=()=>map.zoomIn();
+  document.getElementById('mcOut').onclick=()=>map.zoomOut();
+  document.getElementById('mcSat').onclick=()=>toggleDock('baseDock','railBase');
+
+  setupDraw();
+  buildLayersDock();
 }
+/* the draw/measure strip is now part of the persistent right rail (buildTools) */
 /* ---- OnX-style field tools: distance / line / area / route / waypoint ---- */
 let drawTool=null, drawPts=[], drawWpts=[], drawSaved=[];
 function polyKm(pts){let d=0;for(let i=1;i<pts.length;i++)d+=hav(pts[i-1],pts[i]);return d;}
@@ -657,8 +811,7 @@ function renderAnnot(){
 function setDrawTool(t){
   finishDraw();                         // commit any in-progress geometry
   drawTool=(drawTool===t)?null:t; drawPts=[];
-  document.querySelectorAll('#drawtools button[data-tool]').forEach(b=>b.classList.toggle('on',b.dataset.tool===drawTool));
-  const dtb=document.getElementById('drawtools'); if(dtb) dtb.classList.toggle('active',!!drawTool);
+  document.querySelectorAll('#rail button[data-tool]').forEach(b=>b.classList.toggle('on',b.dataset.tool===drawTool));
   map.getCanvas().style.cursor=drawTool?'crosshair':'';
   map.doubleClickZoom[drawTool?'disable':'enable']();
   const hint=document.getElementById('drawhint');
@@ -845,13 +998,14 @@ function applyDoc(newDoc){        // re-bind the whole map + panels to fresh eng
   setD('rivers',S.rivers); setD('lakes',S.lakes); setD('crossings',S.crossings); setD('infra',S.infra);
   setD('areas',S.areas); setD('areaLabels',S.areaLabels); setD('camps',S.camps);
   setD('staging',S.staging); setD('packin',fc(S.packin)); setD('sites',fc(window._sites));
+  setD('routes',S.routes);
   setVis(LYR_MAP.roads,true); setVis(LYR_MAP.boundaries,true);   // keep roads + borders visible after a recompute too
   window._aoi={huntZones:S.huntZones,browseZones:S.browseZones,rivers:S.rivers,lakes:S.lakes,
     refugeZones:S.refugeZones,funnelZones:S.funnelZones};
   Object.keys(AREA_DETAIL).forEach(k=>delete AREA_DETAIL[k]);   // deep detail is stale for a new AOI
   deepActive=null;
   try{buildThermal();}catch(e){} buildShooters();
-  buildPanel(); buildWeather(); buildLegend(); lastSel=1;
+  buildPanel(); buildWeather(); buildLayersDock(); lastSel=1;
   document.getElementById('subtitle').textContent=`${DOC.meta.title} · ${DOC.meta.species} · ${(DOC.meta.target_dates||[]).join(' – ')}`;
   const b=newDoc.box; if(b) map.fitBounds([[b.w,b.s],[b.e,b.n]],{padding:60});
 }
@@ -1026,11 +1180,12 @@ function exitDeep(){
 
 /* ---------------- tabs ---------------- */
 let curTab='overview', lastSel=1;
-// #tools (basemap info) is always visible; #hunting only where the map layers matter (overview/field)
-const TAB_SHOW={setup:{setup:1,tools:1},overview:{panel:1,tools:1,hunting:1,weather:1,legend:1},
-  field:{panel:1,tools:1,hunting:1,weather:1,legend:1},brief:{brief:1,tools:1}};
+// The rail is persistent (you reach for tools constantly); only the ledger and the
+// weather strip swap by step.
+const TAB_SHOW={setup:{setup:1},overview:{panel:1,weather:1},
+  field:{panel:1,weather:1},brief:{brief:1}};
 function setTab(name){
-  const ids=['panel','setup','brief','tools','hunting','weather','legend'];
+  const ids=['panel','setup','brief','weather'];
   const show=TAB_SHOW[name]||{};
   ids.forEach(id=>{const el=document.getElementById(id); if(el) el.classList.toggle('hidden',!show[id]);});
   document.querySelectorAll('#tabbar button').forEach(b=>b.classList.toggle('on',b.dataset.tab===name));
@@ -1050,6 +1205,19 @@ function setTab(name){
   setTimeout(()=>map.resize(),60);
 }
 function wireTabs(){ document.querySelectorAll('#tabbar button[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab)); }
+/* plan identity in the top bar: auto-named, renamable inline, with a saved state */
+let PLAN_NAME='', PLAN_SAVED=false;
+function planTitle(){
+  const t=(DOC.meta.title||'').trim(), sp=(DOC.meta.species||'').trim();
+  return (sp && !t.toLowerCase().includes(sp.toLowerCase())) ? `${t} — ${sp}` : t;
+}
+function setPlanName(n,saved){
+  PLAN_NAME=n; if(saved!=null) PLAN_SAVED=saved;
+  const el=document.getElementById('planName'), d=document.getElementById('saveDot');
+  if(el){ el.textContent=PLAN_NAME; el.title='Click to rename'; el.style.cursor='text';
+    el.onclick=()=>{ const v=prompt('Rename this plan',PLAN_NAME); if(v&&v.trim()) setPlanName(v.trim(),false); }; }
+  if(d){ d.dataset.s=PLAN_SAVED?'saved':'unsaved'; d.textContent=PLAN_SAVED?'SAVED':'UNSAVED'; }
+}
 
 /* ---------------- saved hunt plans (UUID + local storage) ----------------
    A plan captures your Setup, chosen area, and map drawings — saved under a UUID
