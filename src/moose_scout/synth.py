@@ -67,33 +67,44 @@ def extract_focus_areas(ctx, hunt, prof):
     # Smooth before region-growing: the raw 40 m surface is speckly, so a bare
     # threshold gives swiss-cheese. Smoothing yields cohesive focus-area blobs.
     hs = gaussian_filter(hfill, sigma=max(4, int(round(350 / res))))
-    thr = np.nanpercentile(hs, 75)
-
-    # exclude_border=False is critical: the default excludes a border of width
-    # =min_distance (here ~200 px), which on a smaller AOI falls right over the best
-    # ground and returns ZERO peaks → zero focus areas. synth crops its own 2 km
-    # border already, so the built-in exclusion is both redundant and harmful.
-    peaks = peak_local_max(hs, num_peaks=count,
-                           min_distance=max(3, int(round(8000 / res))),
-                           threshold_rel=0.3, exclude_border=False)
     radius_px = int(round(np.sqrt(max_km2 / np.pi) * 1000 / res))
     Y, X = np.ogrid[:hunt.shape[0], :hunt.shape[1]]
 
-    cands = []
-    for (pr, pc) in peaks:
-        near = (Y - pr) ** 2 + (X - pc) ** 2 <= radius_px ** 2
-        raw = near & np.isfinite(hunt) & (hs >= max(thr, float(hs[pr, pc]) * 0.82))
-        # Keep ONLY the connected component containing the peak, then close gaps &
-        # fill holes so the ring, its centroid, and its placed sites all agree.
-        lbl, _ = ndlabel(raw)
-        comp = lbl[pr, pc]
-        if comp == 0:
-            continue
-        sel = binary_fill_holes(binary_closing(lbl == comp, iterations=2))
-        area = int(sel.sum()) * px_area
-        if area < min_km2:
-            continue
-        cands.append((float(hs[pr, pc]), area, float(np.nanmean(hunt[sel])), sel))
+    def _find(thr_pct, thr_rel, gate_f, min_a):
+        thr = np.nanpercentile(hs, thr_pct)
+        # exclude_border=False is critical: the default excludes a border of width
+        # =min_distance (~200 px), which on a smaller AOI falls over the best ground
+        # and returns ZERO peaks. synth already crops its own 2 km border.
+        peaks = peak_local_max(hs, num_peaks=count,
+                               min_distance=max(3, int(round(8000 / res))),
+                               threshold_rel=thr_rel, exclude_border=False)
+        out = []
+        for (pr, pc) in peaks:
+            near = (Y - pr) ** 2 + (X - pc) ** 2 <= radius_px ** 2
+            raw = near & np.isfinite(hunt) & (hs >= max(thr, float(hs[pr, pc]) * gate_f))
+            # Keep ONLY the connected component containing the peak, then close gaps &
+            # fill holes so the ring, its centroid, and its placed sites all agree.
+            lbl, _ = ndlabel(raw)
+            comp = lbl[pr, pc]
+            if comp == 0:
+                continue
+            sel = binary_fill_holes(binary_closing(lbl == comp, iterations=2))
+            area = int(sel.sum()) * px_area
+            if area < min_a:
+                continue
+            out.append((float(hs[pr, pc]), area, float(np.nanmean(hunt[sel])), sel))
+        return out
+
+    # Normal pass, then progressively relax so we NEVER hand back zero areas when
+    # there's any huntable ground. E.g. a no-boat hunt where the best ground is
+    # water-locked still surfaces the least-bad reachable options (the access flags +
+    # 'a boat would unlock…' recommendation explain the trade-off) instead of an empty
+    # screen that reads as a failure.
+    cands = _find(75, 0.3, 0.82, min_km2)
+    if not cands:
+        cands = _find(60, 0.15, 0.6, max(1.0, min_km2 * 0.4))
+    if not cands:
+        cands = _find(40, 0.05, 0.4, 0.5)
     cands.sort(key=lambda t: t[2], reverse=True)   # rank by mean huntability
 
     feats = []
