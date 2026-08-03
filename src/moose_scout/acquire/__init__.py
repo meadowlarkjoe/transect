@@ -29,6 +29,14 @@ def run(ctx: Context) -> dict[str, str]:
             ox.settings.requests_timeout = 90
         except Exception:
             pass
+        # Don't subdivide the AOI into ~20+ sequential Overpass sub-queries (the
+        # "N times your configured max query area" warning) — that's the main reason
+        # acquire crawled for ~10 min. Fire-Lake-sized boxes are sparse; fetch them in
+        # one query. Raise the cap well above any AOI we build (radius ≤120 km).
+        try:
+            ox.settings.max_query_area_size = 5_000_000_000  # m² (5,000 km²)
+        except Exception:
+            pass
     except Exception:
         pass
 

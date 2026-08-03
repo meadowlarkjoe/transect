@@ -38,7 +38,10 @@ def _peaks(arr, n, min_dist_px):
     from skimage.feature import peak_local_max
 
     a = np.where(np.isfinite(arr), arr, 0)
-    pk = peak_local_max(a, num_peaks=n, min_distance=min_dist_px, threshold_rel=0.4)
+    # exclude_border=False: the default excludes a border of width=min_distance, which
+    # on smaller AOIs drops every peak (synth already crops its own 2 km border).
+    pk = peak_local_max(a, num_peaks=n, min_distance=min_dist_px, threshold_rel=0.4,
+                        exclude_border=False)
     return [tuple(p) for p in pk]
 
 
@@ -66,9 +69,13 @@ def extract_focus_areas(ctx, hunt, prof):
     hs = gaussian_filter(hfill, sigma=max(4, int(round(350 / res))))
     thr = np.nanpercentile(hs, 75)
 
+    # exclude_border=False is critical: the default excludes a border of width
+    # =min_distance (here ~200 px), which on a smaller AOI falls right over the best
+    # ground and returns ZERO peaks → zero focus areas. synth crops its own 2 km
+    # border already, so the built-in exclusion is both redundant and harmful.
     peaks = peak_local_max(hs, num_peaks=count,
                            min_distance=max(3, int(round(8000 / res))),
-                           threshold_rel=0.3)
+                           threshold_rel=0.3, exclude_border=False)
     radius_px = int(round(np.sqrt(max_km2 / np.pi) * 1000 / res))
     Y, X = np.ogrid[:hunt.shape[0], :hunt.shape[1]]
 

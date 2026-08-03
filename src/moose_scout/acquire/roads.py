@@ -63,8 +63,14 @@ def fetch(ctx: Context) -> None:
     except Exception:
         pass
 
-    g = _osm(ctx, DRIVE_TAGS)
-    g = g[g.geometry.type.isin(["LineString", "MultiLineString"])] if len(g) else g
+    # Roads themselves — guard like the other layers so a slow/failed Overpass query
+    # doesn't abort the whole fetch (was unguarded → a timeout here left NO roads.gpkg
+    # and NO roads.tif, so the contract's infra came back empty).
+    try:
+        g = _osm(ctx, DRIVE_TAGS)
+        g = g[g.geometry.type.isin(["LineString", "MultiLineString"])] if len(g) else g
+    except Exception:
+        g = None
     dst_crs, transform, w, h = target_grid(ctx)
     if g is not None and len(g):
         g[["geometry"]].reset_index(drop=True).to_file(cache / "roads.gpkg", driver="GPKG")
