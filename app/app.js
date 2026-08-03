@@ -257,8 +257,8 @@ function init(){
   map.addSource('thermal',{type:'geojson',data:fc([])});
   map.addLayer({id:'thermal',type:'symbol',source:'thermal',
     layout:{visibility:'none','icon-image':'thermal-arrow','icon-rotate':['get','brg'],
-      'icon-size':0.55,'icon-allow-overlap':true,'icon-rotation-alignment':'map'},
-    paint:{'icon-opacity':0.85}});
+      'icon-size':['interpolate',['linear'],['zoom'],8,0.6,11,0.9,14,1.3],'icon-allow-overlap':true,'icon-rotation-alignment':'map'},
+    paint:{'icon-opacity':0.9}});
   // caller/shooter pairs: the shooter sets up ~70 m downwind of each calling
   // station, because a bull circles downwind to scent-check before showing.
   map.addSource('shooterLines',{type:'geojson',data:fc([])});
@@ -266,16 +266,17 @@ function init(){
   map.addLayer({id:'shooterLines',type:'line',source:'shooterLines',
     paint:{'line-color':'#e6e9e3','line-width':1.2,'line-dasharray':[2,2],'line-opacity':0.85}});
   map.addLayer({id:'shooters',type:'circle',source:'shooters',
-    paint:{'circle-radius':4,'circle-color':'#0b0f0d','circle-stroke-color':'#e6e9e3','circle-stroke-width':2}});
-  map.addLayer({id:'shooters-label',type:'symbol',source:'shooters',minzoom:11,
-    layout:{'text-field':'SHOOTER','text-size':9,'text-offset':[0,-1.3],'text-font':['Open Sans Bold'],'text-allow-overlap':true},
+    paint:{'circle-radius':['interpolate',['linear'],['zoom'],9,4,12,7,15,10],'circle-color':'#0b0f0d','circle-stroke-color':'#e6e9e3','circle-stroke-width':2.2}});
+  map.addLayer({id:'shooters-label',type:'symbol',source:'shooters',minzoom:10,
+    layout:{'text-field':'SHOOTER','text-size':10,'text-offset':[0,-1.4],'text-font':['Open Sans Bold'],'text-allow-overlap':true},
     paint:{'text-color':'#e6e9e3','text-halo-color':'#0b0f0d','text-halo-width':1.5}});
+  const SITE_SZ=['interpolate',['linear'],['zoom'],8,0.7,11,1.05,13,1.45,15,1.9];
   map.addLayer({id:'sites',type:'symbol',source:'sites',
-    layout:{'icon-image':['get','type'],'icon-size':0.55,'icon-allow-overlap':true}});
+    layout:{'icon-image':['get','type'],'icon-size':SITE_SZ,'icon-allow-overlap':true}});
   map.addLayer({id:'staging',type:'symbol',source:'staging',
-    layout:{'icon-image':'parking','icon-size':0.62,'icon-allow-overlap':true}});
+    layout:{'icon-image':'parking','icon-size':['interpolate',['linear'],['zoom'],8,0.8,11,1.15,15,2],'icon-allow-overlap':true}});
   map.addLayer({id:'camps',type:'symbol',source:'camps',
-    layout:{'icon-image':'base_camp','icon-size':0.7,'icon-allow-overlap':true,
+    layout:{'icon-image':'base_camp','icon-size':['interpolate',['linear'],['zoom'],8,0.9,11,1.25,15,2],'icon-allow-overlap':true,
       'text-field':['get','id'],'text-offset':[0,1.4],'text-size':12,'text-font':['Open Sans Bold']},
     paint:{'text-color':'#e6c98a','text-halo-color':'#0b0f0d','text-halo-width':1.5}});
   map.addLayer({id:'area-badges',type:'symbol',source:'areaLabels',
@@ -362,7 +363,8 @@ function areaCard(a){
 /* ---------------- drilldown (area detail) ---------------- */
 function selectArea(rank){
   const a=DOC.areas.find(x=>x.rank===rank); if(!a)return;
-  setTab('overview');
+  lastSel=rank;
+  if(curTab==='setup'||curTab==='brief') setTab('overview');   // stay on field/overview otherwise
   document.getElementById('list').classList.add('hidden');
   document.getElementById('method').classList.add('hidden');
   const d=document.getElementById('detail'); d.classList.remove('hidden');
@@ -752,8 +754,9 @@ function renderBrief(){
 }
 
 /* ---------------- tabs ---------------- */
+let curTab='overview', lastSel=1;
 const TAB_SHOW={setup:{setup:1},overview:{panel:1,tools:1,weather:1,legend:1},
-  field:{tools:1,weather:1,legend:1},brief:{brief:1}};
+  field:{panel:1,tools:1,weather:1,legend:1},brief:{brief:1}};
 function setTab(name){
   const ids=['panel','setup','brief','tools','weather','legend'];
   const show=TAB_SHOW[name]||{};
@@ -763,6 +766,9 @@ function setTab(name){
   // cover the map or intercept zone clicks.
   const dv=(name==='setup')?'visible':'none';
   ['draft-fill','draft-line'].forEach(id=>map.getLayer&&map.getLayer(id)&&map.setLayoutProperty(id,'visibility',dv));
+  curTab=name;
+  // Field = the per-area field plan (day-by-hour detail). Open one if none is up.
+  if(name==='field' && document.getElementById('detail').classList.contains('hidden')) selectArea(lastSel);
   setTimeout(()=>map.resize(),60);
 }
 function wireTabs(){ document.querySelectorAll('#tabbar button').forEach(b=>b.onclick=()=>setTab(b.dataset.tab)); }

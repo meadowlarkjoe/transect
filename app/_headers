@@ -1,0 +1,6 @@
+/app.js
+  Cache-Control: no-cache
+/data.js
+  Cache-Control: no-cache
+/style.css
+  Cache-Control: no-cache
