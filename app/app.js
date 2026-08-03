@@ -353,6 +353,7 @@ function init(){
 
   buildShooters(); buildThermal();
   buildPanel(); buildWeather(); buildLegend(); buildTools();
+  setVis(LYR_MAP.roads,true);   // roads on by default in every view
   renderSetup(); renderBrief(); wireTabs(); initPlans(); initExport(); setTab('overview');
   map.fitBounds(bbox(DOC.areas),{padding:{top:80,left:400,right:200,bottom:120}});
 }
@@ -519,11 +520,16 @@ function buildTools(){
   const t=document.getElementById('tools');       // Map / basemap only
   const hp=document.getElementById('hunting');     // Hunting layers (zones + sites)
   const grp=(title,html)=>`<div class="tgroup"><div class="tlabel">${title}</div><div class="tbody">${html}</div></div>`;
-  t.innerHTML = grp('Map',
+  t.innerHTML =
+      `<div class="phead"><span class="ptitle">Basemap</span><button class="panelMin" title="Collapse">–</button></div>`
+    + `<div class="pbody">`
+    + grp('Map',
       `<div class="chips">${BASEMAPS.map(b=>`<button data-base="${b}" class="${curBase===b?'on':''}">${BASE_LABEL[b]}</button>`).join('')}</div>
-       <button id="btn3d" class="wbtn">3D terrain</button>`);
+       <button id="btn3d" class="wbtn">3D terrain</button>`)
+    + `</div>`;
   hp.innerHTML =
-      `<div class="hhead">Hunting layers</div>`
+      `<div class="hhead"><span class="ptitle">Hunting layers</span><button class="panelMin" title="Collapse">–</button></div>`
+    + `<div class="pbody">`
     + grp('Model zones',
       `<label><input type="checkbox" data-hz="high" checked> <b style="color:${HUNT_CLS.high.c}">■</b> High likelihood</label>
        <label><input type="checkbox" data-hz="medium" checked> <b style="color:${HUNT_CLS.medium.c}">■</b> Medium</label>
@@ -541,8 +547,12 @@ function buildTools(){
     + grp('Access &amp; hydro',
       `<label><input type="checkbox" data-lyr="roads" checked> Roads &amp; rail</label>
        <label><input type="checkbox" data-lyr="water" checked> Rivers &amp; lakes</label>
-       <label><input type="checkbox" data-lyr="crossings" checked> River crossings</label>`);
+       <label><input type="checkbox" data-lyr="crossings" checked> River crossings</label>`)
+    + `</div>`;
 
+  // collapse each panel down to a small square (click the – / ☰ button)
+  [t,hp].forEach(pnl=>{const b=pnl.querySelector('.panelMin'); if(b) b.onclick=()=>{
+    const m=pnl.classList.toggle('mini'); b.textContent=m?'☰':'–'; b.title=m?'Expand':'Collapse';};});
   t.querySelectorAll('[data-base]').forEach(b=>b.onclick=()=>switchBase(b.dataset.base));
   let on3d=false;
   document.getElementById('btn3d').onclick=e=>{on3d=!on3d;e.target.classList.toggle('on',on3d);
@@ -820,6 +830,7 @@ function applyDoc(newDoc){        // re-bind the whole map + panels to fresh eng
   setD('rivers',S.rivers); setD('lakes',S.lakes); setD('crossings',S.crossings); setD('infra',S.infra);
   setD('areas',S.areas); setD('areaLabels',S.areaLabels); setD('camps',S.camps);
   setD('staging',S.staging); setD('packin',fc(S.packin)); setD('sites',fc(window._sites));
+  setVis(LYR_MAP.roads,true);   // keep roads visible after a recompute too
   window._aoi={huntZones:S.huntZones,browseZones:S.browseZones,rivers:S.rivers,lakes:S.lakes,
     refugeZones:S.refugeZones,funnelZones:S.funnelZones};
   Object.keys(AREA_DETAIL).forEach(k=>delete AREA_DETAIL[k]);   // deep detail is stale for a new AOI
@@ -982,10 +993,11 @@ function exitDeep(){
 
 /* ---------------- tabs ---------------- */
 let curTab='overview', lastSel=1;
-const TAB_SHOW={setup:{setup:1},overview:{panel:1,tools:1,weather:1,legend:1},
-  field:{panel:1,tools:1,weather:1,legend:1},brief:{brief:1}};
+// #tools (basemap info) is always visible; #hunting only where the map layers matter (overview/field)
+const TAB_SHOW={setup:{setup:1,tools:1},overview:{panel:1,tools:1,hunting:1,weather:1,legend:1},
+  field:{panel:1,tools:1,hunting:1,weather:1,legend:1},brief:{brief:1,tools:1}};
 function setTab(name){
-  const ids=['panel','setup','brief','tools','weather','legend'];
+  const ids=['panel','setup','brief','tools','hunting','weather','legend'];
   const show=TAB_SHOW[name]||{};
   ids.forEach(id=>{const el=document.getElementById(id); if(el) el.classList.toggle('hidden',!show[id]);});
   document.querySelectorAll('#tabbar button').forEach(b=>b.classList.toggle('on',b.dataset.tab===name));
