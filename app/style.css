@@ -132,3 +132,24 @@ details summary{cursor:pointer;color:var(--muted);font-size:12px;margin-top:4px}
 .radii.wide button{width:100%}
 .card.dim{opacity:0.5}
 #hsNote{margin-top:6px;color:var(--muted);font-size:11px}
+
+/* collapsible tool groups + scrollable tools panel */
+#tools{max-height:calc(100vh - 76px);overflow-y:auto}
+.tgroup .tlabel{cursor:pointer;user-select:none;display:flex;justify-content:space-between;align-items:center}
+.tgroup .tlabel::after{content:'▾';color:#6a746c;font-size:10px}
+.tgroup.collapsed .tlabel::after{content:'▸'}
+.tgroup.collapsed > :not(.tlabel){display:none !important}
+/* onx-style draw toolbar */
+#drawbar{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
+#drawbar button{flex:1 1 auto;min-width:46px;padding:6px 4px;background:#20272b;color:var(--text);
+  border:1px solid var(--line);border-radius:8px;cursor:pointer;font-size:11px}
+#drawbar button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.drawhint{color:var(--muted);font-size:10.5px;margin-top:4px;line-height:1.4}
+/* brief area picker */
+.briefpick{background:#20272b;color:var(--text);border:1px solid var(--line);border-radius:8px;
+  padding:5px 10px;cursor:pointer;font-size:12px}
+.briefpick.on{background:var(--accent);border-color:var(--accent);color:#fff}
+/* deep-analysis badge */
+#deepBadge{position:absolute;top:60px;left:50%;transform:translateX(-50%);z-index:9;
+  background:#2a1618;color:#ffcdd0;border:1px solid var(--accent);border-radius:20px;
+  padding:5px 14px;font-size:12px;font-weight:600;box-shadow:0 4px 16px #0009;pointer-events:none}

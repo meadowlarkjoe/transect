@@ -353,6 +353,17 @@ def build(ctx: Context) -> dict:
         doc["browse_zones"] = _browse_zones(ctx, cache)
     except Exception:
         doc["browse_zones"] = []
+    # thermal refuge (cool-conifer bedding) and funnels are AREAS, not points.
+    try:
+        doc["refuge_zones"] = _polygonize(ctx, cache, "hsm_thermal.tif",
+                                          [("refuge", 0.5)], min_km2=0.5, smooth_m=200, per_class=10)
+    except Exception:
+        doc["refuge_zones"] = []
+    try:
+        doc["funnel_zones"] = _polygonize(ctx, cache, "terrain/funnel.tif",
+                                          [("funnel", 0.4)], min_km2=0.06, smooth_m=90, per_class=18)
+    except Exception:
+        doc["funnel_zones"] = []
 
     # --- exact vector hydrography (OSM) — narrow rivers the raster misses, for
     # crisp display + route river-crossing detection. ---

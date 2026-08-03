@@ -31,8 +31,12 @@ const SHAPE = {
   rut_calling:'circle', thermal_refuge:'ring', saline_blind:'square', funnel:'bowtie',
   glassing:'triangle', validate_ground:'diamond', base_camp:'tent', parking:'flag'
 };
-// Sites we render (base_camp/parking handled separately as camp + staging)
-const SITE_TYPES = ['rut_calling','thermal_refuge','saline_blind','funnel','glassing','validate_ground'];
+// Sites = POINT features. thermal_refuge + funnel are AREAS now (zones), not points.
+const SITE_TYPES = ['rut_calling','saline_blind','glassing','validate_ground'];
+const REFUGE_COL='#c94fa4', FUNNEL_COL='#e08a24';
+const ZONE_WHY={
+  refuge:'Thermal-refuge bedding — cool mature conifer / north aspect near water. Where a bull holds through a warm midday. Hunt the shade, approach from above/downwind.',
+  funnel:'Terrain funnel / pass — a pinch point that concentrates travelling bulls between cover and feed. Sit downwind of the throat during movement windows.'};
 // Huntability likelihood classes (defined zones, not heat) — red = best.
 const HUNT_CLS = {high:{c:'#e2231a',label:'High likelihood'},medium:{c:'#ff8c00',label:'Medium likelihood'},low:{c:'#f2d02a',label:'Low likelihood'}};
 const HUNT_WHY = {
@@ -199,14 +203,19 @@ function buildSources(){
     properties:{cls:z.cls,area_km2:z.area_km2}})));
   const browseZones=fc((DOC.browse_zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},
     properties:{type:z.type,what:z.what,when:z.when,area_km2:z.area_km2}})));
-  return {areas,areaLabels,camps,staging,packin,rivers,lakes,crossings,huntZones,browseZones};
+  const zFC=(zones)=>fc((zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},properties:{area_km2:z.area_km2}})));
+  const refugeZones=zFC(DOC.refuge_zones), funnelZones=zFC(DOC.funnel_zones);
+  return {areas,areaLabels,camps,staging,packin,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones};
 }
 
 function init(){
   document.getElementById('subtitle').textContent =
     `${DOC.meta.title} · ${DOC.meta.species} · ${DOC.meta.target_dates.join(' – ')}`;
+  if(!document.getElementById('deepBadge')){const b=document.createElement('div');b.id='deepBadge';b.style.display='none';document.body.appendChild(b);}
   addIcons();
   const S=buildSources();
+  window._aoi={huntZones:S.huntZones,browseZones:S.browseZones,rivers:S.rivers,lakes:S.lakes,
+    refugeZones:S.refugeZones,funnelZones:S.funnelZones};
 
   // classified suitability zones (defined areas, not heat) — clickable for rationale
   map.addSource('huntZones',{type:'geojson',data:S.huntZones});
@@ -225,6 +234,13 @@ function init(){
     layout:{visibility:'none'},paint:{'fill-color':brCol,'fill-opacity':0.4}});
   map.addLayer({id:'browseZones-line',type:'line',source:'browseZones',
     layout:{visibility:'none'},paint:{'line-color':brCol,'line-width':1.2,'line-opacity':0.9,'line-dasharray':[2,1]}});
+  // thermal refuge + funnel ZONES (areas, not points)
+  map.addSource('refugeZones',{type:'geojson',data:S.refugeZones});
+  map.addSource('funnelZones',{type:'geojson',data:S.funnelZones});
+  map.addLayer({id:'refugeZones',type:'fill',source:'refugeZones',paint:{'fill-color':REFUGE_COL,'fill-opacity':0.28}});
+  map.addLayer({id:'refugeZones-line',type:'line',source:'refugeZones',paint:{'line-color':REFUGE_COL,'line-width':1.3,'line-opacity':0.9,'line-dasharray':[4,2]}});
+  map.addLayer({id:'funnelZones',type:'fill',source:'funnelZones',paint:{'fill-color':FUNNEL_COL,'fill-opacity':0.3}});
+  map.addLayer({id:'funnelZones-line',type:'line',source:'funnelZones',paint:{'line-color':FUNNEL_COL,'line-width':1.4,'line-opacity':0.95}});
 
   map.addSource('lakes',{type:'geojson',data:S.lakes});
   map.addSource('rivers',{type:'geojson',data:S.rivers});
@@ -295,7 +311,11 @@ function init(){
   map.on('click','browseZones',e=>{ const p=e.features[0].properties;
     new maplibregl.Popup().setLngLat(e.lngLat)
       .setHTML(`<h4>${p.type} · ${p.area_km2} km²</h4><div class="s">${p.what}</div><div class="s" style="margin-top:4px"><b>When:</b> ${p.when}</div>`).addTo(map);});
-  ['huntZones','browseZones'].forEach(l=>{map.on('mouseenter',l,()=>map.getCanvas().style.cursor='pointer');map.on('mouseleave',l,()=>map.getCanvas().style.cursor='');});
+  map.on('click','refugeZones',e=>{ new maplibregl.Popup().setLngLat(e.lngLat)
+    .setHTML(`<h4><span style="color:${REFUGE_COL}">▨</span> Thermal refuge · ${e.features[0].properties.area_km2} km²</h4><div class="s">${ZONE_WHY.refuge}</div>`).addTo(map);});
+  map.on('click','funnelZones',e=>{ new maplibregl.Popup().setLngLat(e.lngLat)
+    .setHTML(`<h4><span style="color:${FUNNEL_COL}">▨</span> Funnel / pass · ${e.features[0].properties.area_km2} km²</h4><div class="s">${ZONE_WHY.funnel}</div>`).addTo(map);});
+  ['huntZones','browseZones','refugeZones','funnelZones'].forEach(l=>{map.on('mouseenter',l,()=>map.getCanvas().style.cursor='pointer');map.on('mouseleave',l,()=>map.getCanvas().style.cursor='');});
   map.on('click','crossings',e=>{ const p=e.features[0].properties;
     const river=p.kind==='river', noBoat=SETUP.watercraft==='none';
     const msg = river ? (noBoat
@@ -365,6 +385,7 @@ function selectArea(rank){
   const a=DOC.areas.find(x=>x.rank===rank); if(!a)return;
   lastSel=rank;
   if(curTab==='setup'||curTab==='brief') setTab('overview');   // stay on field/overview otherwise
+  if(curTab==='field') enterDeep(rank);                        // switch the deep re-analysis too
   document.getElementById('list').classList.add('hidden');
   document.getElementById('method').classList.add('hidden');
   const d=document.getElementById('detail'); d.classList.remove('hidden');
@@ -483,7 +504,23 @@ function buildTools(){
   document.getElementById('btn3d').onclick=e=>{on3d=!on3d;e.target.classList.toggle('on',on3d);
     if(on3d){map.setTerrain({source:'dem',exaggeration:1.4});map.easeTo({pitch:60});}
     else{map.setTerrain(null);map.easeTo({pitch:0});}};
-  wireMeasure();
+  setupDraw();
+  // OnX-style field tools group
+  const toolg=document.createElement('div'); toolg.className='tgroup';
+  toolg.innerHTML=`<div class="tlabel">Field tools</div>
+    <div id="drawbar">
+      <button data-tool="dist">📏 Distance</button>
+      <button data-tool="area">▱ Area</button>
+      <button data-tool="line">✎ Line</button>
+      <button data-tool="route">➤ Route</button>
+      <button data-tool="waypoint">📍 Waypoint</button>
+      <button id="drawClear">✕ Clear</button>
+    </div>
+    <div class="drawhint" id="drawhint"></div>`;
+  t.appendChild(toolg);
+  toolg.querySelectorAll('#drawbar button[data-tool]').forEach(b=>b.onclick=()=>setDrawTool(b.dataset.tool));
+  document.getElementById('drawClear').onclick=()=>{clearDraw();setDrawTool(drawTool);};
+  const oldMeasure=document.getElementById('btnmeasure'); if(oldMeasure){oldMeasure.style.display='none';}
   // extra controls injected under Layers
   const extra=document.createElement('div'); extra.className='tgroup';
   extra.innerHTML=`
@@ -491,8 +528,12 @@ function buildTools(){
     <label><input type="checkbox" data-hz="high" checked> <b style="color:${HUNT_CLS.high.c}">■</b> High likelihood</label>
     <label><input type="checkbox" data-hz="medium" checked> <b style="color:${HUNT_CLS.medium.c}">■</b> Medium</label>
     <label><input type="checkbox" data-hz="low" checked> <b style="color:${HUNT_CLS.low.c}">■</b> Low</label>
-    <label style="margin-top:7px"><input id="browseOn" type="checkbox"> Browse / feeding zones</label>`;
+    <label style="margin-top:7px"><input id="browseOn" type="checkbox"> <b style="color:#22a884">▨</b> Browse / feeding zones</label>
+    <label><input id="refugeOn" type="checkbox" checked> <b style="color:${REFUGE_COL}">▨</b> Thermal refuge zones</label>
+    <label><input id="funnelOn" type="checkbox" checked> <b style="color:${FUNNEL_COL}">▨</b> Funnel / pass zones</label>`;
   t.appendChild(extra);
+  document.getElementById('refugeOn').onchange=e=>{const v=e.target.checked?'visible':'none';['refugeZones','refugeZones-line'].forEach(id=>map.setLayoutProperty(id,'visibility',v));};
+  document.getElementById('funnelOn').onchange=e=>{const v=e.target.checked?'visible':'none';['funnelZones','funnelZones-line'].forEach(id=>map.setLayoutProperty(id,'visibility',v));};
   const applyHZ=()=>{const on=[...extra.querySelectorAll('[data-hz]')].filter(c=>c.checked).map(c=>c.dataset.hz);
     map.setFilter('huntZones',['in',['get','cls'],['literal',on.length?on:['__none__']]]);
     map.setFilter('huntZones-line',['in',['get','cls'],['literal',on.length?on:['__none__']]]);};
@@ -516,18 +557,76 @@ function buildTools(){
       shooters:['shooters','shooters-label','shooterLines'],thermal:['thermal']})[cb.dataset.lyr]
       .forEach(id=>map.getLayer(id)&&map.setLayoutProperty(id,'visibility',vis));
     if(cb.dataset.lyr==='thermal'&&cb.checked){const hr=document.getElementById('hour');updateThermal(hr?+hr.value:12);}});
+  // make every labelled tool group collapsible (click the header)
+  t.querySelectorAll('.tgroup').forEach(g=>{const lbl=g.querySelector('.tlabel');
+    if(lbl) lbl.onclick=()=>g.classList.toggle('collapsed');});
 }
-function wireMeasure(){
-  const btn=document.getElementById('btnmeasure');let on=false,pts=[];
-  map.addSource('measure',{type:'geojson',data:fc([])});
-  map.addLayer({id:'measure-line',type:'line',source:'measure',paint:{'line-color':'#fff','line-width':2,'line-dasharray':[1,1]}});
-  const label=new maplibregl.Popup({closeButton:false,closeOnClick:false});
-  btn.onclick=()=>{on=!on;btn.classList.toggle('on',on);if(!on){pts=[];map.getSource('measure').setData(fc([]));label.remove();}};
-  map.on('click',e=>{if(!on)return;pts.push([e.lngLat.lng,e.lngLat.lat]);
-    map.getSource('measure').setData(fc([{type:'Feature',geometry:{type:'LineString',coordinates:pts}}]));
-    let d=0;for(let i=1;i<pts.length;i++)d+=hav(pts[i-1],pts[i]);
-    if(pts.length>1)label.setLngLat(e.lngLat).setHTML(`<b>${km(d)}</b>`).addTo(map);});
+/* ---- OnX-style field tools: distance / line / area / route / waypoint ---- */
+let drawTool=null, drawPts=[], drawWpts=[], drawSaved=[];
+function polyKm(pts){let d=0;for(let i=1;i<pts.length;i++)d+=hav(pts[i-1],pts[i]);return d;}
+function ringKm2(ring){ // spherical polygon area
+  if(ring.length<3)return 0; const R=6371,d2r=Math.PI/180; let s=0;
+  for(let i=0;i<ring.length;i++){const p=ring[i],q=ring[(i+1)%ring.length];
+    s+=(q[0]-p[0])*d2r*(2+Math.sin(p[1]*d2r)+Math.sin(q[1]*d2r));}
+  return Math.abs(s*R*R/2);
 }
+function areaFmt(km2){ return UNITS==='imperial'?(km2*0.386102).toFixed(2)+' mi²':km2.toFixed(2)+' km²'; }
+function setupDraw(){
+  map.addSource('annot',{type:'geojson',data:fc([])});
+  map.addLayer({id:'annot-fill',type:'fill',source:'annot',filter:['==','$type','Polygon'],
+    paint:{'fill-color':'#f0c069','fill-opacity':0.18}});
+  map.addLayer({id:'annot-line',type:'line',source:'annot',filter:['!=','$type','Point'],
+    paint:{'line-color':'#fff','line-width':2.2,'line-dasharray':[2,1.5]}});
+  map.addLayer({id:'annot-pt',type:'circle',source:'annot',filter:['==','$type','Point'],
+    paint:{'circle-radius':5,'circle-color':'#f0c069','circle-stroke-color':'#0b0f0d','circle-stroke-width':2}});
+  map.addLayer({id:'annot-label',type:'symbol',source:'annot',filter:['has','label'],
+    layout:{'text-field':['get','label'],'text-size':12,'text-offset':[0,-1.2],'text-font':['Open Sans Bold'],'text-allow-overlap':true},
+    paint:{'text-color':'#ffe6a8','text-halo-color':'#0b0f0d','text-halo-width':2}});
+  map.on('click',onDrawClick);
+  map.on('dblclick',e=>{ if(drawTool&&drawTool!=='waypoint'){ e.preventDefault(); finishDraw(); } });
+}
+function onDrawClick(e){
+  if(!drawTool) return;
+  const ll=[e.lngLat.lng,e.lngLat.lat];
+  if(drawTool==='waypoint'){ drawSaved.push({type:'Feature',geometry:{type:'Point',coordinates:ll},
+      properties:{label:'WP'+(drawSaved.filter(f=>f.geometry.type==='Point').length+1)}}); renderAnnot(); return; }
+  drawPts.push(ll); renderAnnot();
+}
+function finishDraw(){
+  if(drawPts.length>=2){
+    if(drawTool==='area'){ const ring=drawPts.concat([drawPts[0]]);
+      drawSaved.push({type:'Feature',geometry:{type:'Polygon',coordinates:[ring]},properties:{label:areaFmt(ringKm2(drawPts))}});}
+    else { drawSaved.push({type:'Feature',geometry:{type:'LineString',coordinates:drawPts.slice()},
+      properties:{label:(drawTool==='route'?'Route ':'')+km(polyKm(drawPts))}});}
+  }
+  drawPts=[]; renderAnnot();
+}
+function renderAnnot(){
+  const feats=drawSaved.slice();
+  if(drawPts.length){
+    const isArea=drawTool==='area';
+    const geom=isArea&&drawPts.length>=3?{type:'Polygon',coordinates:[drawPts.concat([drawPts[0]])]}
+      :{type:'LineString',coordinates:drawPts};
+    const lab=isArea?(drawPts.length>=3?areaFmt(ringKm2(drawPts)):'')
+      :(drawPts.length>=2?km(polyKm(drawPts)):'');
+    feats.push({type:'Feature',geometry:geom,properties:lab?{label:lab}:{}});
+    drawPts.forEach(p=>feats.push({type:'Feature',geometry:{type:'Point',coordinates:p},properties:{}}));
+  }
+  map.getSource('annot').setData(fc(feats));
+}
+function setDrawTool(t){
+  finishDraw();                         // commit any in-progress geometry
+  drawTool=(drawTool===t)?null:t; drawPts=[];
+  document.querySelectorAll('#drawbar button').forEach(b=>b.classList.toggle('on',b.dataset.tool===drawTool));
+  map.getCanvas().style.cursor=drawTool?'crosshair':'';
+  map.doubleClickZoom[drawTool?'disable':'enable']();
+  const hint=document.getElementById('drawhint');
+  if(hint) hint.textContent=drawTool?({dist:'Click points; double-click to finish. Shows distance.',
+    line:'Click points; double-click to finish a line.',route:'Click waypoints; double-click to finish the route.',
+    area:'Click a boundary; double-click to close. Shows area.',waypoint:'Click to drop waypoints.'})[drawTool]:'';
+  renderAnnot();
+}
+function clearDraw(){ drawSaved=[]; drawPts=[]; if(map.getSource('annot')) map.getSource('annot').setData(fc([])); }
 function destPoint(lon,lat,brgDeg,km){const R=6371,d2r=Math.PI/180,br=brgDeg*d2r,la1=lat*d2r,lo1=lon*d2r;
   const la2=Math.asin(Math.sin(la1)*Math.cos(km/R)+Math.cos(la1)*Math.sin(km/R)*Math.cos(br));
   const lo2=lo1+Math.atan2(Math.sin(br)*Math.sin(km/R)*Math.cos(la1),Math.cos(km/R)-Math.sin(la1)*Math.sin(la2));
@@ -733,24 +832,82 @@ function geocode(q){
     {headers:{'Accept':'application/json'}}).then(r=>r.json()).catch(()=>[]);
 }
 
-/* ---------------- brief ---------------- */
+/* ---------------- brief — scoped to the CHOSEN area ---------------- */
 function renderBrief(){
-  const g=DOC.legal,m=DOC.methodology;
-  let h=`<h2>${DOC.meta.title}</h2><p class="why">${DOC.disclaimer}</p>
+  const a=DOC.areas.find(x=>x.rank===lastSel)||DOC.areas[0]; if(!a){document.getElementById('brief').innerHTML='';return;}
+  const g=DOC.legal, st=a.stats||{}, rutT=(DOC.rut&&DOC.rut.targets)||[];
+  const camp=DOC.camps.find(c=>(c.member_areas||[]).includes(a.rank));
+  const wps=DOC.waypoints.filter(w=>w.properties.focus_area===a.rank && SITE_TYPES.includes(w.type));
+  let h=`<div class="radii" style="margin-bottom:10px">`+
+    DOC.areas.map(x=>`<button class="briefpick ${x.rank===a.rank?'on':''}" data-rank="${x.rank}">Area ${x.rank}</button>`).join('')+`</div>`;
+  h+=`<h2>Field brief — Area ${a.rank} · ${a.area_km2} km²</h2>
+    <div class="meta" style="color:#93a1a8;font-size:12px">huntability ${a.huntability} · camp ${a.camp} · ${a.centroid[1].toFixed(4)}, ${a.centroid[0].toFixed(4)}`
+    +`${a.conf?` · confidence ${Math.round(a.conf.score*100)}% (${a.conf.band})`:''}</div>
+    <p class="why">${a.why||''}</p>
     <h3>Legal / access</h3>
     <p>Zone <b>${g.zone}</b> · ${g.diy_possible?'DIY possible':'restricted'} · ${(g.huntable_tenures||[]).join(', ')||'—'}</p>
-    ${(g.flags||[]).map(f=>`<p class="s" style="color:#93a1a8">${f}</p>`).join('')}`;
-  if(DOC.rut){const r=DOC.rut;h+=`<h3>Rut timing</h3><p>Peak ~<b>${r.peak_date}</b>. `+
-    (r.targets||[]).map(t=>`${t.date}: <b>${t.phase}</b> (${Math.round(t.responsiveness*100)}%)`).join(' · ')+`</p>`;}
-  if(DOC.strategy){h+=`<h3>Strategy</h3><p><b>${DOC.strategy.headline}</b> — ${DOC.strategy.approach}</p>`;}
-  if(DOC.confidence){h+=`<h3>Confidence</h3><p><b>${DOC.confidence.band} (${Math.round(DOC.confidence.score*100)}%)</b> — ${(DOC.confidence.drivers||[]).join('; ')}</p>`;}
-  h+=`<h3>What I'm looking for</h3><p>${m.summary}</p><p><b>Weighted:</b> ${(m.factors_weighted||[]).join('; ')}.</p>`;
-  h+=`<h3>Focus areas</h3>`;
-  DOC.areas.forEach(a=>{h+=`<h3>${a.rank}. ${a.area_km2} km² · huntability ${a.huntability} · camp ${a.camp}</h3>
-    <p class="why">${a.why||''}</p><p><b>Pros:</b> ${(a.pros||[]).join('; ')}.</p>
-    <p><b>Watch-outs:</b> ${(a.cons||[]).join('; ')}.</p>`;});
-  h+=`<h3>Camps</h3>`+DOC.camps.map(c=>`<p>Camp ${c.id} — areas ${c.member_areas.join(', ')} · via ${c.access_type} · pack-in ≤ ${km(c.max_packin_km)}</p>`).join('');
-  document.getElementById('brief').innerHTML=h;
+    <h3>Why this ground</h3>
+    <p><b>Pros:</b> ${(a.pros||[]).join('; ')}.</p>
+    <p><b>Watch-outs:</b> ${(a.cons||[]).join('; ')}.</p>`;
+  if(st.dist_water_m!=null) h+=`<p class="s">water ${metres(st.dist_water_m)} · to road ${km((st.dist_road_m||0)/1000)} · slope ${st.mean_slope_deg}°</p>`;
+  if(rutT.length){ h+=`<h3>Rut &amp; calling strategy</h3>`+
+    rutT.map(t=>`<p>${t.date}: <b style="color:#f2b98a">${t.phase}</b> (${Math.round(t.responsiveness*100)}% responsive). ${t.guidance}</p>`).join(''); }
+  if(DOC.strategy) h+=`<p><b>${DOC.strategy.headline}</b> — ${DOC.strategy.approach} ${DOC.strategy.calling||''}</p>`;
+  h+=`<h3>Camp &amp; access</h3>`;
+  if(camp) h+=`<p>Camp ${camp.id} · via ${camp.access_type} · pack-in ≤ ${km(camp.max_packin_km)}.</p>`;
+  h+=`<p><b>Watercraft:</b> ${SETUP.watercraft} · <b>style:</b> ${SETUP.huntStyle==='vehicle'?'return to vehicle nightly':'spike camp'}.</p>`;
+  h+=`<h3>Sites &amp; day plan (${wps.length})</h3>`+
+    wps.map(w=>`<p><b style="color:${COLORS[w.type]||'#ccc'}">●</b> <b>${LABELS[w.type]||w.type}</b> — ${w.properties.when||(w.properties.optimal_wind||{}).note||''}</p>`).join('');
+  h+=`<p class="s" style="margin-top:10px">${DOC.disclaimer}</p>`;
+  const el=document.getElementById('brief'); el.innerHTML=h;
+  el.querySelectorAll('.briefpick').forEach(b=>b.onclick=()=>{lastSel=+b.dataset.rank; renderBrief();
+    map.flyTo({center:(DOC.areas.find(x=>x.rank===lastSel)||{}).centroid,zoom:12.2});});
+}
+
+/* ---------------- deep per-area analysis (finer re-run) ---------------- */
+const AREA_DETAIL = (typeof window!=='undefined' && window.AREA_DETAIL) || {};
+let deepActive=null;
+function _hzFC(zones){return fc((zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},properties:{cls:z.cls,area_km2:z.area_km2}})));}
+function _bzFC(zones){return fc((zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},properties:{type:z.type,what:z.what,when:z.when,area_km2:z.area_km2}})));}
+function _rvFC(rivers){return fc((rivers||[]).map(o=>({type:'Feature',geometry:{type:'LineString',coordinates:o.ll||o},properties:{cls:o.cls||'stream'}})));}
+function _lkFC(lakes){return fc((lakes||[]).map(r=>({type:'Feature',geometry:{type:'Polygon',coordinates:[r]},properties:{}})));}
+function enterDeep(rank){
+  const d=AREA_DETAIL[String(rank)];
+  const badge=document.getElementById('deepBadge');
+  if(!d){ if(badge){badge.style.display='none';} return false; }
+  map.getSource('huntZones').setData(_hzFC(d.hunt_zones));
+  map.getSource('browseZones').setData(_bzFC(d.browse_zones));
+  if(d.refuge_zones) map.getSource('refugeZones').setData(_hzFC(d.refuge_zones));
+  if(d.funnel_zones) map.getSource('funnelZones').setData(_hzFC(d.funnel_zones));
+  if(d.hydro){ map.getSource('rivers').setData(_rvFC(d.hydro.rivers)); map.getSource('lakes').setData(_lkFC(d.hydro.lakes)); }
+  // deep sites if the finer run produced them, else keep the parent's sites
+  if(d.sites&&d.sites.length){
+    window._sites=d.sites.map(s=>({type:'Feature',geometry:{type:'Point',coordinates:s.ll},
+      properties:{type:s.t,when:s.when,windok:0}}));
+    map.getSource('sites').setData(fc(window._sites)); buildShooters();
+  }
+  if(d.box) map.fitBounds([[d.box.w,d.box.s],[d.box.e,d.box.n]],{padding:70,duration:600});
+  deepActive=rank;
+  if(badge){ badge.style.display='block'; badge.textContent=`◉ ${d.res_m||20} m deep analysis · Area ${rank}`; }
+  return true;
+}
+function exitDeep(){
+  if(deepActive===null) return;
+  const A=window._aoi||{};
+  if(A.huntZones) map.getSource('huntZones').setData(A.huntZones);
+  if(A.browseZones) map.getSource('browseZones').setData(A.browseZones);
+  if(A.rivers) map.getSource('rivers').setData(A.rivers);
+  if(A.lakes) map.getSource('lakes').setData(A.lakes);
+  if(A.refugeZones) map.getSource('refugeZones').setData(A.refugeZones);
+  if(A.funnelZones) map.getSource('funnelZones').setData(A.funnelZones);
+  // restore AOI-wide sites
+  window._sites=DOC.waypoints.filter(w=>SITE_TYPES.includes(w.type)).map(w=>({type:'Feature',
+    geometry:{type:'Point',coordinates:[w.lon,w.lat]},
+    properties:{type:w.type,area:w.properties.focus_area,when:w.properties.when||'',
+      opt:(w.properties.optimal_wind||{}).from_deg??null,windnote:(w.properties.optimal_wind||{}).note||'',windok:0}}));
+  map.getSource('sites').setData(fc(window._sites)); buildShooters();
+  deepActive=null;
+  const badge=document.getElementById('deepBadge'); if(badge) badge.style.display='none';
 }
 
 /* ---------------- tabs ---------------- */
@@ -767,8 +924,14 @@ function setTab(name){
   const dv=(name==='setup')?'visible':'none';
   ['draft-fill','draft-line'].forEach(id=>map.getLayer&&map.getLayer(id)&&map.setLayoutProperty(id,'visibility',dv));
   curTab=name;
-  // Field = the per-area field plan (day-by-hour detail). Open one if none is up.
-  if(name==='field' && document.getElementById('detail').classList.contains('hidden')) selectArea(lastSel);
+  // Field = the per-area field plan + DEEP re-analysis of the chosen area.
+  if(name==='field'){
+    if(document.getElementById('detail').classList.contains('hidden')) selectArea(lastSel);
+    enterDeep(lastSel);
+  } else {
+    exitDeep();
+  }
+  if(name==='brief') renderBrief();   // scope the brief to the currently chosen area
   setTimeout(()=>map.resize(),60);
 }
 function wireTabs(){ document.querySelectorAll('#tabbar button').forEach(b=>b.onclick=()=>setTab(b.dataset.tab)); }
