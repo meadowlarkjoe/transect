@@ -26,6 +26,58 @@ from moose_scout.config import (AOI, Context, LatLon, cache_dir, load_aoi,
 SITE_TYPES = {"rut_calling", "saline_blind", "glassing", "validate_ground"}
 
 
+def _deep_sites(cache, ctx):
+    """Place finer sites directly from the 20 m surfaces (the small deep box has no
+    sub-focus-areas, so synth places nothing — do it from the peaks here)."""
+    import numpy as np
+    from pyproj import Transformer
+    from skimage.feature import peak_local_max
+
+    from moose_scout import rasterio_utils as ru
+
+    def opt(p):
+        try:
+            return ru.read(cache / p)[0]
+        except Exception:
+            return None
+
+    try:
+        _, prof = ru.read(cache / "huntability.tif")
+    except Exception:
+        return []
+    tr = Transformer.from_crs(prof["crs"], "EPSG:4326", always_xy=True)
+    T = prof["transform"]
+    res = ctx.model.raster_resolution_m
+    md = max(3, int(round(600 / res)))
+    m = max(5, int(round(400 / res)))          # crop edge artefacts
+
+    def toll(r, c):
+        x, y = T * (c + 0.5, r + 0.5)
+        lon, lat = tr.transform(x, y)
+        return [round(lon, 5), round(lat, 5)]
+
+    def peaks(arr, n):
+        if arr is None:
+            return []
+        a = np.where(np.isfinite(arr), arr, 0).astype("float32")
+        a[:m, :] = 0; a[-m:, :] = 0; a[:, :m] = 0; a[:, -m:] = 0
+        return [tuple(p) for p in peak_local_max(a, num_peaks=n, min_distance=md, threshold_rel=0.4)]
+
+    rut = opt("hsm_rut.tif"); dem = opt("dem.tif"); hunt = opt("huntability.tif"); dw = opt("dist_water.tif")
+    near_water = None
+    if hunt is not None and dw is not None:
+        near_water = np.where(np.isfinite(hunt), hunt * np.exp(-dw / 300.0), np.nan)
+    plan = [(rut, "rut_calling", 5, "dawn & dusk + all rut day (bulls cruise these edges)"),
+            (near_water, "saline_blind", 3, "first & last light — feeding on browse edge / in water"),
+            (dem, "glassing", 2, "dawn & dusk — glass the openings from high ground"),
+            (hunt, "validate_ground", 3, "")]
+    out = []
+    for arr, t, n, when in plan:
+        for (r, c) in peaks(arr, n):
+            out.append({"t": t, "ll": toll(r, c), "when": when})
+    return out
+
+
 def _hydro(cache):
     import geopandas as gpd
     out = {"rivers": [], "lakes": []}
@@ -94,14 +146,8 @@ def deep(parent_name, radius_km=6.0, res_m=20.0, only=None):
                             min_km2=0.15, smooth_m=140, per_class=12, simp=0.0004)
         fnz = C._polygonize(ctx, cache, "terrain/funnel.tif", [("funnel", 0.55)],
                             min_km2=0.08, smooth_m=90, per_class=16, simp=0.0004)
-        # sites
-        fc = json.loads((cache / "features.geojson").read_text())
-        sites = []
-        for f in fc["features"]:
-            p = f["properties"]
-            if f["geometry"]["type"] == "Point" and p.get("legend") in SITE_TYPES:
-                sites.append({"t": p["legend"], "ll": [round(c, 5) for c in f["geometry"]["coordinates"]],
-                              "when": p.get("when", "")})
+        # finer sites from the 20 m surfaces
+        sites = _deep_sites(cache, ctx)
         detail[str(rank)] = {
             "rank": rank, "res_m": res_m,
             "box": {"w": round(minlon, 6), "e": round(maxlon, 6), "n": round(maxlat, 6), "s": round(minlat, 6)},
