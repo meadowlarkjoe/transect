@@ -8,6 +8,8 @@ contradicted by Sentinel-2 (per-segment confidence).
 """
 from __future__ import annotations
 
+import math
+
 from ..config import Context, cache_dir
 from ..rasterio_utils import target_grid
 
@@ -23,14 +25,50 @@ WATER_LINE_TAGS = {"waterway": ["river", "stream", "canal", "tidal_channel", "ra
 WATER_POLY_TAGS = {"natural": ["water"]}
 
 
-def _osm(ctx, tags):
+def _osm_bbox(tags, minlon, minlat, maxlon, maxlat):
     import osmnx as ox
-
-    minlon, minlat, maxlon, maxlat = ctx.aoi.bbox_wgs84()
     try:
         return ox.features.features_from_bbox((minlon, minlat, maxlon, maxlat), tags)
     except TypeError:
         return ox.features_from_bbox(maxlat, minlat, maxlon, minlon, tags)
+
+
+# One Overpass request for a 70–134 km box over road-dense country is enormous and
+# simply times out on a public mirror — which cost us the ENTIRE road network (and,
+# with no watercraft, zeroed the whole huntability surface). Split the AOI into tiles
+# no wider than this and merge; a failed tile costs one tile, not the layer.
+_TILE_DEG = 0.30            # ~33 km N-S; narrower E-W at these latitudes
+
+
+def _osm(ctx, tags):
+    """Fetch OSM features for the AOI, tiling large boxes and tolerating partial
+    failure. Returns a concatenated GeoDataFrame (possibly empty)."""
+    import geopandas as gpd
+    import pandas as pd
+
+    minlon, minlat, maxlon, maxlat = ctx.aoi.bbox_wgs84()
+    nx = max(1, int(math.ceil((maxlon - minlon) / _TILE_DEG)))
+    ny = max(1, int(math.ceil((maxlat - minlat) / _TILE_DEG)))
+    if nx * ny <= 1:
+        return _osm_bbox(tags, minlon, minlat, maxlon, maxlat)
+
+    dx = (maxlon - minlon) / nx
+    dy = (maxlat - minlat) / ny
+    parts, ok, fail = [], 0, 0
+    for i in range(nx):
+        for j in range(ny):
+            a, b = minlon + i * dx, minlat + j * dy
+            try:
+                g = _osm_bbox(tags, a, b, a + dx, b + dy)
+                if g is not None and len(g):
+                    parts.append(g)
+                ok += 1
+            except Exception:
+                fail += 1                      # keep going; a hole beats no layer
+    if not parts:
+        return gpd.GeoDataFrame(geometry=[], crs="EPSG:4326")
+    out = pd.concat(parts, ignore_index=True)
+    return gpd.GeoDataFrame(out, geometry="geometry", crs=parts[0].crs)
 
 
 def fetch(ctx: Context) -> None:

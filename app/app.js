@@ -35,13 +35,18 @@ const FILL_ALPHA = 0.14;
 /* browse stipple — texture survives overlapping the likelihood bands; a fifth flat
    fill in that stack is unreadable */
 /* diagonal hatch — the universal "closed / no-go" convention on a hunting map */
-function hatchImage(hex){
+function hatchImage(hex,back){
   const S=12,cv=document.createElement('canvas');cv.width=cv.height=S;
   const c=cv.getContext('2d');
   c.clearRect(0,0,S,S);
   c.strokeStyle=hex; c.lineWidth=2; c.globalAlpha=0.55;
-  c.beginPath(); c.moveTo(-2,S+2); c.lineTo(S+2,-2); c.stroke();
-  c.beginPath(); c.moveTo(S/2-2,S+2); c.lineTo(S+2,S/2-2); c.stroke();
+  if(back){                       // "\" — distinct from the red no-go "/" hatch
+    c.beginPath(); c.moveTo(-2,-2); c.lineTo(S+2,S+2); c.stroke();
+    c.beginPath(); c.moveTo(-2,S/2-2); c.lineTo(S/2+2,S+2); c.stroke();
+  } else {
+    c.beginPath(); c.moveTo(-2,S+2); c.lineTo(S+2,-2); c.stroke();
+    c.beginPath(); c.moveTo(S/2-2,S+2); c.lineTo(S+2,S/2-2); c.stroke();
+  }
   const d=c.getImageData(0,0,S,S);
   return {width:S,height:S,data:new Uint8Array(d.data)};
 }
@@ -279,21 +284,33 @@ function init(){
       'line-dasharray':['case',['==',['get','huntable'],false],['literal',[1,0]],['literal',[4,2]]]}});
 
   // burn regeneration — prime (15–22 yr) reads hotter than the wider regen band
+  // Burns also sat in the orange family and read as a third copy of MEDIUM. They get
+  // a charcoal-ember hatch (backslash, so it can't be confused with the red no-go
+  // hatch either) plus a dark umber outline — clearly "burnt ground", not a score band.
   map.addSource('burnZones',{type:'geojson',data:S.burnZones});
-  const burnCol=['case',['==',['get','cls'],'prime'],'#E07B39','#8A5A2B'];
+  map.addImage('burnhatch', hatchImage('#F0A54A', true), {pixelRatio:2});
+  const burnCol='#6B4A22';
   map.addLayer({id:'burnZones',type:'fill',source:'burnZones',
-    layout:{visibility:'none'},paint:{'fill-color':burnCol,'fill-opacity':FILL_ALPHA}});
+    layout:{visibility:'none'},paint:{'fill-pattern':'burnhatch',
+      'fill-opacity':['case',['==',['get','cls'],'prime'],0.9,0.45]}});
   map.addLayer({id:'burnZones-line',type:'line',source:'burnZones',
-    layout:{visibility:'none'},paint:{'line-color':burnCol,'line-width':1.5,'line-opacity':1,'line-dasharray':[5,2]}});
+    layout:{visibility:'none'},paint:{'line-color':burnCol,
+      'line-width':['case',['==',['get','cls'],'prime'],2,1.2],'line-opacity':1}});
   // thermal refuge + funnel ZONES (areas, not points)
   map.addSource('refugeZones',{type:'geojson',data:S.refugeZones});
   map.addSource('funnelZones',{type:'geojson',data:S.funnelZones});
   map.addLayer({id:'refugeZones',type:'fill',source:'refugeZones',paint:{'fill-color':REFUGE_COL,'fill-opacity':FILL_ALPHA}});
   map.addLayer({id:'refugeZones-line',type:'line',source:'refugeZones',paint:{'line-color':REFUGE_COL,'line-width':1.5,'line-opacity':1,'line-dasharray':[4,2]}});
+  // Funnels share --z-med (#FF8C00) with MEDIUM huntability in the frozen Cartes
+  // Xperts palette — the same hex genuinely does double duty on the paper sheet. So
+  // they must separate by TEXTURE, not hue: funnels are outline-only with a long
+  // dash and no wash, which also suits a pinch-point (a line-like feature) better
+  // than a filled band.
   map.addLayer({id:'funnelZones',type:'fill',source:'funnelZones',
-    layout:{visibility:'none'},paint:{'fill-color':FUNNEL_COL,'fill-opacity':FILL_ALPHA}});
+    layout:{visibility:'none'},paint:{'fill-color':FUNNEL_COL,'fill-opacity':0.04}});
   map.addLayer({id:'funnelZones-line',type:'line',source:'funnelZones',
-    layout:{visibility:'none'},paint:{'line-color':FUNNEL_COL,'line-width':1.5,'line-opacity':1}});
+    layout:{visibility:'none'},paint:{'line-color':FUNNEL_COL,'line-width':2.2,
+      'line-opacity':1,'line-dasharray':[6,3]}});
 
   map.addSource('lakes',{type:'geojson',data:S.lakes});
   map.addSource('rivers',{type:'geojson',data:S.rivers});
@@ -706,10 +723,10 @@ const LAYERS=[
    {k:'browse', kind:'stipple', c:'var(--browse)', name:'Browse / feeding',
     note:'Regen & riparian forage — the food itself', on:false, lyr:'browse',
     count:()=>(DOC.browse_zones||[]).length},
-   {k:'burns', kind:'zone', c:'#C86A2E', name:'Burn regeneration',
+   {k:'burns', kind:'hatch', c:'#F0A54A', name:'Burn regeneration',
     note:'Mapped fire perimeters by age — browse peaks 15–22 yr after a burn. The single strongest predictor here.',
     on:false, lyr:'burns', count:()=>(DOC.burn_zones||[]).length},
-   {k:'funnel', kind:'zone', c:'var(--z-med)', name:'Funnels / passes',
+   {k:'funnel', kind:'dash', c:'var(--z-med)', name:'Funnels / passes',
     note:'Terrain pinch points — inferred from the DEM, weakly evidenced', on:false, lyr:'funnel',
     count:()=>(DOC.funnel_zones||[]).length},
  ]},
@@ -750,6 +767,8 @@ function lpHTML(r){
   const st=`--c:${r.c}`;
   if(r.kind==='zone')    return `<span class="lp lp--zone" style="${st}"><i></i></span>`;
   if(r.kind==='stipple') return `<span class="lp lp--stipple" style="${st}"><i></i></span>`;
+  if(r.kind==='hatch')   return `<span class="lp lp--hatch" style="${st}"><i></i></span>`;
+  if(r.kind==='dash')    return `<span class="lp lp--dashbox" style="${st}"></span>`;
   if(r.kind==='outline') return `<span class="lp lp--outline" style="${st}"></span>`;
   if(r.kind==='line')    return `<span class="lp lp--line" style="${st};--dash:${r.dash||'solid'}"><i></i></span>`;
   return `<span class="lp lp--point" style="${st}"><i class="${r.glyph||'g-circle'}"></i></span>`;
