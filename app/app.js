@@ -934,32 +934,45 @@ function renderBrief(){
   const g=DOC.legal, st=a.stats||{}, rutT=(DOC.rut&&DOC.rut.targets)||[];
   const camp=DOC.camps.find(c=>(c.member_areas||[]).includes(a.rank));
   const wps=DOC.waypoints.filter(w=>w.properties.focus_area===a.rank && SITE_TYPES.includes(w.type));
+  const dates=(DOC.meta&&DOC.meta.target_dates)||(draft.dates||[]);
+  const styleTxt=SETUP.huntStyle==='vehicle'?'back to the truck nightly':'spike camp';
+  const wcTxt={none:'no boat (foot access)',canoe:'canoe',motor:'motorboat'}[SETUP.watercraft]||SETUP.watercraft;
   let h=`<div class="radii" style="margin-bottom:10px">`+
     DOC.areas.map(x=>`<button class="briefpick ${x.rank===a.rank?'on':''}" data-rank="${x.rank}">Area ${x.rank}</button>`).join('')+`</div>`;
-  h+=`<h2>Field brief — Area ${a.rank} · ${a.area_km2} km²</h2>
+  // ---- the plan this brief is written for ----
+  h+=`<h2>Your hunt — Area ${a.rank}</h2>
+    <p class="planline">If you hunt <b>Area ${a.rank}</b> (${a.area_km2} km²)${dates.length?`, <b>${dates.join(' – ')}</b>`:''}, running a <b>${styleTxt}</b> with <b>${wcTxt}</b> — here's how to make the most of it.</p>
     <div class="meta" style="color:#93a1a8;font-size:12px">huntability ${a.huntability} · camp ${a.camp} · ${a.centroid[1].toFixed(4)}, ${a.centroid[0].toFixed(4)}`
-    +`${a.conf?` · confidence ${Math.round(a.conf.score*100)}% (${a.conf.band})`:''}</div>
-    <p class="why">${a.why||''}</p>
-    <h3>Legal / access</h3>
-    <p>Zone <b>${g.zone}</b> · ${g.diy_possible?'DIY possible':'restricted'} · ${(g.huntable_tenures||[]).join(', ')||'—'}</p>
-    <h3>Why this ground</h3>
-    ${a.access_flag?`<div class="warn">${a.access_flag}</div>`:''}
-    <p><b>Pros:</b> ${(a.pros||[]).join('; ')}.</p>
-    <p><b>Watch-outs:</b> ${(a.cons||[]).join('; ')}.</p>`;
-  if(st.dist_water_m!=null) h+=`<p class="s">water ${metres(st.dist_water_m)} · to road ${km((st.dist_road_m||0)/1000)} · slope ${st.mean_slope_deg}°</p>`;
-  if(rutT.length||DOC.rut.hunt_read){ h+=`<h3>Your dates &amp; the rut</h3>`;
+    +`${a.conf?` · confidence ${Math.round(a.conf.score*100)}% (${a.conf.band})`:''}</div>`;
+  // ---- where your dates land + how that shapes the hunt ----
+  if(DOC.rut&&(DOC.rut.hunt_read||rutT.length)){ h+=`<h3>Your dates &amp; the rut</h3>`;
     if(DOC.rut.hunt_read) h+=`<p class="huntread">${DOC.rut.hunt_read}</p>`;
     if(rutT.length) h+=`<div class="rutdates">`+rutT.map(t=>
       `<span class="pill" style="background:#2a2117;color:#f2b98a">${t.date} · ${t.phase} · ${Math.round(t.responsiveness*100)}%</span>`).join('')+`</div>`;
     if(DOC.rut.trigger_note) h+=`<p class="s" style="color:#e0b985;margin-top:6px">${DOC.rut.trigger_note}</p>`; }
-  if(DOC.strategy){ h+=`<p><b>${DOC.strategy.headline}</b> — ${DOC.strategy.approach} ${DOC.strategy.calling||''}</p>`;
+  // ---- how to hunt this ground ----
+  h+=`<h3>How to hunt it</h3>`;
+  if(DOC.strategy){ h+=`<p><b>${DOC.strategy.headline}</b> ${DOC.strategy.approach||''} ${DOC.strategy.calling||''}`
+    +`${DOC.strategy.movement?` <span class="s">${DOC.strategy.movement}</span>`:''}</p>`;
     if(DOC.strategy.scent_warning) h+=`<div class="warn">${DOC.strategy.scent_warning}</div>`; }
-  h+=`<h3>Camp &amp; access</h3>`;
-  if(camp) h+=`<p>Camp ${camp.id} · via ${camp.access_type} · pack-in ≤ ${km(camp.max_packin_km)}.</p>`;
-  h+=`<p><b>Watercraft:</b> ${SETUP.watercraft} · <b>style:</b> ${SETUP.huntStyle==='vehicle'?'return to vehicle nightly':'spike camp'}.</p>`;
-  h+=`<h3>Sites &amp; day plan (${wps.length})</h3>`+
+  h+=`<p class="why">${a.why||''}</p>
+    <p class="s"><b>Working for you:</b> ${(a.pros||[]).join('; ')||'—'}.</p>
+    <p class="s"><b>Watch-outs:</b> ${(a.cons||[]).join('; ')||'—'}.</p>`;
+  // ---- getting in & out for your kit ----
+  h+=`<h3>Getting in &amp; out</h3>`;
+  if(a.access_flag) h+=`<div class="warn">${a.access_flag}</div>`;
+  if(camp) h+=`<p>Base at <b>Camp ${a.camp}</b> — in via ${camp.access_type}, pack-in ≤ ${km(camp.max_packin_km)} to the hunt. Running ${styleTxt} with ${wcTxt}.</p>`;
+  else h+=`<p>Running ${styleTxt} with ${wcTxt}.</p>`;
+  if(st.dist_water_m!=null) h+=`<p class="s">water ${metres(st.dist_water_m)} · to road ${km((st.dist_road_m||0)/1000)} · slope ${st.mean_slope_deg}°</p>`;
+  h+=`<p class="s">Legal: Zone <b>${g.zone}</b> · ${g.diy_possible?'DIY possible':'restricted'} · ${(g.huntable_tenures||[]).join(', ')||'—'}. ${(g.verify||[]).length?'Verify current season/rules before you go.':''}</p>`;
+  // ---- day plan ----
+  h+=`<h3>Your day plan — ${wps.length} site${wps.length!==1?'s':''}</h3>`+
     wps.map(w=>`<p><b style="color:${COLORS[w.type]||'#ccc'}">●</b> <b>${LABELS[w.type]||w.type}</b> — ${w.properties.when||(w.properties.optimal_wind||{}).note||''}</p>`).join('');
-  h+=`<p class="s" style="margin-top:10px">${DOC.disclaimer}</p>`;
+  // ---- how to do better (the leverage) ----
+  const recs=(DOC.recommendations||[]);
+  if(recs.length){ h+=`<h3>How to do better</h3><div class="recs">`+
+    recs.map(r=>`<div class="rec rec-${r.impact||'low'}"><span class="recicon">${r.icon||'•'}</span><span>${r.text}</span></div>`).join('')+`</div>`; }
+  h+=`<p class="s" style="margin-top:12px">${DOC.disclaimer||''}</p>`;
   const el=document.getElementById('brief'); el.innerHTML=h;
   el.querySelectorAll('.briefpick').forEach(b=>b.onclick=()=>{lastSel=+b.dataset.rank; renderBrief();
     map.flyTo({center:(DOC.areas.find(x=>x.rank===lastSel)||{}).centroid,zoom:12.2});});

@@ -222,6 +222,15 @@ details summary{cursor:pointer;color:var(--muted);font-size:12px;margin-top:4px}
   border-radius:10px;padding:11px 13px;color:#e8dcc8}
 .huntread b{color:#f2c67a}
 .rutdates{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
+.planline{font-size:14px;line-height:1.5;color:#dfe7ea;margin:2px 0 6px}
+/* 'how to do better' recommendations */
+.recs{display:flex;flex-direction:column;gap:7px}
+.rec{display:flex;gap:9px;align-items:flex-start;background:#141a17;border:1px solid var(--line);
+  border-left:3px solid #46606f;border-radius:9px;padding:9px 11px;font-size:13px;line-height:1.5;color:#dbe4e7}
+.rec-high{border-left-color:#4fae6a;background:#121c16}
+.rec-med{border-left-color:#c8a24a}
+.rec b{color:#fff}
+.recicon{font-size:15px;flex:0 0 auto;line-height:1.4}
 /* export menu */
 #exportMenu{position:absolute;top:52px;left:12px;z-index:30;background:var(--panel);border:1px solid var(--line);
   border-radius:10px;box-shadow:0 8px 28px #000a;padding:12px;width:260px}

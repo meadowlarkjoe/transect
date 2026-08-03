@@ -213,6 +213,83 @@ def _group_camps(areas, cache, threshold_km=15.0):
     return camps
 
 
+def _recommendations(ctx, cache, rut, areas):
+    """The 'how to do better' section: the highest-leverage changes to THIS plan —
+    a boat to unlock water-locked ground, shifting dates into the rut, a spike camp
+    to extend reach. Computed from the hunter's own constraints + their spatial cost."""
+    import numpy as np
+
+    recs = []
+    h = ctx.aoi.hunter
+    wc = getattr(h, "watercraft", "none")
+    walk_km = float(getattr(h, "walk_access_km", 6.0) or 6.0)
+    style = getattr(h, "hunt_style", "spike")
+
+    # 1) DATES vs the rut — usually the biggest lever if they're off-peak
+    if rut and rut.get("peak_date") and rut.get("targets"):
+        try:
+            targets = rut["targets"]
+            best = max(targets, key=lambda t: t.get("responsiveness", 0))
+            bestpct = int(round(best.get("responsiveness", 0) * 100))
+            ds = sorted(t["date"] for t in targets)
+            mid = date.fromisoformat(ds[len(ds) // 2])
+            pk = date.fromisoformat(rut["peak_date"])
+            delta = (pk - mid).days
+            if abs(delta) >= 5 and bestpct < 78:
+                when = f"{abs(delta)} day{'s' if abs(delta) != 1 else ''} {'later' if delta > 0 else 'earlier'}"
+                recs.append({"icon": "📅", "impact": "high",
+                    "text": (f"<b>Move your dates ~{when}</b>, toward the ~{pk.strftime('%b %-d')} rut peak. "
+                             f"You're at ~{bestpct}% calling responsiveness now — at the peak bulls are "
+                             "cruising for cows and come to the call. It's the single biggest change you can make.")})
+        except Exception:
+            pass
+
+    # 2) WATERCRAFT — how much prime ground is locked behind water with no boat
+    if wc == "none":
+        try:
+            hsm = ru.read(cache / "hsm.tif")[0]
+            dw = ru.read(cache / "dist_water.tif")[0]
+            dr = ru.read(cache / "dist_road.tif")[0]
+            fin = np.isfinite(hsm)
+            thr = float(np.nanpercentile(hsm[fin], 80))
+            top = fin & (hsm >= thr)
+            locked = top & (dw < 250) & (dr > walk_km * 1000)   # prime, water-edge, road-far
+            reach = top & (dr < walk_km * 1000)
+            lk, rc = int(locked.sum()), int(reach.sum())
+            if lk > 0.20 * max(rc, 1):
+                pct = int(round(100 * lk / max(lk + rc, 1)))
+                recs.append({"icon": "🛶", "impact": "high",
+                    "text": (f"<b>A canoe or boat would unlock a lot of prime habitat.</b> Around {pct}% of the "
+                             "best ground here lines water that's cut off from the road on foot — with a "
+                             "boat those water-edge complexes (and their aquatic feeding) come into play.")})
+        except Exception:
+            pass
+    boat_areas = [a for a in areas if a.get("boat_required")]
+    if wc == "none" and boat_areas:
+        n = len(boat_areas)
+        recs.append({"icon": "🛶", "impact": "med",
+            "text": (f"{n} ranked area{'s' if n != 1 else ''} {'are' if n != 1 else 'is'} cut off by a "
+                     f"river — a boat would put {'them' if n != 1 else 'it'} back in play.")})
+
+    # 3) WALK / STYLE — good ground just past the reach limit
+    far = [a for a in areas if a.get("access_flag") and not a.get("boat_required")]
+    if far and style == "vehicle":
+        recs.append({"icon": "⛺", "impact": "med",
+            "text": ("<b>A spike camp would extend your reach.</b> Some of the strongest ground is too far "
+                     "to return to the truck from nightly — camping in cuts the daily walk and puts you on "
+                     "animals at first and last light.")})
+    elif far:
+        recs.append({"icon": "🥾", "impact": "low",
+            "text": (f"Willing to push your walk-in past {walk_km:.0f} km? A couple of the stronger areas "
+                     "sit just beyond it.")})
+
+    # 4) honest ground-truth nudge — always worth saying
+    recs.append({"icon": "🔎", "impact": "low",
+        "text": ("Every pick here is a hypothesis. A day of boots-on-ground before the hunt — checking sign "
+                 "and hanging a couple of cameras on the funnels — will sharpen these more than anything else.")})
+    return recs
+
+
 def build(ctx: Context) -> dict:
     cache = cache_dir(ctx.aoi.name)
     fc = json.loads((cache / "features.geojson").read_text())
@@ -348,6 +425,10 @@ def build(ctx: Context) -> dict:
         doc["strategy"] = _strategy(ctx)
     except Exception:
         doc["strategy"] = None
+    try:
+        doc["recommendations"] = _recommendations(ctx, cache, doc.get("rut"), area_out)
+    except Exception:
+        doc["recommendations"] = []
 
     # classified suitability + browse zones (defined clickable areas, not heat)
     try:
