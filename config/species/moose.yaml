@@ -1,0 +1,127 @@
+# Moose (Alces alces) habitat + behaviour model — Quebec boreal.
+#
+# Weights are the tunable "biology brain" of the Habitat Suitability Model.
+# Cover classes mirror the Quebec écoforestière "couvert forestier" legend seen
+# on SEPAQ secteur-de-chasse sheets (Portneuf reference), so the model reads the
+# same data a Quebec hunter reads off the map.
+#
+# Scores are relative contributions in [-1, 1]; the HSM normalizes the weighted
+# sum to [0, 1]. Positive = draws moose, negative = avoid.
+
+species: moose
+scientific_name: "Alces alces"
+region_profile: quebec_boreal
+
+# --- Écoforestière cover-type scoring (couvert forestier) --------------------
+# Keys are normalized class codes produced by acquire/ecoforestiere.py from the
+# raw peuplement attributes. Comments give the map legend label.
+cover_types:
+  coupe_recente:                 # Coupe récente (<=10 ans) — fresh cut
+    label_fr: "Coupe récente (10 ans et moins)"
+    browse: 0.55                 # opening up, browse establishing
+    cover: -0.30                 # little security cover yet
+    note: "Best as EDGE against conifer; interior of large fresh cuts is exposed."
+  regeneration:                  # Régénération (10-30 ans) — PRIME browse
+    label_fr: "Régénération (10 à 30 ans)"
+    browse: 1.00
+    cover: 0.20
+    note: "Willow/birch/aspen/mountain-ash at moose height. The money class."
+  coupe_partielle:               # Coupe partielle, prélèvement <=50%
+    label_fr: "Coupe partielle (prélèvement 50% et moins)"
+    browse: 0.45
+    cover: 0.35                  # retains overstory = browse + cover mix
+  feuillus:                      # Feuillus >30 ans — mature hardwood
+    label_fr: "Feuillus (plus de 30 ans)"
+    browse: 0.20
+    cover: 0.25
+  melange:                       # Mélangé >30 ans — mature mixedwood
+    label_fr: "Mélangé (plus de 30 ans)"
+    browse: 0.25
+    cover: 0.55                  # classic moose cover+forage interface
+  resineux:                      # Résineux >30 ans — mature conifer
+    label_fr: "Résineux (plus de 30 ans)"
+    browse: -0.20                # low browse under closed canopy
+    cover: 0.85                  # thermal/security cover; thermal-refuge input
+  aulnaie:                       # Aulnaie — alder (riparian shrub)
+    label_fr: "Aulnaie"
+    browse: 0.60                 # riparian browse + travel/cover
+    cover: 0.40
+    wet: 0.7
+  tourbiere:                     # Tourbière — peat bog / fen
+    label_fr: "Tourbière"
+    browse: 0.35
+    cover: -0.10
+    wet: 1.0                     # aquatic feeding + wallow potential
+  non_boise:                     # Non boisé — unforested/rock/barren
+    label_fr: "Non boisé"
+    browse: -0.30
+    cover: -0.40
+
+# --- Hydro / wetland proximity (metres -> score falls off) -------------------
+water:
+  wetland_optimal_m: 150         # riparian willow / bog edge sweet spot
+  wetland_falloff_m: 800
+  lakeshore_optimal_m: 100
+  beaver_pond_bonus: 0.5         # flowages: aquatic feeding + wallows
+
+# --- Terrain preferences -----------------------------------------------------
+terrain:
+  prefer_valley_bottoms: 0.4     # low TPI
+  prefer_saddles_funnels: 0.6    # travel through pinch points (see funnels)
+  south_facing_regen_bonus: 0.3  # warm aspect for early-season browse
+  avoid_steep_slope_deg: 25      # moose avoid sustained steep ground
+  wallow_twi_min: 8              # high wetness index flats = wallow candidates
+
+# --- Thermal refuge ("climatiseur à orignaux") -------------------------------
+# Where moose bed midday when it's hot. Research: moose are heat-sensitive and
+# select shade/canopy cover above ~14-17°C, panting/body-temp rise by ~20-25°C
+# (Alces; McCann 2013; van Beest 2012). Drives thermal_refuge sites + midday_hot
+# routes. Combine dense mature conifer + cool aspect + near water.
+thermal_refuge:
+  cover_class: resineux
+  aspect_cool: [315, 45]         # NW..NE facing (degrees)
+  max_dist_to_water_m: 400
+  canopy_closure_min: 0.7
+  # Graded heat response (°C) — refuge weight ramps from onset to severe.
+  heat_onset_c: 14              # activity drops / shade-seeking begins
+  heat_bedded_calm_c: 17        # bedded heat-stress threshold, calm
+  heat_severe_c: 20             # strong cover selection
+  heat_bodytemp_c: 25           # body-temp elevation / panting
+
+# --- Rut & diel behaviour ----------------------------------------------------
+# Phenology at ~52degN: pre-rut early/mid Sept, peak rut late Sept–mid Oct.
+rut:
+  pre_rut: ["09-05", "09-22"]
+  peak_rut: ["09-23", "10-15"]
+  post_rut: ["10-16", "10-31"]
+  calling_min_minutes: 30        # matches Charles Dorris "stations d'appels"
+  rut_site_features:             # where to set calling stations
+    - cover_open_edge            # cover-to-opening interface
+    - funnel                     # pinch points concentrate cruising bulls
+    - wetland_complex
+
+# Diel + temperature routing: morning/evening feeding-edge vs midday cover.
+diel:
+  feeding_windows: ["dawn", "dusk"]     # -> good/best routes on browse edges
+  midday_hot_threshold_c: 15            # above this, bias to thermal refuges
+  midday_route_target: thermal_refuge   # -> magenta midday_hot routes
+
+# --- Forage & target-sex ecology (research-grounded) -------------------------
+# Aquatic feeding is sodium/mineral-driven and ponds yield ~4x terrestrial forage
+# (Fraser; MacCracken), so water/wetland is a nutritional magnet, not just water.
+# Rut bulls (our target) select forage-rich cutblocks/regen; cows-with-calves
+# avoid them (Kupferschmid/forest-harvest review) — so weight regen/cuts UP for a
+# bull hunt. Wallows are the rut hub: bulls scent-mark them and they pull cows.
+forage:
+  aquatic_sodium_magnet: true       # emergent/submergent wetland & lakeshore
+  bull_prefers_regen: true          # regen/coupe get a bull-hunt bonus
+  bull_regen_bonus: 0.2
+  wallow_is_rut_hub: true           # wallows: calling + ambush + scent placement
+
+# --- HSM top-level weighting (how the sub-scores combine) --------------------
+hsm_weights:
+  browse: 0.35
+  cover: 0.20
+  water: 0.25
+  terrain: 0.10
+  edge_density: 0.10             # cover<->forage interface density

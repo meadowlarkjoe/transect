@@ -1,0 +1,91 @@
+# White-tailed deer (Odocoileus virginianus) — cerf de Virginie, Quebec.
+# Edge/agriculture/mast species — very different from moose: browse + hard mast +
+# thermal (conifer) winter cover, water far less limiting.
+species: whitetail_deer
+scientific_name: "Odocoileus virginianus"
+region_profile: quebec_mixedwood
+
+cover_types:
+  coupe_recente:
+    label_fr: "Coupe récente (10 ans et moins)"
+    browse: 0.6
+    cover: -0.2
+  regeneration:
+    label_fr: "Régénération (10 à 30 ans)"
+    browse: 0.9
+    cover: 0.35
+    note: "Dense browse + bedding — deer gold."
+  coupe_partielle:
+    label_fr: "Coupe partielle (prélèvement 50% et moins)"
+    browse: 0.55
+    cover: 0.45
+  feuillus:                        # hardwood — mast (oak/beech), key fall food
+    label_fr: "Feuillus (plus de 30 ans)"
+    browse: 0.5
+    cover: 0.3
+    note: "Hard mast (chêne/hêtre) drives fall movement."
+  melange:
+    label_fr: "Mélangé (plus de 30 ans)"
+    browse: 0.45
+    cover: 0.6
+  resineux:                        # conifer = winter thermal cover (yards)
+    label_fr: "Résineux (plus de 30 ans)"
+    browse: -0.1
+    cover: 0.9
+    note: "Winter deer yards / thermal cover."
+  aulnaie:
+    label_fr: "Aulnaie"
+    browse: 0.4
+    cover: 0.35
+    wet: 0.5
+  tourbiere:
+    label_fr: "Tourbière"
+    browse: 0.1
+    cover: -0.1
+    wet: 0.7
+  non_boise:                       # includes fields/agriculture edges
+    label_fr: "Non boisé"
+    browse: 0.5
+    cover: -0.3
+    note: "Ag/field edges are prime feeding if present."
+
+water:
+  wetland_optimal_m: 400
+  wetland_falloff_m: 1500
+  lakeshore_optimal_m: 300
+  beaver_pond_bonus: 0.2
+
+terrain:
+  prefer_valley_bottoms: 0.3
+  prefer_saddles_funnels: 0.7      # deer travel funnels/benches — huge
+  south_facing_regen_bonus: 0.5    # south slopes = winter sun + early browse
+  avoid_steep_slope_deg: 30
+  wallow_twi_min: 9
+
+thermal_refuge:
+  cover_class: resineux
+  aspect_cool: [135, 225]          # deer bed on warm/leeward in cold; tune per season
+  max_dist_to_water_m: 1200
+  canopy_closure_min: 0.6
+
+rut:
+  pre_rut: ["10-25", "11-05"]
+  peak_rut: ["11-06", "11-22"]     # deer rut ~mid-November
+  post_rut: ["11-23", "12-05"]
+  calling_min_minutes: 20
+  rut_site_features:
+    - cover_open_edge
+    - funnel
+    - mast_stand
+
+diel:
+  feeding_windows: ["dawn", "dusk"]
+  midday_hot_threshold_c: 18
+  midday_route_target: thermal_refuge
+
+hsm_weights:                       # edge/browse/cover-led (not water-led like moose)
+  browse: 0.35
+  cover: 0.25
+  water: 0.10
+  terrain: 0.10
+  edge_density: 0.20

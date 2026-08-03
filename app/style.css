@@ -1,0 +1,129 @@
+:root{
+  --bg:#0e1113; --panel:#171b1e; --panel2:#1e242833; --line:#2a3136;
+  --text:#e7ecef; --muted:#93a1a8; --accent:#e2231a; --good:#2fbf5b; --warn:#f5a623;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+  font:14px/1.45 -apple-system,Segoe UI,Roboto,system-ui,sans-serif}
+#map{position:absolute;inset:0}
+
+/* top tab bar */
+#tabbar{position:absolute;top:12px;left:12px;right:12px;z-index:8;display:flex;align-items:center;gap:6px;
+  background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 12px;box-shadow:0 6px 24px #0008}
+#tabbar .brand{font-weight:800;letter-spacing:.22em;font-size:15px;margin-right:10px}
+#tabbar button{background:transparent;color:var(--muted);border:0;border-radius:8px;
+  padding:6px 14px;cursor:pointer;font-size:13px;font-weight:600}
+#tabbar button:hover{color:var(--text)}
+#tabbar button.on{background:var(--accent);color:#fff}
+#subtitle{margin-left:auto;color:var(--muted);font-size:12px;max-width:40%;text-align:right;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* panels */
+aside,#weather,#legend{position:absolute;z-index:5;background:var(--panel);
+  border:1px solid var(--line);border-radius:12px;box-shadow:0 6px 24px #0008}
+.tabpanel{top:62px;left:12px;bottom:12px;width:380px;overflow:auto;padding:0}
+#setup,#brief{padding:16px 18px}
+.brand{font-weight:800;letter-spacing:.22em;font-size:15px}
+.gate{padding:10px 16px;border-bottom:1px solid var(--line);font-size:12.5px}
+.gate .diy{display:inline-block;padding:2px 8px;border-radius:20px;font-weight:700;font-size:11px}
+.diy.ok{background:#123f22;color:#6ee7a0}.diy.no{background:#3f1212;color:#f79}
+.gate .flag{color:var(--muted);margin-top:6px}
+.method{padding:10px 16px;border-bottom:1px solid var(--line);color:#cdd7dc;font-size:12.5px}
+.method b{color:#fff}
+details summary{cursor:pointer;color:var(--muted);font-size:12px;margin-top:4px}
+
+/* area / camp cards */
+#list{padding:8px}
+.camp{margin:8px 6px 4px;color:var(--muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+.card{background:var(--panel2);border:1px solid var(--line);border-radius:10px;
+  padding:10px 12px;margin:6px;cursor:pointer;transition:.15s}
+.card:hover{border-color:#3d474d;background:#20272b}
+.card .top{display:flex;align-items:center;gap:8px}
+.badge{width:26px;height:26px;border-radius:50%;background:#222;color:#fff;border:2px solid #fff;
+  display:grid;place-items:center;font-weight:800;font-size:13px;flex:none}
+.badge.top{background:var(--good);border-color:#eafff0}
+.card .meta{font-size:12px;color:var(--muted)}
+.card .why{margin:6px 0 0;font-size:12.5px;color:#d7dee2}
+.pill{display:inline-block;font-size:11px;padding:1px 7px;border-radius:20px;margin:2px 3px 0 0}
+.pill.pro{background:#12331d;color:#7fe0a0}.pill.con{background:#33221a;color:#f2b98a}
+
+/* detail (phase 2) */
+#detail{padding:12px 16px}
+#detail .back{color:var(--muted);cursor:pointer;font-size:12px;margin-bottom:8px}
+#detail h2{margin:.2em 0}
+.wp{display:flex;gap:8px;align-items:flex-start;padding:8px 0;border-top:1px solid var(--line)}
+.dot{width:12px;height:12px;border-radius:50%;margin-top:3px;border:1px solid #0006;flex:none}
+.wp .t{font-weight:600}.wp .s{color:var(--muted);font-size:12px}
+.hidden{display:none}
+
+/* tools */
+#tools{top:62px;right:14px;width:172px;padding:10px}
+.tgroup{padding:6px 0;border-bottom:1px solid var(--line)}
+.tgroup:last-child{border:0}
+.tlabel{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:4px}
+#tools button{display:inline-block;margin:2px;padding:5px 9px;background:#20272b;color:var(--text);
+  border:1px solid var(--line);border-radius:8px;cursor:pointer;font-size:12px}
+#tools button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+#tools label{display:block;font-size:12.5px;margin:3px 0;color:#cdd7dc}
+
+/* weather / wind calendar */
+#weather{left:404px;bottom:14px;padding:8px 10px;max-width:52vw}
+#brief h2{font-size:16px;margin:14px 0 4px}#brief h3{font-size:14px;margin:12px 0 2px}
+#brief .why{color:#d7dee2}#brief p{color:#cdd7dc;font-size:13px}
+#setup .fld{margin:10px 0}#setup label{display:block;color:var(--muted);font-size:12px;margin-bottom:4px}
+#setup select,#setup input{width:100%;background:#20272b;color:var(--text);border:1px solid var(--line);
+  border-radius:8px;padding:8px}
+#setup .radii{display:flex;flex-wrap:wrap;gap:6px}
+#setup .radii button{background:#20272b;color:var(--text);border:1px solid var(--line);border-radius:8px;
+  padding:6px 10px;cursor:pointer}
+#setup .radii button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+#setup .note{color:var(--muted);font-size:12px;margin-top:10px;line-height:1.5}
+#weather .days{display:flex;gap:6px}
+.day{min-width:52px;text-align:center;padding:6px 8px;border:1px solid var(--line);border-radius:8px;
+  cursor:pointer;font-size:11px;background:#20272b}
+.day.sel{border-color:var(--accent);background:#2a1618}
+.day .d{font-weight:700;font-size:13px}
+.day .w{color:var(--muted);margin-top:2px}
+#weather .note{color:var(--muted);font-size:11px;margin-top:6px}
+
+/* legend */
+#legend{right:14px;bottom:14px;padding:8px 10px;font-size:12px;max-width:200px}
+#legend i{display:inline-block;width:12px;height:12px;border-radius:50%;margin-right:6px;vertical-align:-1px;border:1px solid #000}
+#legend .row{margin:2px 0}
+.maplibregl-popup-content{background:#171b1e;color:#e7ecef;border:1px solid #2a3136;border-radius:10px;font-size:12.5px}
+.maplibregl-popup-content h4{margin:.2em 0}
+.maplibregl-popup-tip{border-top-color:#171b1e!important;border-bottom-color:#171b1e!important}
+
+/* ---- redesigned setup ---- */
+.searchrow{display:flex;gap:6px}
+.searchrow input{flex:1}
+.searchrow button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:600}
+.results{margin:4px 0}
+.rres{padding:6px 8px;border:1px solid var(--line);border-radius:6px;margin:3px 0;font-size:12px;cursor:pointer;color:#cdd7dc}
+.rres:hover{background:#20272b;border-color:#3d474d}
+#setup .big{width:100%;margin-top:8px;padding:12px;background:#20272b;border:1px dashed #4a5760;border-radius:8px;
+  color:#e7ecef;cursor:pointer;font-weight:600;font-size:13px}
+#setup .big:hover{border-color:var(--accent);color:#fff}
+.coordline{display:flex;align-items:center;gap:8px;margin-top:8px}
+.coordline .s{white-space:nowrap;color:var(--muted);font-size:11px}
+.coordline input{flex:1}
+.numrow{display:flex;align-items:center;gap:8px}
+.numrow input{flex:1}.numrow span{color:var(--muted);font-size:12px;min-width:26px}
+#setup .run{width:100%;margin-top:14px;padding:14px;background:var(--accent);color:#fff;border:0;border-radius:10px;
+  font-weight:800;letter-spacing:.06em;cursor:pointer;font-size:13px}
+#setup input[type=range]{width:100%;accent-color:var(--accent)}
+#radVal{color:#fff}
+.radii button[disabled]{opacity:1;cursor:default}
+/* tools extras */
+.srow{display:flex;align-items:center;gap:8px;margin-top:4px}
+.srow input[type=range]{flex:1;accent-color:var(--accent)}
+.srow .s{color:var(--muted);font-size:11px;min-width:56px}
+/* hour scrubber */
+.hourrow{display:flex;align-items:center;gap:8px;margin-top:8px}
+.hourrow input[type=range]{flex:1;accent-color:#e2c044}
+/* drilldown block */
+.dd{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-top:8px;font-size:12.5px}
+.ddgrid{display:grid;grid-template-columns:1fr 1fr;gap:4px 10px;margin-top:4px}
+.ddgrid div{display:flex;justify-content:space-between;border-bottom:1px dotted #2a3136;padding:2px 0}
+.ddgrid span{color:var(--muted)}
+.s{color:var(--muted);font-size:12px}
+#legend .tog{cursor:pointer}

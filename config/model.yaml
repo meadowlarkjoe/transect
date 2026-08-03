@@ -1,0 +1,67 @@
+# Global model parameters (species-agnostic). Tunable knobs for the dynamic,
+# condition-aware upgrades over a static expert map. See docs/design-improvements.md.
+
+version: 1
+working_crs: "EPSG:32198"     # NAD83 / Quebec Lambert — metres, good for area/dist
+io_crs: "EPSG:4326"           # WGS84 for GPX/KML I/O
+raster_resolution_m: 40       # analysis grid (km-scale moose habitat; memory-safe in a 2GB VM)
+
+# --- Wind & thermals: approach routing enters downwind of target sites --------
+wind:
+  # If null, briefs are generated for the prevailing rut-season wind and a
+  # "swap for your forecast wind" note. CLI/forecast can override per run.
+  prevailing_dir_deg: null
+  downwind_buffer_deg: 45       # keep approach within +/- this of downwind
+  thermals:
+    enabled: true
+    am_upslope: true            # mornings: air rises -> approach from below
+    pm_downslope: true          # evenings: air sinks -> approach from above
+
+# --- Weather: pull forecast for actual hunt dates, drive route/refuge choice ---
+weather:
+  provider: open-meteo          # free, no key; historical + forecast
+  midday_hot_threshold_c: 15    # above -> prefer thermal refuges + magenta routes
+  use_forecast_when_within_days: 14
+
+# --- Multi-modal extraction friction (relative cost per metre travelled) ------
+# huntability = HSM * exp(-extraction_cost / decay). Lower friction = cheaper.
+extraction:
+  decay: 2500                   # metres-equivalent; higher = more tolerant of distance
+  modes:
+    truck:
+      on_road: 1.0
+      offroad: Infinity         # trucks stay on roads
+    atv:
+      base: 3.0
+      max_slope_deg: 20
+      blocked_cover: [tourbiere]      # impassable wetlands
+      slope_penalty_per_deg: 0.4
+    canoe:
+      on_water: 1.5
+      portage: 40.0             # heavy penalty to leave water
+      max_portage_m: 800
+    backpack:
+      base: 12.0                # dominant constraint; distance kills
+      slope_penalty_per_deg: 0.8
+  warm_weather_spoilage_hours: 6  # flag kills whose best pack-out exceeds this
+
+# --- Hunter-pressure surface ---------------------------------------------------
+pressure:
+  road_decay_m: 1500            # pressure falls off with distance from access
+  town_decay_m: 25000
+  parking_decay_m: 1000
+  # sweet spot = high huntability AND low pressure; weight in ranking:
+  weight_in_ranking: 0.25
+
+# --- Data confidence (be explicit north of the écoforestière edge) ------------
+confidence:
+  ecoforestiere_north_limit_lat: 52.0   # coverage thins beyond ~52 degN
+  low_confidence_penalty: 0.15          # dampen ranking where data is coarse
+  flag_north_of_limit: true
+
+# --- Focus-area extraction -----------------------------------------------------
+focus_areas:
+  count: 5                       # candidate areas to emit for the AOI
+  min_area_km2: 3
+  max_area_km2: 60               # ~ SEPAQ secteur scale (Portneuf sec.12 = 61 km2)
+  smoothing_m: 100

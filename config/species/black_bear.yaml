@@ -1,0 +1,90 @@
+# Black bear (Ursus americanus) — ours noir, Quebec.
+# Food-driven, not rut-driven: berries (regen/burns/shrub), hard/soft mast,
+# riparian corridors, remote cover. Hunted spring (green-up/bait) & fall (food).
+species: black_bear
+scientific_name: "Ursus americanus"
+region_profile: quebec_boreal
+
+cover_types:
+  coupe_recente:
+    label_fr: "Coupe récente (10 ans et moins)"
+    browse: 0.7                    # early berries/forbs on fresh openings
+    cover: -0.2
+  regeneration:
+    label_fr: "Régénération (10 à 30 ans)"
+    browse: 1.0                    # berry fields (blueberry/raspberry) — bear gold
+    cover: 0.3
+    note: "Regen/burn berry fields drive bear feeding."
+  coupe_partielle:
+    label_fr: "Coupe partielle (prélèvement 50% et moins)"
+    browse: 0.6
+    cover: 0.4
+  feuillus:
+    label_fr: "Feuillus (plus de 30 ans)"
+    browse: 0.55                   # soft/hard mast, ants in deadfall
+    cover: 0.4
+  melange:
+    label_fr: "Mélangé (plus de 30 ans)"
+    browse: 0.45
+    cover: 0.55
+  resineux:
+    label_fr: "Résineux (plus de 30 ans)"
+    browse: -0.1
+    cover: 0.7                     # security cover / travel between food
+  aulnaie:
+    label_fr: "Aulnaie"
+    browse: 0.55                   # riparian foraging + travel
+    cover: 0.5
+    wet: 0.6
+  tourbiere:
+    label_fr: "Tourbière"
+    browse: 0.4                    # bog berries
+    cover: -0.05
+    wet: 0.8
+  non_boise:
+    label_fr: "Non boisé"
+    browse: 0.2
+    cover: -0.35
+
+water:
+  wetland_optimal_m: 250
+  wetland_falloff_m: 1200
+  lakeshore_optimal_m: 200
+  beaver_pond_bonus: 0.4
+
+terrain:
+  prefer_valley_bottoms: 0.5       # riparian/drainages = travel + food
+  prefer_saddles_funnels: 0.5
+  south_facing_regen_bonus: 0.6    # south slopes green up / berry first
+  avoid_steep_slope_deg: 35        # bears use steeper ground than moose
+  wallow_twi_min: 8
+
+thermal_refuge:
+  cover_class: resineux
+  aspect_cool: [315, 45]
+  max_dist_to_water_m: 500
+  canopy_closure_min: 0.6
+
+# Bears aren't hunted on a rut; reuse the window as the primary hunt season and
+# treat "rut sites" as food-concentration / travel-pinch ambush sites.
+rut:
+  pre_rut: ["09-01", "09-15"]
+  peak_rut: ["09-16", "10-15"]     # fall food season (Quebec fall bear)
+  post_rut: ["10-16", "10-31"]
+  calling_min_minutes: 0
+  rut_site_features:
+    - berry_field_edge
+    - funnel
+    - riparian
+
+diel:
+  feeding_windows: ["dawn", "dusk"]
+  midday_hot_threshold_c: 20
+  midday_route_target: thermal_refuge
+
+hsm_weights:                       # food(browse)-led
+  browse: 0.45
+  cover: 0.15
+  water: 0.15
+  terrain: 0.10
+  edge_density: 0.15

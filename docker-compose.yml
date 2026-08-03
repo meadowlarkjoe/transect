@@ -1,0 +1,15 @@
+services:
+  moose-scout:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: moose-scout:local
+    volumes:
+      - ./config:/app/config:ro
+      - ./cache:/app/cache
+      - ./outputs:/app/outputs
+    environment:
+      - MOOSE_SCOUT_CACHE=/app/cache
+      - MOOSE_SCOUT_OUTPUTS=/app/outputs
+    # Override the entrypoint args at run time, e.g.:
+    #   docker compose run --rm moose-scout legal --aoi fire_lake

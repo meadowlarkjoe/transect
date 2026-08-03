@@ -1,0 +1,137 @@
+# Data-source registry. Real, mostly-free public endpoints for the Quebec boreal.
+# `access` tells the acquire layer which client to use. Endpoints marked
+# `verify_on_first_pull: true` should be confirmed live before trusting (portals
+# rename layers); the acquire client logs the resolved URL.
+
+# ---------------------------------------------------------------------------
+# LEGAL / TENURE (stage 0) — the gating layer
+# ---------------------------------------------------------------------------
+zones_chasse:
+  title: "Limites des zones de chasse et pêche du Québec"
+  provider: "MRNF / Données Québec"
+  access: wfs
+  portal: "https://www.donneesquebec.ca/recherche/dataset/limites-des-zones-de-chasse-et-de-peche-du-quebec"
+  verify_on_first_pull: true
+  use: "Determine which hunting zone the AOI falls in (Fire Lake ~ zone 29)."
+
+territoires_fauniques:
+  title: "Territoires fauniques structurés (ZEC, réserves fauniques, pourvoiries)"
+  provider: "MRNF / Données Québec"
+  access: wfs
+  portal: "https://www.donneesquebec.ca/recherche/dataset/territoires-fauniques"
+  verify_on_first_pull: true
+  use: >
+    Tenure polygons. Classify AOI into crown land (DIY OK) / ZEC / réserve faunique
+    / pourvoirie à droits exclusifs (off-limits DIY). Drives the HUNTABLE mask.
+
+tenure_crown:
+  title: "Affectation du territoire public / terres du domaine de l'État"
+  provider: "MRNF"
+  access: wfs
+  portal: "https://www.donneesquebec.ca/recherche/dataset"
+  verify_on_first_pull: true
+
+harvest_stats:
+  title: "Statistiques de chasse à l'orignal par zone + inventaires aériens"
+  provider: "MRNF"
+  access: manual         # published as PDFs/tables; Claude resolver ingests
+  url: "https://www.quebec.ca/agriculture-environnement-et-ressources-naturelles/faune"
+  use: "Rank which zone/sector; validate HSM against real kill density."
+
+# ---------------------------------------------------------------------------
+# ELEVATION (stage 2 terrain)
+# ---------------------------------------------------------------------------
+hrdem:
+  title: "High Resolution Digital Elevation Model (HRDEM) / CanElevation"
+  provider: "NRCan"
+  access: stac
+  endpoint: "https://datacube.services.geo.ca/stac/api"
+  collection: "hrdem-mosaic-1m"
+  verify_on_first_pull: true
+  use: "Best terrain where available (LiDAR-derived)."
+
+cdem:
+  title: "Canadian Digital Elevation Model (CDEM) — national fallback"
+  provider: "NRCan"
+  access: download
+  url: "https://ftp.maps.canada.ca/pub/elevation/dem_mne/"
+  use: "Coarser DEM fallback north of HRDEM coverage (expected near Fire Lake)."
+
+# ---------------------------------------------------------------------------
+# VEGETATION / FOREST (stage 1) — the habitat backbone
+# ---------------------------------------------------------------------------
+ecoforestiere:
+  title: "Carte écoforestière à jour (avec perturbations)"
+  provider: "MRNF / Forêt ouverte / Données Québec"
+  access: wfs
+  portal: "https://www.donneesquebec.ca/recherche/dataset/carte-ecoforestiere-avec-perturbations"
+  wms: "https://geoegl.msp.gouv.qc.ca/ws/igo_gouvouvert.fcgi"
+  verify_on_first_pull: true
+  coverage_north_limit_lat: 52.0
+  use: >
+    Stand species/age/height/density + dated perturbations (cuts/burns). Mapped
+    to ~52°N — engage fallback (below) north of the line.
+
+forest_roads:
+  title: "Réseau routier / infrastructure forestière (chemins)"
+  provider: "MRNF / Forêt ouverte"
+  access: wfs
+  portal: "https://www.donneesquebec.ca/recherche/dataset"
+  verify_on_first_pull: true
+  use: "Official logging-road network; unioned with OSM, checked vs Sentinel-2."
+
+# ---------------------------------------------------------------------------
+# HYDRO (stages 1 & 4) — feeding + canoe extraction
+# ---------------------------------------------------------------------------
+grhq:
+  title: "Géobase du réseau hydrographique du Québec (GRHQ)"
+  provider: "MRNF"
+  access: wfs
+  portal: "https://www.donneesquebec.ca/recherche/dataset/grhq"
+  verify_on_first_pull: true
+  use: "Rivers/lakes/wetlands for aquatic feeding + navigable-water extraction."
+
+# ---------------------------------------------------------------------------
+# REMOTE SENSING (stage 1) — north-of-52 fallback + road/cut verification
+# ---------------------------------------------------------------------------
+sentinel2:
+  title: "Sentinel-2 L2A surface reflectance"
+  provider: "ESA / Microsoft Planetary Computer"
+  access: stac
+  endpoint: "https://planetarycomputer.microsoft.com/api/stac/v1"
+  collection: "sentinel-2-l2a"
+  fallback_endpoint: "https://earth-search.aws.element84.com/v1"
+  use: >
+    Recent leaf-on imagery. Verify roads/cuts/wetlands vectors miss; NDVI for
+    regen greenness; primary veg signal north of the écoforestière limit.
+
+fire_nbac:
+  title: "National Burned Area Composite (NBAC) / CWFIS"
+  provider: "NRCan CFS"
+  access: download
+  url: "https://cwfis.cfs.nrcan.gc.ca/datamart"
+  use: "Burn history + year — burns 5–30 yr old = prime browse."
+
+worldcover:
+  title: "ESA WorldCover 10 m land cover"
+  provider: "ESA"
+  access: stac
+  endpoint: "https://services.terrascope.be/stac"
+  use: "Coarse land-cover fallback / cross-check."
+
+osm:
+  title: "OpenStreetMap (roads, tracks, water)"
+  provider: "OSM"
+  access: overpass
+  endpoint: "https://overpass-api.de/api/interpreter"
+  use: "Remote tracks Google misses; union with official forest roads."
+
+# ---------------------------------------------------------------------------
+# WEATHER (stage 6) — date-specific route/thermal selection
+# ---------------------------------------------------------------------------
+weather:
+  title: "Open-Meteo forecast + historical"
+  provider: "Open-Meteo"
+  access: rest
+  endpoint: "https://api.open-meteo.com/v1/forecast"
+  use: "Temps/wind for actual hunt dates -> route class + thermal-refuge choice."

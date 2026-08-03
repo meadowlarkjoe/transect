@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+cache/
+outputs/
+.venv/
+venv/
+*.tif
+*.gpkg
+.wrangler/
+.DS_Store
+node_modules/

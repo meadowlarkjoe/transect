@@ -1,0 +1,116 @@
+# Canonical output symbology for Moose Scout briefs.
+#
+# Directly implements the "Les Cartes Xperts" annotation scheme used by
+# Charles Dorris (La Chasse avec Charles Dorris) so every generated brief speaks
+# the language experienced Quebec moose hunters already read, and each feature
+# maps cleanly to an OnX-importable GPX/KML primitive.
+#
+# geometry: what the synthesizer emits; onx: how it lands in OnX Hunt.
+#   line  -> GPX <trk> (also KML LineString for web map, colored)
+#   point -> GPX <wpt> / KML Placemark (typed color + icon + description)
+#   poly  -> KML Polygon (focus areas; web-map only, OnX web import)
+
+version: 1
+attribution: "Symbology after La Chasse avec Charles Dorris / Les Cartes Xperts"
+
+# --- Walking routes (parcours de marche) -------------------------------------
+# Conditioned on time-of-day and temperature. The synthesizer picks route class
+# per segment from the diel/thermal model (see species/moose.yaml).
+routes:
+  good:
+    label_fr: "Bon parcours"
+    label_en: "Good walking route"
+    color: "#000000"
+    style: dashed
+    geometry: line
+    onx: track
+  best:
+    label_fr: "Meilleur parcours"
+    label_en: "Best walking route"
+    color: "#e2231a"       # red
+    style: dashed
+    geometry: line
+    onx: track
+  best_alt:
+    label_fr: "Meilleur parcours (alt.)"
+    label_en: "Alternate best route"
+    color: "#ffd400"       # yellow
+    style: dashed
+    geometry: line
+    onx: track
+  midday_hot:
+    label_fr: "Parcours pour centre du jour et s'il fait chaud"
+    label_en: "Midday / hot-weather route (through cover)"
+    color: "#ff00c8"       # magenta
+    style: dashed
+    geometry: line
+    onx: track
+
+# --- Travel geometry ---------------------------------------------------------
+funnel:
+  label_fr: "Passe naturel ou entonnoir"
+  label_en: "Natural pass or funnel (pinch point)"
+  color: "#ff8c00"         # orange
+  style: solid
+  geometry: line
+  onx: track
+
+# --- Sites of interest (rendered as directional arrows on the sheet) ---------
+sites:
+  saline_blind:
+    label_fr: "Endroit recommandé pour saline et/ou affût"
+    label_en: "Recommended salt-lick / blind site"
+    color: "#0047ff"       # blue
+    geometry: point
+    onx: waypoint
+    icon: blind
+    # NOTE: salt baiting is regulated on Quebec crown land — legal check required.
+    legal_flag: baiting
+  thermal_refuge:
+    label_fr: "Site potentiel de fraîcheur (climatiseur à orignaux)"
+    label_en: "Thermal refuge (cool midday bedding)"
+    color: "#ff00c8"       # magenta
+    geometry: point
+    onx: waypoint
+    icon: bed
+  rut_calling:
+    label_fr: "Site de rut potentiel / station d'appels (min. 30 min)"
+    label_en: "Potential rut site / calling station (>=30 min stands)"
+    color: "#e2231a"       # red
+    geometry: point
+    onx: waypoint
+    icon: call
+    min_stand_minutes: 30
+  validate_ground:
+    label_fr: "Site d'intérêt à valider sur le terrain"
+    label_en: "Site of interest — ground-truth on foot"
+    color: "#000000"       # black
+    geometry: point
+    onx: waypoint
+    icon: question
+
+# --- Focus areas & logistics (Moose Scout additions) -------------------------
+focus_area:
+  label_en: "Focus area"
+  color: "#000000"
+  style: dashed
+  geometry: poly
+  onx: kml_polygon
+base_camp:
+  label_en: "Base camp (vehicle-accessible)"
+  color: "#4b2e05"
+  geometry: point
+  onx: waypoint
+  icon: camp
+parking:
+  label_en: "Parking / access point"
+  color: "#4b2e05"
+  geometry: point
+  onx: waypoint
+  icon: parking
+glassing:
+  label_en: "Glassing knob (viewshed)"
+  color: "#1f6f3f"
+  geometry: point
+  onx: waypoint
+  icon: binoculars

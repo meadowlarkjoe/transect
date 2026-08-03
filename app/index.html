@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transect — Scouting</title>
+<link rel="stylesheet" href="vendor/maplibre-gl.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="map"></div>
+
+<!-- Top: app tabs -->
+<nav id="tabbar">
+  <div class="brand">TRANSECT</div>
+  <button data-tab="setup">Setup</button>
+  <button data-tab="overview" class="on">Overview</button>
+  <button data-tab="field">Field</button>
+  <button data-tab="brief">Brief</button>
+  <div id="subtitle">loading…</div>
+</nav>
+
+<!-- Overview: ranked areas + pros/cons (Phase 1) / detail (Phase 2) -->
+<aside id="panel" class="tabpanel">
+  <div id="gate" class="gate"></div>
+  <div id="method" class="method"></div>
+  <div id="list"></div>
+  <div id="detail" class="hidden"></div>
+</aside>
+
+<!-- Setup: scout parameters -->
+<aside id="setup" class="tabpanel hidden"></aside>
+
+<!-- Brief: full rationale document -->
+<aside id="brief" class="tabpanel hidden"></aside>
+
+<!-- Right: tools -->
+<aside id="tools">
+  <div class="tgroup">
+    <div class="tlabel">Basemap</div>
+    <button data-base="satellite" class="on">Satellite</button>
+    <button data-base="topo">Topo</button>
+    <button data-base="hybrid">Hybrid</button>
+  </div>
+  <div class="tgroup">
+    <button id="btn3d">3D terrain</button>
+    <button id="btnmeasure">📏 Measure</button>
+  </div>
+  <div class="tgroup">
+    <div class="tlabel">Layers</div>
+    <label><input type="checkbox" data-layer="areas" checked> Focus areas</label>
+    <label><input type="checkbox" data-layer="camps" checked> Camps</label>
+    <label><input type="checkbox" data-layer="waypoints" checked> Sites</label>
+    <label><input type="checkbox" data-layer="routes" checked> Routes</label>
+  </div>
+</aside>
+
+<!-- Bottom: weather / wind calendar -->
+<div id="weather"></div>
+
+<!-- Legend -->
+<div id="legend"></div>
+
+<script src="vendor/maplibre-gl.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

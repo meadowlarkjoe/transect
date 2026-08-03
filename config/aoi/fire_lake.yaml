@@ -1,0 +1,35 @@
+# Area of interest: Fire Lake mine region, northern Quebec (first test case).
+name: fire_lake
+title: "Fire Lake / Fermont — moose"
+species: moose
+
+# Centre near the Fire Lake mine (52°20′13″N, 67°21′41″W).
+center: { lat: 52.337, lon: -67.361 }
+
+# ~70 km box (half-width in km each direction from center).
+bbox_halfwidth_km: 35
+
+# Zone: Fire Lake / Fermont is hunting ZONE 19. Confirmed authoritatively — the
+# official MFFP zone-19 map (CA_hunting-map-zone-19_MFFP.pdf) is the only zone map
+# whose text names "Fermont" (zones 22 and 23-24 name Caniapiscau/Schefferville,
+# not Fermont). NOTE: zone 19 is split 19 sud / 19 nord for regulation; Fire Lake
+# (52.3°N) is the remote NORTH end (19 nord). Harvest stats below are ZONE-WIDE
+# and dominated by the accessible southern Basse-Côte-Nord — treat as a weak proxy
+# for Fire Lake specifically. Confirm the 19 sud/nord line + season on quebec.ca.
+zone_hint: "19"
+
+season:
+  year: 2026
+  target_dates: ["2026-09-25", "2026-10-05"]   # peak rut window; drives weather
+  weapon: rifle
+
+hunter:
+  residency: quebec_resident      # widest DIY crown-land access
+  extraction_modes: [truck, canoe, atv, backpack]
+  party_size: 2
+
+notes: >
+  Straddles the 52°N écoforestière coverage edge — expect the Sentinel-2 /
+  northern-inventory fallback to engage across much of the box. Route 389 is the
+  only fuel/access spine (Manic-5, Relais-Gabriel, Fermont); logging spurs off
+  389 are the real access. Near-zero cell coverage — outputs must be offline-first.
