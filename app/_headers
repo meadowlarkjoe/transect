@@ -10,3 +10,21 @@
   Cache-Control: no-cache
 /style.css
   Cache-Control: no-cache
+/config.js
+  Cache-Control: no-cache
+/app
+  Cache-Control: no-cache
+/app.html
+  Cache-Control: no-cache
+/plans
+  Cache-Control: no-cache
+/plans.html
+  Cache-Control: no-cache
+/signin
+  Cache-Control: no-cache
+/signin.html
+  Cache-Control: no-cache
+/public.css
+  Cache-Control: no-cache
+/preview.jpg
+  Cache-Control: no-cache

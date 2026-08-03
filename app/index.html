@@ -3,74 +3,136 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Transect — Scouting</title>
+<title>Transect — scout the ground before you burn the gas</title>
+<meta name="description" content="Open-source DIY hunt scouting. Draw a box; Transect reads terrain, hydrography, land cover, burn history and rut timing, ranks the ground worth hunting, and tells you why.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="vendor/maplibre-gl.css">
-<link rel="stylesheet" href="style.css?v=43">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="public.css?v=1">
+<script>
+  /* Returning users go straight to the tool — the landing is for first contact.
+     ?stay=1 keeps you here on purpose. */
+  try{
+    var q=new URLSearchParams(location.search);
+    if(!q.has('stay') && localStorage.getItem('transect_seen')) location.replace('/app');
+  }catch(e){}
+</script>
 </head>
 <body>
-<div id="map"></div>
+<div class="wrap">
 
-<!-- Top: brand · numbered steps · plan identity · actions -->
-<nav id="tabbar">
+<header class="nav">
   <div class="brand">TRANSECT</div>
-  <div class="steps">
-    <button data-tab="setup"><span class="n">1</span>Setup</button>
-    <span class="sep"></span>
-    <button data-tab="overview" class="on"><span class="n">2</span>Overview</button>
-    <span class="sep"></span>
-    <button data-tab="field"><span class="n">3</span>Field</button>
-    <span class="sep"></span>
-    <button data-tab="brief"><span class="n">4</span>Brief</button>
+  <div class="sp"></div>
+  <a class="lnk" href="#how">How it works</a>
+  <a class="lnk" href="#honesty">What it won't do</a>
+  <a class="lnk" href="https://github.com/meadowlarkjoe/transect">Source</a>
+  <div class="divider"></div>
+  <a class="lnk" href="/signin">Sign in</a>
+  <a class="btn btn--primary" href="/app">Start scouting</a>
+</header>
+
+<div class="hero">
+  <div>
+    <div class="pill"><i></i>OPEN SOURCE · FREE · MIT</div>
+    <h1 class="display">Scout the ground before you burn the gas.</h1>
+    <p class="lede">Draw a box. Transect reads terrain, hydrography, land cover, burn history and
+      rut timing inside it, ranks the ground worth hunting, and tells you <i>why</i> — then filters
+      the whole plan against how far you'll actually walk and how the meat comes out.</p>
+    <p class="sub">Built for one hunt in northern Québec and opened up in case someone else wants it.
+      No subscription, no upsell, no roadmap.</p>
+    <div class="ctas">
+      <a class="btn btn--primary btn--lg" href="/signin?mode=create">Create a free account</a>
+      <a class="btn btn--secondary btn--lg" href="https://github.com/meadowlarkjoe/transect">Read the source</a>
+    </div>
+    <div class="trust">NO CARD &nbsp;·&nbsp; NO TRACKING &nbsp;·&nbsp; EXPORTS GPX / KML</div>
   </div>
-  <div id="planbar">
-    <div class="pname"><span id="planName">—</span><span class="savedot" id="saveDot" data-s="unsaved">UNSAVED</span></div>
-    <div class="pmeta" id="subtitle">loading…</div>
+  <div class="shot">
+    <div class="bar"><i></i><i></i><i></i><span>transect.joejmeadows.com</span></div>
+    <img src="preview.jpg" alt="Transect ranking focus areas over satellite imagery"
+         onerror="this.parentNode.style.display='none'">
   </div>
-  <button id="plansBtn" class="btn btn--secondary btn--sm">Plans</button>
-  <button id="exportBtn" class="btn btn--secondary btn--sm">Export</button>
-</nav>
-
-<!-- Left ledger -->
-<aside id="panel" class="tabpanel">
-  <div id="gate" class="gate"></div>
-  <div id="method" class="method"></div>
-  <div id="list"></div>
-  <div id="detail" class="hidden"></div>
-</aside>
-<aside id="setup" class="tabpanel hidden"></aside>
-<aside id="brief" class="tabpanel hidden"></aside>
-
-<!-- Right: persistent icon rail; transient cards open from their own button -->
-<div id="rail"></div>
-<div id="layersDock" class="dock hidden"></div>
-<div id="baseDock" class="dock hidden"></div>
-
-<!-- Map controls -->
-<div id="mapctl"></div>
-
-<!-- Bottom: weather / wind days -->
-<div id="weather"></div>
-
-<!-- popovers -->
-<aside id="plans" class="hidden"></aside>
-<div id="exportMenu" class="hidden">
-  <div class="s" style="margin-bottom:8px">Export this plan's waypoints, routes &amp; areas:</div>
-  <button data-fmt="gpx">GPX — OnX / Garmin</button>
-  <button data-fmt="kml">KML — Google Earth</button>
-  <label class="s" style="display:block;margin-top:10px"><input type="checkbox" id="exZones" checked> include model zones</label>
 </div>
 
-<!-- legacy hooks kept so handlers bind cleanly -->
-<div id="drawtools"></div>
-<div id="legend"></div>
+<section id="how">
+  <div class="micro">How it works</div>
+  <div class="steps">
+    <div class="step"><span class="n">01</span>
+      <h3>Draw your box</h3>
+      <p>Search a lake or drag a box on the map. Set your hunt dates — they drive rut phase,
+         weather and which behaviour the model weights.</p></div>
+    <div class="step"><span class="n">02</span>
+      <h3>Say who's hunting</h3>
+      <p>Boat or no boat, spike camp or back to the truck, how far you'll walk. These aren't
+         cosmetic — with no boat, rivers become foot barriers and ground across one drops out.</p></div>
+    <div class="step"><span class="n">03</span>
+      <h3>The engine runs</h3>
+      <p>Three to five minutes. It pulls a DEM, satellite land cover, mapped fire history and
+         hydrography for your box, then scores habitat against retrievability and pressure.</p></div>
+    <div class="step"><span class="n">04</span>
+      <h3>Take it to the bush</h3>
+      <p>Ranked areas with the reasoning, calling sites keyed to wind, camps, pack-out maths,
+         and a GPX/KML export that opens in OnX or a Garmin.</p></div>
+  </div>
+</section>
 
-<script src="vendor/maplibre-gl.js"></script>
-<script src="config.js"></script>
-<script src="data.js?v=43"></script>
-<script src="area_detail.js?v=43"></script>
-<script src="app.js?v=43"></script>
+<section id="honesty">
+  <div class="two">
+    <div>
+      <div class="micro" style="margin-bottom:18px">The one rule</div>
+      <h2 class="sec">Never render data it doesn't have.</h2>
+      <p class="lede" style="font-size:14px">A layer with nothing behind it reads <span class="mono" style="color:#CBD5DA">NO DATA</span>
+        rather than drawing a plausible line. Inferences are labelled as inferences. Scores say what
+        they're relative to. Where the evidence is thin, the interface says so instead of choosing quietly.</p>
+      <p class="serifline"><i>Every mark it makes is a hypothesis to ground-truth on foot.
+        À valider sur le terrain.</i></p>
+    </div>
+    <div class="honest">
+      <div class="hrow"><div class="g" style="color:#C9564A">⃠</div>
+        <div><div class="nm">It won't find you a moose</div>
+          <div class="nt">It models habitat, access and timing. Animals are not in the data.</div></div>
+        <div class="tag" style="color:#C9564A">NOT A GUARANTEE</div></div>
+      <div class="hrow"><div class="g" style="color:#E0A62E">▲</div>
+        <div><div class="nm">Wallows aren't predicted</div>
+          <div class="nt">There's no published method for locating them from terrain. Anyone claiming otherwise is guessing.</div></div>
+        <div class="tag" style="color:#E0A62E">NO METHOD</div></div>
+      <div class="hrow"><div class="g" style="color:#E0A62E">▲</div>
+        <div><div class="nm">Cutblock age is missing</div>
+          <div class="nt">Burn history is mapped; logging regeneration isn't, so it's under-counted.</div></div>
+        <div class="tag" style="color:#E0A62E">FIRE ONLY</div></div>
+      <div class="hrow"><div class="g" style="color:#79868D">◔</div>
+        <div><div class="nm">It isn't validated yet</div>
+          <div class="nt">No harvest or survey data has been used to test whether it beats a simple distance-to-road rule.</div></div>
+        <div class="tag" style="color:#79868D">UNPROVEN</div></div>
+      <div class="hrow"><div class="g" style="color:#79868D">◔</div>
+        <div><div class="nm">It's a desk tool</div>
+          <div class="nt">No offline mode. The field artifact is the GPX you export before you lose signal.</div></div>
+        <div class="tag" style="color:#79868D">PLAN AT HOME</div></div>
+    </div>
+  </div>
+</section>
+
+<section id="source" style="background:#111517">
+  <div class="two" style="align-items:center">
+    <div>
+      <div style="font:600 16px/1.3 var(--sans);margin-bottom:7px">It's a hobby project, and the code says so.</div>
+      <div style="font:400 13px/1.6 var(--sans);color:var(--text-3);max-width:64ch">
+        A Python engine and a MapLibre front end, no build step. Fork it, point it at your own zone,
+        or just read how the habitat model scores ground. Issues welcome; promises not offered.</div>
+    </div>
+    <div><a class="btn btn--secondary btn--lg" href="https://github.com/meadowlarkjoe/transect">github.com/meadowlarkjoe/transect</a></div>
+  </div>
+</section>
+
+<footer>
+  <div class="brand" style="font-size:12px">TRANSECT</div>
+  <span>MIT licensed</span><span>·</span>
+  <a href="https://github.com/meadowlarkjoe/transect">Source</a><span>·</span>
+  <a href="/app">Open the app</a>
+  <div style="flex:1"></div>
+  <span>Symbology follows Les Cartes Xperts / Charles Dorris.</span>
+</footer>
+
+</div>
 </body>
 </html>

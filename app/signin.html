@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign in — Transect</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="public.css?v=1">
+</head>
+<body>
+<div class="authwrap">
+  <div style="position:absolute;top:26px;left:34px"><a class="brand" href="/?stay=1" style="color:var(--text)">TRANSECT</a></div>
+
+  <div class="authcard">
+    <div class="seg" id="modeSeg">
+      <button data-mode="login" aria-pressed="true">Sign in</button>
+      <button data-mode="create">Create account</button>
+    </div>
+
+    <h2 id="ttl">Welcome back</h2>
+    <p class="sub2" id="sub">Your saved hunt plans are waiting. Everything else runs locally in this browser.</p>
+
+    <a class="btn btn--secondary btn--block" id="ghBtn" href="#">Continue with GitHub</a>
+    <div class="or">or email</div>
+
+    <form id="f" autocomplete="on">
+      <label class="fld" for="email">Email</label>
+      <input id="email" type="email" placeholder="you@example.com" autocomplete="username" required>
+      <label class="fld" for="pw">Password</label>
+      <input id="pw" type="password" placeholder="••••••••" autocomplete="current-password" required minlength="6">
+      <button class="btn btn--primary btn--block btn--lg" id="go" type="submit" style="margin-top:18px">Sign in</button>
+    </form>
+
+    <div class="msg" id="msg"></div>
+
+    <div class="fineprint" id="fine">
+      An account only stores your saved hunt plans so they follow you between devices.
+      Everything else runs in your browser. Delete the account and the plans go with it.
+    </div>
+  </div>
+</div>
+
+<script src="config.js"></script>
+<script>
+const API = (new URLSearchParams(location.search).get('api'))
+  || (typeof window!=='undefined' && window.TRANSECT_API) || '';
+let mode = (new URLSearchParams(location.search).get('mode')==='create') ? 'create' : 'login';
+
+const $=id=>document.getElementById(id);
+function paint(){
+  document.querySelectorAll('#modeSeg button').forEach(b=>{
+    if(b.dataset.mode===mode) b.setAttribute('aria-pressed','true'); else b.removeAttribute('aria-pressed');});
+  const create = mode==='create';
+  $('ttl').textContent   = create ? 'Create your account' : 'Welcome back';
+  $('sub').textContent   = create
+    ? 'One account, so your hunt plans follow you between devices. Nothing else is stored.'
+    : 'Your saved hunt plans are waiting. Everything else runs locally in this browser.';
+  $('go').textContent    = create ? 'Create account' : 'Sign in';
+  $('ghBtn').textContent = create ? 'Sign up with GitHub' : 'Continue with GitHub';
+  $('pw').setAttribute('autocomplete', create ? 'new-password' : 'current-password');
+  $('msg').className='msg';
+}
+document.querySelectorAll('#modeSeg button').forEach(b=>b.onclick=()=>{mode=b.dataset.mode;paint();});
+paint();
+
+/* GitHub OAuth isn't wired on the API yet — say so plainly rather than fail silently. */
+$('ghBtn').onclick=e=>{
+  e.preventDefault();
+  const m=$('msg'); m.className='msg err';
+  m.textContent='GitHub sign-in isn’t wired up yet — use email for now.';
+};
+
+$('f').onsubmit=async e=>{
+  e.preventDefault();
+  const m=$('msg'); m.className='msg';
+  const email=$('email').value.trim(), password=$('pw').value;
+  if(!API){ m.className='msg err'; m.textContent='The engine API isn’t configured for this build.'; return; }
+  $('go').disabled=true; $('go').textContent = mode==='create' ? 'Creating…' : 'Signing in…';
+  try{
+    const r=await fetch(API+'/auth/'+(mode==='create'?'signup':'login'),
+      {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok) throw new Error(d.detail||('Sign-in failed ('+r.status+')'));
+    localStorage.setItem('transect_tok', d.token);
+    localStorage.setItem('transect_email', d.email||email);
+    localStorage.setItem('transect_seen','1');
+    location.href='/plans';
+  }catch(err){
+    m.className='msg err'; m.textContent=err.message||'Something went wrong.';
+    $('go').disabled=false; paint();
+  }
+};
+</script>
+</body>
+</html>

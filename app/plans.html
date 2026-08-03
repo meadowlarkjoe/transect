@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Your hunt plans — Transect</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="public.css?v=1">
+</head>
+<body>
+<div class="wrap">
+
+<header class="nav">
+  <a class="brand" href="/?stay=1" style="color:var(--text)">TRANSECT</a>
+  <div class="divider"></div>
+  <span style="font:500 12.5px/1 var(--sans);color:var(--text-2)">Hunt plans</span>
+  <div class="sp"></div>
+  <span id="who" style="font:500 11.5px/1 var(--mono);color:var(--text-3)"></span>
+  <button class="btn btn--ghost" id="out" style="display:none">Sign out</button>
+  <a class="btn btn--secondary" id="signinLink" href="/signin">Sign in</a>
+</header>
+
+<div class="plans-head">
+  <div style="flex:1">
+    <h1>Your hunt plans</h1>
+    <p>Each plan is an area, a set of dates and a hunter profile. Open one to pick up exactly
+       where you left off — the analysis is cached, so it loads without recomputing.</p>
+  </div>
+  <a class="btn btn--primary" href="/app?tab=setup">+ New hunt plan</a>
+</div>
+
+<div class="toolbar">
+  <input id="q" type="text" placeholder="Filter by name, place or species…">
+  <div class="seg" style="margin:0;width:auto">
+    <button data-sort="recent" aria-pressed="true">Recent</button>
+    <button data-sort="date">Hunt date</button>
+    <button data-sort="name">Name</button>
+  </div>
+</div>
+
+<div class="grid" id="grid"></div>
+<div class="empty" id="empty" style="display:none"></div>
+
+<footer>
+  <span>Plans sync to your account when signed in; otherwise they stay in this browser.</span>
+  <div style="flex:1"></div>
+  <a href="/app">Open the app</a>
+</footer>
+</div>
+
+<script src="config.js"></script>
+<script>
+const API=(typeof window!=='undefined' && window.TRANSECT_API)||'';
+const tok=()=>{try{return localStorage.getItem('transect_tok');}catch(e){return null;}};
+const $=id=>document.getElementById(id);
+let PLANS=[], sortBy='recent';
+
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function ago(ts){
+  if(!ts) return '';
+  const d=Math.floor((Date.now()-ts)/86400000);
+  if(d<=0) return 'SAVED TODAY';
+  if(d===1) return 'SAVED YESTERDAY';
+  if(d<30) return 'SAVED '+d+' DAYS AGO';
+  const m=Math.floor(d/30); return 'SAVED '+(m===1?'LAST MONTH':m+' MONTHS AGO');
+}
+/* A plan is only as good as its cached analysis: COMPUTED if it carries a result,
+   NOT RUN if it never has, STALE if the hunt dates have already passed. */
+function status(p){
+  const s=p.data||p;
+  if(!s.areas || !s.areas.length) return {k:'notrun',t:'NOT RUN'};
+  const d=(s.setup&&s.setup.dates)||[];
+  if(d.length && new Date(d[d.length-1]) < new Date()) return {k:'stale',t:'STALE'};
+  return {k:'computed',t:'COMPUTED'};
+}
+function card(p){
+  const s=p.data||p, su=s.setup||{}, st=status(p);
+  const c=su.center||[], dates=(su.dates||[]).join(' → ');
+  const areas=(s.areas&&s.areas.length)||0;
+  return `<div class="pcard" data-id="${esc(p.id)}">
+    <div class="pthumb">
+      <span class="chip ${st.k}">${st.t}</span>
+      <span style="color:var(--text-4);font:500 10px/1 var(--mono);letter-spacing:.14em">NO PREVIEW</span>
+      <span class="meta"><span>${esc((s.meta&&s.meta.species)||'moose').toUpperCase()}${s.legal&&s.legal.zone?' · ZONE '+esc(s.legal.zone):''}</span>
+        <span>${areas?areas+' AREAS':''}</span></span>
+    </div>
+    <div class="pbody">
+      <div class="nm">${esc(p.name||'Untitled plan')}</div>
+      <div class="co">${c.length?(+c[1]).toFixed(4)+', '+(+c[0]).toFixed(4):''}${su.radius?' · r'+Math.round(su.radius)+' km':''}${dates?' · '+esc(dates):''}</div>
+    </div>
+    <div class="pfoot">
+      <span class="saved">${ago(p.updated?p.updated*1000:(s.savedAt||0))}</span>
+      <a class="btn btn--secondary btn--sm" style="padding:7px 11px;font-size:11px" href="/app?plan=${encodeURIComponent(p.id)}">Open</a>
+      <button class="btn btn--ghost btn--sm" data-del="${esc(p.id)}" style="padding:7px 9px;font-size:11px">✕</button>
+    </div></div>`;
+}
+function render(){
+  const q=($('q').value||'').toLowerCase();
+  let list=PLANS.filter(p=>{
+    const s=p.data||p;
+    return !q || (p.name||'').toLowerCase().includes(q)
+      || JSON.stringify((s.meta&&s.meta.title)||'').toLowerCase().includes(q)
+      || ((s.meta&&s.meta.species)||'').toLowerCase().includes(q);
+  });
+  if(sortBy==='name') list.sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  else if(sortBy==='date') list.sort((a,b)=>{
+    const da=(((a.data||a).setup||{}).dates||[])[0]||'', db=(((b.data||b).setup||{}).dates||[])[0]||'';
+    return da.localeCompare(db);
+  });
+  else list.sort((a,b)=>((b.updated||0)-(a.updated||0)) || (((b.data||b).savedAt||0)-((a.data||a).savedAt||0)));
+
+  $('grid').innerHTML = list.map(card).join('') +
+    `<a class="newcard" href="/app?tab=setup"><div><div style="font-size:22px;line-height:1">+</div>
+      <div style="font:500 12.5px/1.4 var(--sans);margin-top:8px">New hunt plan</div>
+      <div style="font:400 11px/1.5 var(--sans);color:var(--text-4);margin-top:3px">
+        Draw a box, set your dates,<br>run the analysis</div></div></a>`;
+
+  $('empty').style.display = list.length ? 'none' : 'block';
+  if(!list.length){
+    $('empty').innerHTML = tok()
+      ? 'No saved plans yet. Draw a box in the app and save it — it will show up here on every device you sign in from.'
+      : 'No plans in this browser yet. <a href="/signin">Sign in</a> to sync plans across devices, or just start one in the app.';
+  }
+  $('grid').querySelectorAll('[data-del]').forEach(b=>b.onclick=async e=>{
+    e.preventDefault();
+    const id=b.dataset.del;
+    if(!confirm('Delete this plan?\n\nThe cached analysis goes with it — re-running takes 3–5 minutes, it is not instant.')) return;
+    if(tok()&&API){ try{ await fetch(API+'/plans/'+encodeURIComponent(id),
+      {method:'DELETE',headers:{Authorization:'Bearer '+tok()}}); }catch(e){} }
+    try{ const local=JSON.parse(localStorage.getItem('transect_plans')||'[]');
+      localStorage.setItem('transect_plans',JSON.stringify(local.filter(x=>x.id!==id))); }catch(e){}
+    PLANS=PLANS.filter(p=>p.id!==id); render();
+  });
+}
+$('q').oninput=render;
+document.querySelectorAll('[data-sort]').forEach(b=>b.onclick=()=>{
+  sortBy=b.dataset.sort;
+  document.querySelectorAll('[data-sort]').forEach(x=>x.removeAttribute('aria-pressed'));
+  b.setAttribute('aria-pressed','true'); render();});
+$('out').onclick=()=>{ try{localStorage.removeItem('transect_tok');localStorage.removeItem('transect_email');}catch(e){} location.reload(); };
+
+(async function load(){
+  let email=null; try{ email=localStorage.getItem('transect_email'); }catch(e){}
+  if(tok()){
+    $('who').textContent=email||''; $('out').style.display=''; $('signinLink').style.display='none';
+    if(API) try{
+      const r=await fetch(API+'/plans',{headers:{Authorization:'Bearer '+tok()}});
+      if(r.ok){ const d=await r.json(); PLANS=d.plans||[]; }
+    }catch(e){}
+  }
+  if(!PLANS.length){ try{ PLANS=JSON.parse(localStorage.getItem('transect_plans')||'[]'); }catch(e){ PLANS=[]; } }
+  render();
+})();
+</script>
+</body>
+</html>

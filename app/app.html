@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Transect — Scouting</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="vendor/maplibre-gl.css">
+<link rel="stylesheet" href="style.css?v=43">
+</head>
+<body>
+<div id="map"></div>
+
+<!-- Top: brand · numbered steps · plan identity · actions -->
+<nav id="tabbar">
+  <div class="brand">TRANSECT</div>
+  <div class="steps">
+    <button data-tab="setup"><span class="n">1</span>Setup</button>
+    <span class="sep"></span>
+    <button data-tab="overview" class="on"><span class="n">2</span>Overview</button>
+    <span class="sep"></span>
+    <button data-tab="field"><span class="n">3</span>Field</button>
+    <span class="sep"></span>
+    <button data-tab="brief"><span class="n">4</span>Brief</button>
+  </div>
+  <div id="planbar">
+    <div class="pname"><span id="planName">—</span><span class="savedot" id="saveDot" data-s="unsaved">UNSAVED</span></div>
+    <div class="pmeta" id="subtitle">loading…</div>
+  </div>
+  <button id="plansBtn" class="btn btn--secondary btn--sm">Plans</button>
+  <button id="exportBtn" class="btn btn--secondary btn--sm">Export</button>
+</nav>
+
+<!-- Left ledger -->
+<aside id="panel" class="tabpanel">
+  <div id="gate" class="gate"></div>
+  <div id="method" class="method"></div>
+  <div id="list"></div>
+  <div id="detail" class="hidden"></div>
+</aside>
+<aside id="setup" class="tabpanel hidden"></aside>
+<aside id="brief" class="tabpanel hidden"></aside>
+
+<!-- Right: persistent icon rail; transient cards open from their own button -->
+<div id="rail"></div>
+<div id="layersDock" class="dock hidden"></div>
+<div id="baseDock" class="dock hidden"></div>
+
+<!-- Map controls -->
+<div id="mapctl"></div>
+
+<!-- Bottom: weather / wind days -->
+<div id="weather"></div>
+
+<!-- popovers -->
+<aside id="plans" class="hidden"></aside>
+<div id="exportMenu" class="hidden">
+  <div class="s" style="margin-bottom:8px">Export this plan's waypoints, routes &amp; areas:</div>
+  <button data-fmt="gpx">GPX — OnX / Garmin</button>
+  <button data-fmt="kml">KML — Google Earth</button>
+  <label class="s" style="display:block;margin-top:10px"><input type="checkbox" id="exZones" checked> include model zones</label>
+</div>
+
+<!-- legacy hooks kept so handlers bind cleanly -->
+<div id="drawtools"></div>
+<div id="legend"></div>
+
+<script src="vendor/maplibre-gl.js"></script>
+<script src="config.js"></script>
+<script src="data.js?v=43"></script>
+<script src="area_detail.js?v=43"></script>
+<script src="app.js?v=43"></script>
+</body>
+</html>
