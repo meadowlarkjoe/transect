@@ -2,6 +2,9 @@
 const DOC = window.TRANSECT_DATA;
 let selectedDay = null;
 
+/* ---------------- hunt setup state ---------------- */
+let SETUP = { watercraft:'canoe', huntStyle:'spike' };   // watercraft: none|canoe|motor ; huntStyle: spike|vehicle
+
 /* ---------------- units ---------------- */
 let UNITS = 'metric';                       // 'metric' | 'imperial'
 const KM_MI = 1.609344;
@@ -87,7 +90,7 @@ function heatURL(){
 function heatCoords(){ const b=DOC.box; return [[b.w,b.n],[b.e,b.n],[b.e,b.s],[b.w,b.s]]; }
 function updateHeat(){
   const src=map.getSource('heat'); if(!src)return;
-  src.updateImage({url:heatURL(),coordinates:heatCoords()});
+  try{ src.updateImage({url:heatURL(),coordinates:heatCoords()}); }catch(e){/* image load race — ignore */}
   if(map.getLayer('heat')) map.setPaintProperty('heat','raster-opacity',HEAT.on?HEAT.opacity:0);
 }
 
@@ -139,7 +142,7 @@ let hideTypes = {};           // per-type show/hide
 
 function buildSources(){
   const areas=fc(DOC.areas.map(a=>({type:'Feature',geometry:a.geometry,
-    properties:{rank:a.rank,camp:a.camp,hunt:a.huntability}})));
+    properties:{rank:a.rank,camp:a.camp,hunt:a.huntability,dr:(a.stats||{}).dist_road_m||0}})));
   const areaLabels=fc(DOC.areas.map(a=>({type:'Feature',geometry:{type:'Point',coordinates:a.centroid},
     properties:{rank:a.rank,top:a.rank<=2}})));
   // camps from contract (grouped, sited at access) → drawn as base camps
@@ -159,7 +162,14 @@ function buildSources(){
   DOC.camps.forEach(c=>{ (c.member_areas||[]).forEach(rk=>{
     const a=DOC.areas.find(x=>x.rank===rk); if(a) packin.push({type:'Feature',
       geometry:{type:'LineString',coordinates:[[c.site.lon,c.site.lat],a.centroid]},properties:{}});});});
-  return {areas,areaLabels,camps,staging,packin};
+  // exact vector hydrography (rivers carry a class: river=boat, stream=fordable)
+  const h=DOC.hydro||{rivers:[],lakes:[]};
+  const rivers=fc((h.rivers||[]).map(o=>{
+    const ll=o.ll||o; return {type:'Feature',geometry:{type:'LineString',coordinates:ll},properties:{cls:o.cls||'stream'}};}));
+  const lakes=fc((h.lakes||[]).map(r=>({type:'Feature',geometry:{type:'Polygon',coordinates:[r]},properties:{}})));
+  const crossings=fc((DOC.crossings||[]).map(c=>({type:'Feature',geometry:{type:'Point',coordinates:c.ll},
+    properties:{route:c.route,kind:c.kind||'stream'}})));
+  return {areas,areaLabels,camps,staging,packin,rivers,lakes,crossings};
 }
 
 function init(){
@@ -173,12 +183,25 @@ function init(){
   map.addLayer({id:'heat',type:'raster',source:'heat',
     paint:{'raster-opacity':HEAT.opacity,'raster-resampling':'linear','raster-fade-duration':0}});
 
+  map.addSource('lakes',{type:'geojson',data:S.lakes});
+  map.addSource('rivers',{type:'geojson',data:S.rivers});
+  map.addSource('crossings',{type:'geojson',data:S.crossings});
   map.addSource('areas',{type:'geojson',data:S.areas});
   map.addSource('areaLabels',{type:'geojson',data:S.areaLabels});
   map.addSource('camps',{type:'geojson',data:S.camps});
   map.addSource('staging',{type:'geojson',data:S.staging});
   map.addSource('packin',{type:'geojson',data:fc(S.packin)});
   map.addSource('sites',{type:'geojson',data:fc(window._sites)});
+
+  // exact hydrography (crisp vector — narrow rivers the raster missed)
+  map.addLayer({id:'lakes',type:'fill',source:'lakes',paint:{'fill-color':'#265f7f','fill-opacity':0.5}});
+  map.addLayer({id:'lakes-line',type:'line',source:'lakes',paint:{'line-color':'#7fc4e8','line-width':0.7,'line-opacity':0.8}});
+  map.addLayer({id:'rivers',type:'line',source:'rivers',
+    paint:{'line-color':['case',['==',['get','cls'],'river'],'#3f93c8','#6fc0e8'],'line-opacity':0.92,
+      'line-width':['interpolate',['linear'],['zoom'],
+        8,['case',['==',['get','cls'],'river'],1.0,0.35],
+        11,['case',['==',['get','cls'],'river'],2.4,1.1],
+        14,['case',['==',['get','cls'],'river'],4.5,2.2]]}});
 
   map.addLayer({id:'areas-fill',type:'fill',source:'areas',
     paint:{'fill-color':['case',['<=',['get','rank'],2],'#2fbf5b','#e2c044'],'fill-opacity':0.10}});
@@ -197,8 +220,21 @@ function init(){
   map.addLayer({id:'area-badges',type:'symbol',source:'areaLabels',
     layout:{'text-field':['to-string',['get','rank']],'text-size':15,'text-font':['Open Sans Bold'],'text-allow-overlap':true},
     paint:{'text-color':'#fff','text-halo-color':['case',['get','top'],'#127a2e','#111'],'text-halo-width':2.5}});
+  // river crossings on routes — red = river (needs a boat), amber = fordable stream
+  map.addLayer({id:'crossings',type:'circle',source:'crossings',
+    paint:{'circle-radius':6.5,
+      'circle-color':['case',['==',['get','kind'],'river'],'#e2231a','#ffd24a'],
+      'circle-stroke-color':'#0b0f0d','circle-stroke-width':2.5}});
 
   // interactions
+  map.on('click','crossings',e=>{ const p=e.features[0].properties;
+    const river=p.kind==='river', noBoat=SETUP.watercraft==='none';
+    const msg = river ? (noBoat
+        ? '<b style="color:#f79">Impassable on foot.</b> This route crosses a river and you have no boat — reroute or add a boat in Setup.'
+        : 'River crossing — take the '+(SETUP.watercraft==='motor'?'motorboat':'canoe')+' across here.')
+      : 'Small stream — fordable on foot; watch footing.';
+    new maplibregl.Popup().setLngLat(e.lngLat)
+      .setHTML('<h4>'+(river?'River':'Stream')+' crossing</h4><div class="s">'+msg+'</div>').addTo(map);});
   map.on('click','areas-fill',e=>selectArea(e.features[0].properties.rank));
   map.on('click','sites',e=>{const p=e.features[0].properties;
     new maplibregl.Popup().setLngLat(e.lngLat).setHTML(
@@ -244,11 +280,14 @@ function buildPanel(){
 function areaCard(a){
   const pros=(a.pros||[]).slice(0,3).map(p=>`<span class="pill pro">${p}</span>`).join('');
   const cf=a.conf?`<span class="pill" style="background:#20303a;color:#8fd0f2">conf ${Math.round(a.conf.score*100)}%</span>`:'';
-  return `<div class="card" data-rank="${a.rank}"><div class="top">
+  const dr=(a.stats||{}).dist_road_m||0;
+  const far=SETUP.huntStyle==='vehicle' && dr>reachKm()*1000;
+  const farPill=far?`<span class="pill con">beyond day-return (${km(dr/1000)} to road)</span>`:'';
+  return `<div class="card ${far?'dim':''}" data-rank="${a.rank}"><div class="top">
     <div class="badge ${a.rank<=2?'top':''}">${a.rank}</div>
     <div><div><b>Area ${a.rank}</b> · ${a.area_km2} km²</div>
     <div class="meta">huntability ${a.huntability} · camp ${a.camp}</div></div></div>
-    <div class="why">${(a.why||'').slice(0,150)}</div><div>${pros}${cf}</div></div>`;
+    <div class="why">${(a.why||'').slice(0,150)}</div><div>${pros}${cf}${farPill}</div></div>`;
 }
 
 /* ---------------- drilldown (area detail) ---------------- */
@@ -383,12 +422,15 @@ function buildTools(){
   // per-layer visibility (areas/routes)
   const lay=document.createElement('div'); lay.className='tgroup';
   lay.innerHTML=`<div class="tlabel">Layers</div>
+    <label><input type="checkbox" data-lyr="water" checked> Rivers &amp; lakes</label>
+    <label><input type="checkbox" data-lyr="crossings" checked> River crossings</label>
     <label><input type="checkbox" data-lyr="areas" checked> Focus areas</label>
     <label><input type="checkbox" data-lyr="packin" checked> Pack-in routes</label>`;
   t.appendChild(lay);
   lay.querySelectorAll('[data-lyr]').forEach(cb=>cb.onchange=()=>{
     const vis=cb.checked?'visible':'none';
-    ({areas:['areas-fill','areas-line','area-badges'],packin:['packin']})[cb.dataset.lyr]
+    ({areas:['areas-fill','areas-line','area-badges'],packin:['packin'],
+      water:['lakes','lakes-line','rivers'],crossings:['crossings']})[cb.dataset.lyr]
       .forEach(id=>map.getLayer(id)&&map.setLayoutProperty(id,'visibility',vis));});
 }
 function wireMeasure(){
@@ -429,6 +471,16 @@ function renderSetup(){
 
     <div class="fld"><label>Search radius — <b id="radVal">${draft.radius} ${unitBig()}</b></label>
       <input id="radius" type="range" min="5" max="120" step="1" value="${draft.radius}"></div>
+
+    <div class="fld"><label>How you'll hunt</label>
+      <div class="radii wide"><button id="hsSpike" class="${SETUP.huntStyle==='spike'?'on':''}">Spike camp in the woods</button>
+        <button id="hsVeh" class="${SETUP.huntStyle==='vehicle'?'on':''}">Return to vehicle nightly</button></div>
+      <div class="s" id="hsNote"></div></div>
+
+    <div class="fld"><label>Watercraft</label>
+      <div class="radii"><button id="wcNone" class="${SETUP.watercraft==='none'?'on':''}">No boat</button>
+        <button id="wcCanoe" class="${SETUP.watercraft==='canoe'?'on':''}">Canoe</button>
+        <button id="wcMotor" class="${SETUP.watercraft==='motor'?'on':''}">Motorboat</button></div></div>
 
     <div class="fld"><label>Walk from access → base camp (max)</label>
       <div class="numrow"><input id="walkAccess" type="number" step="0.1" value="${draft.walkAccess}"><span id="uAccess">${unitBig()}</span></div></div>
@@ -472,8 +524,37 @@ function renderSetup(){
   document.getElementById('dragBox').onclick=()=>startBoxDraw();
   document.getElementById('uMetric').onclick=()=>setUnits('metric');
   document.getElementById('uImperial').onclick=()=>setUnits('imperial');
+  const setWC=(w)=>{SETUP.watercraft=w;
+    ['wcNone','wcCanoe','wcMotor'].forEach(id=>document.getElementById(id)&&document.getElementById(id).classList.remove('on'));
+    const b=document.getElementById({none:'wcNone',canoe:'wcCanoe',motor:'wcMotor'}[w]); if(b)b.classList.add('on'); applyHunt();};
+  document.getElementById('wcNone').onclick=()=>setWC('none');
+  document.getElementById('wcCanoe').onclick=()=>setWC('canoe');
+  document.getElementById('wcMotor').onclick=()=>setWC('motor');
+  const setHS=(h)=>{SETUP.huntStyle=h;
+    document.getElementById('hsSpike').classList.toggle('on',h==='spike');
+    document.getElementById('hsVeh').classList.toggle('on',h==='vehicle'); updateHsNote(); applyHunt();};
+  document.getElementById('hsSpike').onclick=()=>setHS('spike');
+  document.getElementById('hsVeh').onclick=()=>setHS('vehicle');
   document.getElementById('runBtn').onclick=()=>runAnalysis();
-  drawDraft();
+  updateHsNote(); drawDraft(); applyHunt();
+}
+function updateHsNote(){ const n=document.getElementById('hsNote'); if(!n)return;
+  n.textContent=SETUP.huntStyle==='vehicle'
+    ? 'Analysis favours areas within your access-walk of a road — backcountry spots are dimmed.'
+    : 'Backcountry spike camps allowed — remote areas stay in play.'; }
+function reachKm(){ return (draft.walkAccess||2)*(UNITS==='imperial'?1.609344:1); }
+function applyHunt(){
+  if(!map.getLayer('areas-fill'))return;
+  const veh=SETUP.huntStyle==='vehicle', rk=reachKm()*1000;
+  map.setPaintProperty('areas-fill','fill-opacity',
+    veh?['case',['>',['coalesce',['get','dr'],0],rk],0.03,['case',['<=',['get','rank'],2],0.16,0.12]]:0.10);
+  map.setPaintProperty('areas-line','line-opacity',
+    veh?['case',['>',['coalesce',['get','dr'],0],rk],0.2,0.9]:0.9);
+  // river crossings emphasis when no boat (they block foot routes)
+  if(map.getLayer('crossings'))
+    map.setPaintProperty('crossings','circle-radius',
+      (SETUP.watercraft==='none')?['case',['==',['get','kind'],'river'],9,6.5]:6.5);
+  if(document.getElementById('list')) buildPanel();
 }
 function setUnits(u){ if(u===UNITS)return; UNITS=u; renderSetup(); buildPanel(); if(!document.getElementById('detail').classList.contains('hidden')){} }
 function runAnalysis(){ // engine API not wired — just show current scout

@@ -127,3 +127,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:12px;margin-top:4px}
 .ddgrid span{color:var(--muted)}
 .s{color:var(--muted);font-size:12px}
 #legend .tog{cursor:pointer}
+.radii.wide{flex-direction:column;gap:6px}
+.radii.wide button{width:100%}
+.card.dim{opacity:0.5}
+#hsNote{margin-top:6px;color:var(--muted);font-size:11px}

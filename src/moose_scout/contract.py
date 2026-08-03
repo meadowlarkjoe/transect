@@ -229,6 +229,86 @@ def build(ctx: Context) -> dict:
     except Exception:
         doc["strategy"] = None
 
+    # --- exact vector hydrography (OSM) — narrow rivers the raster misses, for
+    # crisp display + route river-crossing detection. ---
+    hydro = {"rivers": [], "lakes": []}
+    big_union = small_union = None      # river/canal (boat) vs stream (fordable)
+    try:
+        import geopandas as gpd
+        from shapely.geometry import LineString as _LS
+        from shapely.ops import unary_union
+
+        BIG = {"river", "canal"}        # generally need a boat to cross
+        wl = cache / "waterways.gpkg"
+        if wl.exists():
+            g = gpd.read_file(wl)
+            if g.crs and g.crs.to_epsg() != 4326:
+                g = g.to_crs(4326)
+            g["geometry"] = g.geometry.simplify(0.00018)
+            wcol = "waterway" if "waterway" in g.columns else None
+            lines, big_ls, small_ls = [], [], []
+            for _, row in g.iterrows():
+                geom = row.geometry
+                if geom is None or geom.is_empty:
+                    continue
+                cls = "river" if (wcol and str(row[wcol]) in BIG) else "stream"
+                for part in (geom.geoms if geom.geom_type == "MultiLineString" else [geom]):
+                    coords = list(part.coords)
+                    ll = [[round(x, 5), round(y, 5)] for x, y in coords]
+                    if len(ll) >= 2:
+                        lines.append({"cls": cls, "ll": ll})
+                        (big_ls if cls == "river" else small_ls).append(_LS(coords))
+            hydro["rivers"] = lines
+            big_union = unary_union(big_ls) if big_ls else None
+            small_union = unary_union(small_ls) if small_ls else None
+        wp = cache / "waterbodies.gpkg"
+        if wp.exists():
+            g = gpd.read_file(wp)
+            if g.crs and g.crs.to_epsg() != 4326:
+                g = g.to_crs(4326)
+            g["geometry"] = g.geometry.simplify(0.00018)
+            polys = []
+            for geom in g.geometry:
+                if geom is None or geom.is_empty:
+                    continue
+                for part in (geom.geoms if geom.geom_type == "MultiPolygon" else [geom]):
+                    ring = [[round(x, 5), round(y, 5)] for x, y in part.exterior.coords]
+                    if len(ring) >= 4:
+                        polys.append(ring)
+            hydro["lakes"] = polys
+    except Exception:
+        pass
+    doc["hydro"] = hydro
+
+    # river crossings on routes — classified: 'river' needs a boat, 'stream' is a
+    # ford. (App hides/keeps them per the hunter's watercraft in Setup.)
+    crossings = []
+    try:
+        from shapely.geometry import LineString as _LS
+
+        def _pts(route_coords, union):
+            out = []
+            inter = _LS(route_coords).intersection(union)
+            for gg in getattr(inter, "geoms", [inter]):
+                if not gg.is_empty and gg.geom_type == "Point":
+                    out.append([round(gg.x, 5), round(gg.y, 5)])
+            return out
+
+        for r in routes:
+            cc = r["geometry"]["coordinates"]
+            if len(cc) < 2:
+                continue
+            leg = r["properties"]["legend"]
+            if big_union is not None:
+                for p in _pts(cc, big_union):
+                    crossings.append({"route": leg, "ll": p, "kind": "river"})
+            if small_union is not None:
+                for p in _pts(cc, small_union):
+                    crossings.append({"route": leg, "ll": p, "kind": "stream"})
+    except Exception:
+        pass
+    doc["crossings"] = crossings
+
     out = outputs_dir(ctx.aoi.name) / "transect.json"
     out.write_text(json.dumps(doc, indent=2))
     return doc
