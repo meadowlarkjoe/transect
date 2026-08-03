@@ -15,6 +15,23 @@ def run(ctx: Context) -> dict[str, str]:
     """Acquire all sources needed for the AOI. Idempotent: skips cached layers.
     Tolerant: a source still stubbed (NotImplementedError) is skipped so the
     implemented ones (e.g. tenure) still land. Returns per-source status."""
+    import os
+
+    # Network guards: a slow/stalled data source must TIME OUT and raise (then the
+    # per-source try/except below skips it) rather than hang the whole job forever.
+    for k, v in (("GDAL_HTTP_TIMEOUT", "40"), ("GDAL_HTTP_CONNECTTIMEOUT", "15"),
+                 ("GDAL_HTTP_MAX_RETRY", "2"), ("GDAL_HTTP_RETRY_DELAY", "3")):
+        os.environ.setdefault(k, v)
+    try:
+        import osmnx as ox
+        ox.settings.timeout = 90
+        try:
+            ox.settings.requests_timeout = 90
+        except Exception:
+            pass
+    except Exception:
+        pass
+
     from . import dem, ecoforestiere, hydro, roads, sentinel, tenure, zones
 
     steps = [

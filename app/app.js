@@ -731,8 +731,9 @@ function renderSetup(){
       <div class="radii">${BASEMAPS.map(b=>`<button data-base="${b}" class="${curBase===b?'on':''}">${BASE_LABEL[b]}</button>`).join('')}</div></div>
 
     <button id="runBtn" class="run">RUN ANALYSIS →</button>
-    <div class="note">Live recompute for a new area/species/radius needs the engine API online
-      (not yet wired). Controls are ready; results shown are the Fire Lake scout.</div>`;
+    <div class="note">Recomputes live via the engine for the area/radius you set — takes
+      ~3–5 min (it downloads terrain, imagery, land-cover &amp; hydrography for the box).
+      Pick a radius of ~20 km+ so it resolves focus areas.</div>`;
 
   // wiring
   const doSearch=(inputId,resId,cb)=>{
@@ -824,7 +825,13 @@ function runAnalysis(){
       const poll=()=>fetch(API_URL+'/jobs/'+j.job_id).then(r=>r.json()).then(s=>{
         if(s.status==='done'){ setBtn('RUN ANALYSIS →',false); applyDoc(s.scout); setTab('overview'); }
         else if(s.status==='error'){ setBtn('RUN ANALYSIS →',false); alert('Analysis failed: '+(s.error||'unknown')); }
-        else { setBtn('ANALYSING… '+Math.round((s.progress||0)*100)+'% · '+(s.stage||''),true); setTimeout(poll,2500); }
+        else if(s.status==='unknown'){ setBtn('RUN ANALYSIS →',false); alert('The engine restarted — please run again.'); }
+        else {
+          const msg = s.stage==='acquire'
+            ? 'ANALYSING… fetching terrain + imagery (2–4 min)'
+            : 'ANALYSING… '+Math.round((s.progress||0)*100)+'% · '+(s.stage||'');
+          setBtn(msg,true); setTimeout(poll,2500);
+        }
       }).catch(()=>{ setBtn('RUN ANALYSIS →',false); alert('Lost connection to the engine.'); });
       poll();
     })
