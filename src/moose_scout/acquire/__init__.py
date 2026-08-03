@@ -60,15 +60,27 @@ def run(ctx: Context) -> dict[str, str]:
         ("roads", roads.fetch),
         ("sentinel", sentinel.fetch),
     ]
+    # Hard wall-clock timeout per source: a stalled download (e.g. a slow Overpass
+    # mirror that accepts the connection then hangs, defeating the request timeout)
+    # must NOT freeze the whole job. Each source runs in its own worker; if it blows
+    # the budget we abandon it and press on with a degraded-but-complete result.
+    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import TimeoutError as _FTimeout
+    src_timeout = int(os.environ.get("ACQUIRE_SOURCE_TIMEOUT", "200"))
     status: dict[str, str] = {}
     for name, fn in steps:
+        pool = ThreadPoolExecutor(max_workers=1)
         try:
-            fn(ctx)
+            pool.submit(fn, ctx).result(timeout=src_timeout)
             status[name] = "ok"
+        except _FTimeout:
+            status[name] = "timeout"       # stalled source can no longer hang the job
         except NotImplementedError:
             status[name] = "todo"
         except Exception as exc:  # noqa: BLE001 — surface, don't abort the batch
             status[name] = f"error: {exc}"
+        finally:
+            pool.shutdown(wait=False)       # abandon a stuck worker thread; move on
     return status
 
 

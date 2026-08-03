@@ -17,7 +17,10 @@ RAIL_TAGS = {"railway": ["rail", "narrow_gauge", "light_rail"]}
 # Vector hydrography — captures narrow rivers/streams the 10 m WorldCover raster
 # misses, and gives exact geometry for map display + route river-crossing checks.
 WATER_LINE_TAGS = {"waterway": ["river", "stream", "canal", "tidal_channel", "rapids"]}
-WATER_POLY_TAGS = {"natural": ["water"], "water": True, "landuse": ["reservoir"]}
+# NOTE: keep this NARROW. A broad `"water": True` catch-all matches every water=*
+# feature and, over a lake-rich boreal AOI on a slow Overpass mirror, hangs for many
+# minutes. natural=water captures the lakes/ponds we render; that's enough.
+WATER_POLY_TAGS = {"natural": ["water"]}
 
 
 def _osm(ctx, tags):
