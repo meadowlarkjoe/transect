@@ -353,7 +353,7 @@ function init(){
 
   buildShooters(); buildThermal();
   buildPanel(); buildWeather(); buildLegend(); buildTools();
-  renderSetup(); renderBrief(); wireTabs(); initPlans(); setTab('overview');
+  renderSetup(); renderBrief(); wireTabs(); initPlans(); initExport(); setTab('overview');
   map.fitBounds(bbox(DOC.areas),{padding:{top:80,left:400,right:200,bottom:120}});
 }
 
@@ -1104,4 +1104,68 @@ function initPlans(){
   const btn=document.getElementById('plansBtn'); if(!btn) return;
   btn.onclick=()=>{ const el=document.getElementById('plans');
     if(el.classList.contains('hidden')){ renderPlans(); el.classList.remove('hidden'); } else el.classList.add('hidden'); };
+}
+
+/* ---------------- GPX / KML export (OnX / Garmin / Google Earth) ---------------- */
+const _xesc=s=>String(s==null?'':s).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+function exportWaypoints(){
+  const w=[];
+  (window._sites||[]).forEach(f=>w.push({lon:f.geometry.coordinates[0],lat:f.geometry.coordinates[1],
+    name:LABELS[f.properties.type]||f.properties.type, desc:f.properties.when||''}));
+  (DOC.camps||[]).forEach(c=>w.push({lon:c.site.lon,lat:c.site.lat,name:'Camp '+c.id,desc:'base camp'}));
+  (DOC.waypoints||[]).filter(x=>x.type==='parking').forEach(x=>w.push({lon:x.lon,lat:x.lat,name:'Vehicle staging',desc:'leave the truck here'}));
+  (DOC.crossings||[]).forEach(c=>w.push({lon:c.ll[0],lat:c.ll[1],
+    name:(c.kind==='river'?'River':'Stream')+' crossing',desc:c.kind==='river'?'needs a boat':'fordable on foot'}));
+  (drawSaved||[]).filter(f=>f.geometry.type==='Point').forEach((f,i)=>w.push(
+    {lon:f.geometry.coordinates[0],lat:f.geometry.coordinates[1],name:f.properties.label||('Waypoint '+(i+1)),desc:'my mark'}));
+  return w;
+}
+function exportTracks(withZones){
+  const t=[];
+  (DOC.areas||[]).forEach(a=>{ if(a.geometry&&a.geometry.coordinates) t.push({name:'Focus Area '+a.rank,pts:a.geometry.coordinates[0],poly:true}); });
+  (DOC.routes||[]).forEach(r=>{ if(r.coords&&r.coords.length>1) t.push({name:(r.type||'route').replace('route_','').replace('_',' '),pts:r.coords,poly:false}); });
+  (DOC.camps||[]).forEach(c=>(c.member_areas||[]).forEach(rk=>{const a=(DOC.areas||[]).find(x=>x.rank===rk);
+    if(a) t.push({name:'Pack-in Camp '+c.id+' → Area '+rk,pts:[[c.site.lon,c.site.lat],a.centroid],poly:false});}));
+  if(withZones){
+    (DOC.hunt_zones||[]).forEach(z=>t.push({name:z.cls+' likelihood',pts:z.ll,poly:true}));
+    (DOC.refuge_zones||[]).forEach(z=>t.push({name:'Thermal refuge',pts:z.ll,poly:true}));
+    (DOC.funnel_zones||[]).forEach(z=>t.push({name:'Funnel / pass',pts:z.ll,poly:true}));
+    (DOC.browse_zones||[]).forEach(z=>t.push({name:z.type,pts:z.ll,poly:true}));
+  }
+  (drawSaved||[]).filter(f=>f.geometry.type==='LineString').forEach((f,i)=>t.push({name:f.properties.label||('My line '+(i+1)),pts:f.geometry.coordinates,poly:false}));
+  (drawSaved||[]).filter(f=>f.geometry.type==='Polygon').forEach((f,i)=>t.push({name:f.properties.label||('My area '+(i+1)),pts:f.geometry.coordinates[0],poly:true}));
+  return t;
+}
+function buildGPX(withZones){
+  let x='<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Transect" xmlns="http://www.topografix.com/GPX/1/1">\n';
+  exportWaypoints().forEach(w=>{x+=`<wpt lat="${w.lat}" lon="${w.lon}"><name>${_xesc(w.name)}</name><desc>${_xesc(w.desc)}</desc></wpt>\n`;});
+  exportTracks(withZones).forEach(t=>{x+=`<trk><name>${_xesc(t.name)}</name><trkseg>`
+    +t.pts.map(p=>`<trkpt lat="${p[1]}" lon="${p[0]}"/>`).join('')+`</trkseg></trk>\n`;});
+  return x+'</gpx>';
+}
+function buildKML(withZones){
+  let x='<?xml version="1.0" encoding="UTF-8"?>\n<kml xmlns="http://www.opengis.net/kml/2.2"><Document><name>Transect — '+_xesc((DOC.meta||{}).title)+'</name>\n';
+  exportWaypoints().forEach(w=>{x+=`<Placemark><name>${_xesc(w.name)}</name><description>${_xesc(w.desc)}</description><Point><coordinates>${w.lon},${w.lat},0</coordinates></Point></Placemark>\n`;});
+  exportTracks(withZones).forEach(t=>{const c=t.pts.map(p=>p[0]+','+p[1]+',0').join(' ');
+    x+= t.poly
+      ? `<Placemark><name>${_xesc(t.name)}</name><Polygon><outerBoundaryIs><LinearRing><coordinates>${c}</coordinates></LinearRing></outerBoundaryIs></Polygon></Placemark>\n`
+      : `<Placemark><name>${_xesc(t.name)}</name><LineString><coordinates>${c}</coordinates></LineString></Placemark>\n`;});
+  return x+'</Document></kml>';
+}
+function _download(name,text,mime){
+  const b=new Blob([text],{type:mime}); const u=URL.createObjectURL(b);
+  const a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},2000);
+}
+function initExport(){
+  const btn=document.getElementById('exportBtn'), menu=document.getElementById('exportMenu'); if(!btn) return;
+  btn.onclick=()=>menu.classList.toggle('hidden');
+  const slug=((DOC.meta||{}).aoi||'transect').replace(/[^a-z0-9]+/gi,'_');
+  menu.querySelectorAll('button[data-fmt]').forEach(b=>b.onclick=()=>{
+    const wz=document.getElementById('exZones').checked;
+    if(b.dataset.fmt==='gpx') _download(slug+'.gpx',buildGPX(wz),'application/gpx+xml');
+    else _download(slug+'.kml',buildKML(wz),'application/vnd.google-earth.kml+xml');
+    menu.classList.add('hidden');
+  });
+  document.addEventListener('click',e=>{ if(!menu.contains(e.target)&&e.target!==btn) menu.classList.add('hidden'); });
 }
