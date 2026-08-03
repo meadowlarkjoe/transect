@@ -75,6 +75,39 @@ def refuge_weight(t_max_c, heat) -> float:
     return float(np.clip((float(t_max_c) - onset) / (severe - onset), 0.0, 1.0))
 
 
+def _aquatic_season_weight(ctx) -> float:
+    """0..1 weight on AQUATIC FORAGE for the hunt dates.
+
+    Moose aquatic feeding is sodium-driven and seasonal: terrestrial forage carries
+    3–28 ppm sodium vs 2–9,400 ppm in aquatic macrophytes, and moose take 94–96% of
+    their sodium aquatically — but the behaviour runs roughly early June → mid-
+    September (~108 days) and is already declining from late July as macrophytes
+    senesce. By the late-September/October hunt window it is effectively over, so a
+    model that still weights feeding by pond proximity is modelling the wrong season.
+
+    Full weight through July, ramping down across August–mid September, ~0 after
+    about 20 September.
+    """
+    from datetime import date as _date
+
+    doys = []
+    for ds in (ctx.aoi.season.target_dates or []):
+        try:
+            doys.append(_date.fromisoformat(ds).timetuple().tm_yday)
+        except Exception:
+            pass
+    if not doys:
+        return 0.0                      # no dates → assume the hunt season, not summer
+    doy = sum(doys) / len(doys)
+    peak_end = 212                      # ~Jul 31 — full aquatic use
+    over = 263                          # ~Sep 20 — effectively finished
+    if doy <= peak_end:
+        return 1.0
+    if doy >= over:
+        return 0.0
+    return float(max(0.0, min(1.0, (over - doy) / (over - peak_end))))
+
+
 def run(ctx: Context) -> None:
     aoi = ctx.aoi.name
     cache = cache_dir(aoi)
@@ -100,18 +133,27 @@ def run(ctx: Context) -> None:
     def z(a, fill=0.0):
         return np.nan_to_num(a, nan=fill) if a is not None else np.full(shape, fill, "float32")
 
-    # --- aquatic-sodium pull: strong near water/wetland (the feeding magnet) ---
+    # --- water proximity, weighted by SEASON -------------------------------------
+    # Aquatic feeding is a sodium-driven SUMMER behaviour: moose take 94–96% of their
+    # sodium from aquatic macrophytes, but use runs ~June→mid-September and is already
+    # declining from late July as macrophytes senesce. Weighting an October hunt by
+    # aquatic forage is simply wrong — by then ponds matter as travel corridors,
+    # riparian browse and calling amphitheatres, not as food.
     W = sp.water or {}
-    sodium = _prox(dist_water, W.get("wetland_optimal_m", 150),
-                   max(W.get("wetland_falloff_m", 800) * 0.8, 200)) if dist_water is not None \
+    water_prox = _prox(dist_water, W.get("wetland_optimal_m", 150),
+                       max(W.get("wetland_falloff_m", 800) * 0.8, 200)) if dist_water is not None \
         else np.full(shape, 0.4, "float32")
+    aq = _aquatic_season_weight(ctx)          # 1.0 mid-summer → ~0 by October
+    # the water term never vanishes entirely (riparian browse + corridors persist),
+    # it just stops being an aquatic-FORAGE magnet
+    water_term = 0.35 + (0.30 + 0.35 * aq) * z(water_prox, 0.4)
 
     # --- FEEDING (dawn/dusk): young browse, on a cover→opening edge, near water.
     # Bulls (our rut target) over-select regen, so give browse a bull bonus.
     fcfg = _species_forage(sp)
     bull_bonus = float(fcfg.get("bull_regen_bonus", 0.2)) if fcfg.get("bull_prefers_regen") else 0.0
     br = z(browse)
-    feed_raw = br * (0.5 + 0.5 * z(edge)) * (0.35 + 0.65 * z(sodium, 0.4))
+    feed_raw = br * (0.5 + 0.5 * z(edge)) * water_term
     feed_raw = feed_raw * (1.0 + bull_bonus * br)     # regen over-selection by bulls
     feed = ru.normalize(feed_raw)
     feed[water_nan] = np.nan

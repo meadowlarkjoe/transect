@@ -68,14 +68,25 @@ def overall(ctx, cache) -> dict:
     Path to cache/<aoi>. Returns {score, band, drivers, caveats}."""
     lat = ctx.aoi.center.lat
     north = lat >= 52.0
-    score = 0.60 if north else 0.82
+    # NOTE: stand-level écoforestière data is NOT wired in (the fetcher is a stub), so
+    # vegetation comes from satellite everywhere — we must not claim otherwise, and the
+    # southern AOI gets no confidence credit for data we don't actually have.
+    score = 0.60 if north else 0.66
     drivers = []
-    drivers.append(("Vegetation from satellite (ESA WorldCover + Sentinel-2), not "
-                    "stand-level forestry — north of the écoforestière limit.") if north
-                   else "Stand-level écoforestière vegetation coverage.")
+    drivers.append("Vegetation from satellite (ESA WorldCover + Sentinel-2) plus mapped "
+                   "burn perimeters — stand-level forestry inventory is NOT used"
+                   + (" (and this AOI is north of the écoforestière limit anyway)." if north
+                      else "; cutblock age is therefore not modelled."))
 
     def has(name):
         return (cache / name).exists()
+
+    if has("burn_year.tif"):
+        score += 0.06
+        drivers.append("Burn history (NBAC) acquired — disturbance-age browse modelled.")
+    else:
+        score -= 0.05
+        drivers.append("No burn history — browse rests on land cover alone (weaker).")
 
     if has("ndvi.tif"):
         score += 0.04; drivers.append("Sentinel-2 NDVI acquired.")

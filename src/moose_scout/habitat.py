@@ -114,6 +114,26 @@ def run(ctx: Context) -> None:
         browse = wet.copy()
         cover = np.full(shape, 0.4, dtype="float32")
 
+    # --- DISTURBANCE AGE: the strongest boreal browse predictor we have ----------
+    # Post-fire browse follows a well-established curve — use is low in very young
+    # burns (browse below reachable height, no security cover) despite high biomass,
+    # peaks ~15–22 yr, then falls away as the canopy closes. Locally validated: the
+    # zone-19 aerial inventory found old burns correlate with moose numbers at
+    # r = 0.62, p < 0.01. Where a burn is mapped, it OVERRIDES the coarse land-cover
+    # browse guess, because a 15-yr burn is prime browse whatever WorldCover calls it.
+    burn = _opt(cache / "burn_year.tif")
+    burn_age = None
+    if burn is not None and np.any(burn > 0):
+        age = float(ctx.aoi.season.year) - burn
+        pts = [(0, 0.05), (5, 0.05), (9, 0.35), (14, 0.85), (18, 1.00),
+               (22, 1.00), (27, 0.80), (35, 0.45), (60, 0.15), (200, 0.10)]
+        dist_val = np.interp(np.clip(age, 0, 200),
+                             [p[0] for p in pts], [p[1] for p in pts]).astype("float32")
+        dist_val[burn <= 0] = 0.0            # never-burned → no disturbance signal
+        burn_age = np.where(burn > 0, age, np.nan).astype("float32")
+        browse = np.maximum(np.nan_to_num(browse), dist_val)
+        ru.write(cache / "burn_browse.tif", dist_val, prof)
+
     # --- water/forage proximity ---
     water_score = _prox(dist_water, W.get("wetland_optimal_m", 150), W.get("wetland_falloff_m", 800))
 
@@ -139,6 +159,36 @@ def run(ctx: Context) -> None:
         a = ru.normalize(np.nan_to_num(arr))
         a[water_mask] = np.nan
         ru.write(cache / f"{nm}.tif", a.astype("float32"), prof)
+
+    # --- SEX-SPECIFIC HABITAT (matters at the rut) --------------------------------
+    # Outside the rut the sexes segregate: bulls maximize forage intake and select
+    # open regen/cutblocks, while cows-with-calves minimize predation risk and stay
+    # tight to security cover — trail-camera detection of cows-with-calves runs 0.24
+    # in cuts <10 yr old vs 0.83 at 11–25 yr vs 0.94 in undisturbed stands (Thomas
+    # 2025), a ~4x effect. DURING the rut the sexes aggregate and bulls adopt cow
+    # habitat: mature bulls stop feeding entirely around 18–20 Sep (Miquelle 1990),
+    # so they are no longer in feeding habitat at all — they are where the cows are.
+    # access.py blends between these two surfaces by rut phase.
+    # The discriminating variable is the OPENNESS OF THE SURROUNDING MATRIX, not
+    # distance-to-cover: in this landscape 65% of pixels are closed canopy, so
+    # distance-to-cover is ~0 almost everywhere and would make the two surfaces
+    # monotone transforms of browse (i.e. identical after ranking). Neighbourhood
+    # tree fraction varies continuously and separates "small opening inside timber"
+    # (cow ground) from "big open cutblock/burn interior" (bull ground).
+    cover_mask = (np.nan_to_num(cover) > 0.5).astype("float32")
+    win = max(3, int(round(400 / res)) | 1)          # ~400 m matrix context
+    treefrac = uniform_filter(cover_mask, size=win)  # 1 = closed matrix, 0 = wide open
+    br0 = np.nan_to_num(browse)
+    # cows-with-calves: forage, but only where the matrix still offers escape cover.
+    # Trail-camera detection of cows-with-calves: 0.24 in cuts <10 yr vs 0.94 in
+    # undisturbed stands (Thomas 2025) — they will not use big open ground.
+    cow = br0 * (0.15 + 0.85 * treefrac)
+    cow[water_mask] = np.nan
+    ru.write(cache / "hsm_cow.tif", ru.normalize(cow).astype("float32"), prof)
+    # bulls (outside the rut): forage-maximizing, select open regen/cutblocks
+    bull = br0 * (0.30 + 0.70 * (1.0 - treefrac))
+    bull[water_mask] = np.nan
+    ru.write(cache / "hsm_bull.tif", ru.normalize(bull).astype("float32"), prof)
 
     # --- thermal refuge: cool aspect + cover + near water ---
     thermal = np.nan_to_num(cool) * np.nan_to_num(cover) * _prox(dist_water, 100, 400)

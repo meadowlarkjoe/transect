@@ -83,21 +83,37 @@ def _cost_dist_from_roads(roads_mask, barrier_mask, res):
     return d
 
 
-def _rut_emphasis(ctx) -> float:
-    """0..1 how much the hunt dates fall in the rut — drives calling/travel vs
-    feeding emphasis in the huntability blend. Photoperiod only (no weather)."""
+def _rut_emphasis(ctx) -> tuple:
+    """(breeding, seeking) in 0..1 for the hunt dates.
+
+    Two DIFFERENT quantities, deliberately:
+      • breeding — how much of the breeding peak the dates cover. Drives the habitat
+        blend toward COW habitat, because at peak rut the sexes aggregate, mature
+        bulls have stopped feeding (~18–20 Sep) and the bull is where the cows are.
+      • seeking  — how much the dates fall in the pre-peak searching phase, when
+        bulls are travelling and callable. Drives weighting toward bull search
+        corridors (cruise / funnels).
+    Averaged across the hunt dates rather than max()'d, so one good day doesn't
+    re-weight the entire map.
+    """
     try:
         from . import rut_timing
         ph = rut_timing.phases(ctx)
-        rs = []
+        b, s = [], []
         for ds in ctx.aoi.season.target_dates:
             try:
-                rs.append(rut_timing.responsiveness(date.fromisoformat(ds), ph))
+                d = date.fromisoformat(ds)
             except Exception:
-                pass
-        return float(max(rs)) if rs else 0.5
+                continue
+            bi = rut_timing.breeding_intensity(d, ph)
+            b.append(bi)
+            # seeking = callable-and-travelling but not yet tending
+            s.append(max(0.0, rut_timing.responsiveness(d, ph) - bi))
+        if not b:
+            return 0.5, 0.25
+        return float(sum(b) / len(b)), float(sum(s) / len(s))
     except Exception:
-        return 0.5
+        return 0.5, 0.25
 
 
 def _opt(path):
@@ -153,10 +169,15 @@ def run(ctx: Context) -> None:
     pressure = np.exp(-dist_road / road_decay).astype("float32")
     ru.write(cache / "pressure.tif", pressure, prof)
 
-    # --- phase-weighted habitat: let the HUNT DATES steer what "good" means ---
-    r = _rut_emphasis(ctx)                              # 0..1 rut emphasis
+    # --- phase-weighted habitat: let the HUNT DATES steer what "good" means -------
+    # breeding → hunt COW habitat (bull is with the cows, and has stopped feeding)
+    # seeking  → hunt BULL search corridors (cruise/funnels) — the callable phase
+    # neither  → hunt feeding + thermal refuge
+    r_breed, r_seek = _rut_emphasis(ctx)
     base = np.nan_to_num(hsm)
     hsm_rut = _opt(cache / "hsm_rut.tif")
+    cow = _opt(cache / "hsm_cow.tif")
+    bull = _opt(cache / "hsm_bull.tif")
     cruise = _opt(cache / "behavior" / "cruise.tif")
     feed = _opt(cache / "behavior" / "feed.tif")
     refuge = _opt(cache / "behavior" / "refuge.tif")
@@ -168,17 +189,34 @@ def run(ctx: Context) -> None:
     def _n(a):
         return np.nan_to_num(ru.normalize(a)) if a is not None else None
 
-    rut_term = None
+    # bull travel corridors (seeking phase)
+    seek_term = None
     for c in (_n(cruise), _n(hsm_rut)):
-        rut_term = c if rut_term is None else np.maximum(rut_term, c)
-    food_parts = [p for p in (_n(feed), _n(refuge)) if p is not None]
+        seek_term = c if seek_term is None else np.maximum(seek_term, c)
+    # cow habitat (breeding phase) — fall back to feed+cover if the surface is absent
+    cow_term = _n(cow)
+    # ordinary feeding/refuge (outside the rut)
+    forage_term = _n(bull)
+    if forage_term is None:
+        forage_term = _n(feed)
+    food_parts = [p for p in (forage_term, _n(refuge)) if p is not None]
     food_term = None
     if food_parts:
         food_term = food_parts[0] if len(food_parts) == 1 else \
             0.6 * food_parts[0] + 0.4 * food_parts[1]
+    if cow_term is None:
+        cow_term = food_term
 
-    if rut_term is not None and food_term is not None:
-        phase_sig = r * rut_term + (1.0 - r) * food_term
+    parts, wts = [], []
+    if cow_term is not None:
+        parts.append(cow_term); wts.append(r_breed)
+    if seek_term is not None:
+        parts.append(seek_term); wts.append(r_seek)
+    if food_term is not None:
+        parts.append(food_term); wts.append(max(0.0, 1.0 - r_breed - r_seek))
+    tot = sum(wts)
+    if parts and tot > 0:
+        phase_sig = sum(w * p for w, p in zip(wts, parts)) / tot
         hsm_phase = ru.normalize(0.4 * base + 0.6 * phase_sig)
     else:                                               # missing sub-scores → base only
         hsm_phase = ru.normalize(base)

@@ -48,7 +48,9 @@ PROFILES = {
                    "brush-raking. Relocate between stations to search big country.",
         "stand_minutes": 45,
         "movement": "Mobile — hit several calling stations dawn and dusk; follow fresh sign.",
-        "attractants": "High value — hunt fresh wallows, and a mock wallow / cow-in-estrus scent "
+        "attractants": "High value — a wallow you FIND on the ground is the best stand site in the "
+                       "country (note: the map cannot predict wallow locations; no published method "
+                       "exists, so this is a find-it-on-foot job). A mock wallow / cow-in-estrus scent "
                        "can tip a lonely bull (check Quebec baiting rules).",
         "calling_weight": 1.0, "ambush_weight": 0.3,
         "why": "Few animals over a lot of ground: if you sit and wait, nothing walks by. "

@@ -1,31 +1,48 @@
 """Rut-timing prediction for the AOI.
 
-Moose rut is photoperiod-triggered and highly synchronized: across most of the
-range, peak breeding falls late September–early October, with gestation ~231 days
-placing calving in late May/early June to hit the short northern green-up. Higher
-latitudes rut slightly EARLIER and more compressed (calving must align with a
-shorter summer), so we nudge the phenology by latitude off a 50°N anchor — a
-days-scale shift, honestly small and flagged, not weeks.
+Moose rut is photoperiod-triggered and remarkably synchronized. The key finding —
+and it contradicts common hunting lore — is that **latitude does NOT meaningfully
+shift the rut date in North America**: median conception is 2 Oct at 47.5°N (North
+Dakota, fetal back-dating, n=45, SD 8.0 d) and 2 Oct at 63.5°N (Denali, 191 directly
+observed mountings, all copulations 24 Sep – 8 Oct). Sixteen degrees of latitude,
+zero shift. A multi-region review puts most mating everywhere in 23 Sep – 8 Oct.
+So we anchor on **2 October** and do not shift by latitude. What varies with
+latitude is parturition timing relative to green-up, not conception date.
 
-Hunting phases (what the hunter actually cares about):
-  • pre-rut  — bulls shed velvet, thrash, get vocal; cows not yet receptive.
-               Cold-calling starts to pull; bulls increasingly mobile.
-  • peak     — bulls actively seek/tend cows; calling most effective; bulls
-               travel widely. The window to be in the woods.
-  • post-rut — bulls spent and wary; a second estrus in unbred cows can spark a
-               brief late flurry; calling less reliable.
+The second key distinction: **peak BREEDING is not peak bull VULNERABILITY.**
+  • seeking (pre-rut) — bulls maximally mobile and maximally callable; cows not
+        yet receptive so a bull is actively searching. This is the best CALLING
+        window of the year, and it precedes peak breeding.
+  • peak breeding     — bulls are tending individual cows for days at a time, so
+        they're locally sedentary and *less* responsive to calling. Mature bulls
+        have also stopped feeding (~18–20 Sep onward), so they are no longer in
+        feeding habitat: they're where the COWS are.
+  • post-rut          — bulls spent and wary; unbred cows re-cycle (~24 d) and
+        satellite bulls re-mobilize, so response partially recovers.
 
-Emitted as SCOUT_DATA.RUT and a brief section, and used to key calling guidance.
+Gestation ~231 d (mean; 87% of observations 225–236 d) places calving late May.
+The second estrus lands ~27 Oct — after most Québec seasons close — so we do NOT
+model a huntable second-rut bump.
+
+Emitted as doc["rut"] and drives calling guidance + the habitat phase blend.
 """
 from __future__ import annotations
 
+import math
 from datetime import date, timedelta
 
-# 50°N anchor for the peak-rut CENTRE, then shift by latitude. ~0.7 day earlier
-# per degree north of 50°, capped, reflecting photoperiod-driven synchrony.
-_ANCHOR_LAT = 50.0
-_DAYS_PER_DEG = 0.7
-_MAX_SHIFT_DAYS = 6
+# Peak CONCEPTION anchor — latitude-invariant (see module docstring).
+_PEAK_MONTH, _PEAK_DAY = 10, 2
+# Breeding-intensity spread. Field SDs run 4.5 d (captive, observed) to 8.0 d
+# (wild, fetal back-dated); 6.5 splits them.
+_BREED_SIGMA = 6.5
+# Calling response peaks in the SEEKING phase, ~6 d before the breeding peak,
+# then partially recovers post-peak as unbred cows re-cycle.
+_CALL_OFFSET_DAYS = -6.0
+_CALL_SIGMA = 8.0
+_POST_BUMP_OFFSET = 12.0
+_POST_BUMP_SIGMA = 6.0
+_POST_BUMP_WEIGHT = 0.30
 
 
 def _mmdd(year: int, mmdd: str) -> date:
@@ -33,39 +50,34 @@ def _mmdd(year: int, mmdd: str) -> date:
     return date(year, int(m), int(d))
 
 
-def _lat_shift_days(lat: float) -> int:
-    raw = -(lat - _ANCHOR_LAT) * _DAYS_PER_DEG
-    return int(round(max(-_MAX_SHIFT_DAYS, min(_MAX_SHIFT_DAYS, raw))))
+def peak_date(ctx) -> date:
+    """The peak-breeding anchor: 2 October, every latitude."""
+    return date(ctx.aoi.season.year, _PEAK_MONTH, _PEAK_DAY)
 
 
 def phases(ctx) -> dict:
-    """Latitude-adjusted rut windows for the AOI's season year, from the species
-    config's base phenology. Returns {shift_days, pre, peak, post: [start,end]}."""
-    sp = ctx.species
-    rut = sp.rut or {}
-    year = ctx.aoi.season.year
-    shift = _lat_shift_days(ctx.aoi.center.lat)
-
-    def win(key, default):
-        a, b = (rut.get(key) or default)
-        return [_mmdd(year, a) + timedelta(days=shift), _mmdd(year, b) + timedelta(days=shift)]
-
+    """Behavioural rut windows around the 2 Oct breeding peak. These are hunting
+    phases, not just calendar thirds — see the module docstring."""
+    pk = peak_date(ctx)
     return {
-        "shift_days": shift,
-        "pre": win("pre_rut", ["09-05", "09-22"]),
-        "peak": win("peak_rut", ["09-23", "10-15"]),
-        "post": win("post_rut", ["10-16", "10-31"]),
+        "shift_days": 0,                                   # kept for contract compatibility
+        "peak_date": pk,
+        # seeking: bulls searching + most callable
+        "pre": [pk - timedelta(days=20), pk - timedelta(days=4)],
+        # peak breeding: tending, locally sedentary, with the cows
+        "peak": [pk - timedelta(days=3), pk + timedelta(days=6)],
+        # post: spent bulls, re-cycling cows
+        "post": [pk + timedelta(days=7), pk + timedelta(days=29)],
     }
 
 
 def _peak_center(ph: dict) -> date:
-    s, e = ph["peak"]
-    return s + timedelta(days=(e - s).days // 2)
+    return ph["peak_date"]
 
 
 def classify(d: date, ph: dict) -> str:
     if ph["pre"][0] <= d <= ph["pre"][1]:
-        return "pre-rut"
+        return "seeking (pre-rut)"
     if ph["peak"][0] <= d <= ph["peak"][1]:
         return "peak rut"
     if ph["post"][0] <= d <= ph["post"][1]:
@@ -73,27 +85,40 @@ def classify(d: date, ph: dict) -> str:
     return "outside rut window"
 
 
-def responsiveness(d: date, ph: dict) -> float:
-    """0..1 bull calling-responsiveness / activity, peaking at the rut centre and
-    tapering across pre/post. A Gaussian centred on peak with ~11-day sigma so the
-    peak window sits high and the shoulders fall off smoothly."""
-    import math
-
+def breeding_intensity(d: date, ph: dict) -> float:
+    """0..1 share of breeding activity on this date — a Gaussian on the 2 Oct peak.
+    This drives the HABITAT blend (at peak, hunt where the cows are), NOT calling."""
     days = (d - _peak_center(ph)).days
-    return round(math.exp(-(days * days) / (2 * 11.0 * 11.0)), 3)
+    return round(math.exp(-(days * days) / (2 * _BREED_SIGMA ** 2)), 3)
+
+
+def responsiveness(d: date, ph: dict) -> float:
+    """0..1 bull CALLING responsiveness. Deliberately NOT centred on peak breeding:
+    bulls are most callable while still searching for a first cow (seeking phase),
+    drop off while tending one, then partially recover as unbred cows re-cycle."""
+    pk = _peak_center(ph)
+    x = (d - pk).days
+    main = math.exp(-((x - _CALL_OFFSET_DAYS) ** 2) / (2 * _CALL_SIGMA ** 2))
+    post = math.exp(-((x - _POST_BUMP_OFFSET) ** 2) / (2 * _POST_BUMP_SIGMA ** 2))
+    return round(min(1.0, main + _POST_BUMP_WEIGHT * post), 3)
 
 
 GUIDANCE = {
-    "pre-rut": "Bulls are getting vocal but cows aren't receptive yet — cold-calling "
-               "(cow whines + the odd bull grunt) and raking brush can pull a curious bull; "
-               "hunt sign and travel.",
-    "peak rut": "Prime. Bulls are cruising for cows and most responsive to calling — "
-                "aggressive cow-in-estrus sequences and bull grunts, work the funnels and "
-                "wallows, be ready for a bull to come hard.",
-    "post-rut": "Bulls are spent and wary — back off aggressive calling, hunt feeding sign "
-                "and a possible second-estrus flurry; soft cow calls only.",
-    "outside rut window": "Outside the rut — hunt food and travel patterns; calling is far "
-                          "less reliable.",
+    "seeking (pre-rut)":
+        "The best calling window of the year. Bulls are on their feet searching and cows "
+        "aren't receptive yet, so a lone bull will come a long way to a cow call. Cold-call "
+        "aggressively from funnels and edges, rake brush, and keep moving between setups.",
+    "peak rut":
+        "Bulls are tending individual cows for days at a time — locally sedentary and LESS "
+        "responsive to calling than a week earlier. Hunt where the COWS are (feeding edges, "
+        "security cover), not where a lone bull would travel. A bull without a cow will still "
+        "come hard, so keep calling — just expect silence from the tied-up ones.",
+    "post-rut":
+        "Bulls are spent and wary. Back off aggressive calling to soft cow calls, hunt feeding "
+        "sign as they try to recover weight, and watch for a late flurry as unbred cows re-cycle "
+        "(~24 days after the peak) and satellite bulls re-mobilize.",
+    "outside rut window":
+        "Outside the rut — hunt food and travel patterns; calling is far less reliable.",
 }
 
 
@@ -142,27 +167,29 @@ def _hunt_read(ph: dict, targets: list, peak_c: date) -> str:
     # where it lands
     if cls == "peak rut":
         where = (f"Your hunt (<b>{span}</b>) lands {'squarely on' if abs(to_peak) <= 3 else 'inside'} the "
-                 f"rut peak (~{_fmt(peak_c)})" + ("" if abs(to_peak) <= 3
+                 f"breeding peak (~{_fmt(peak_c)})" + ("" if abs(to_peak) <= 3
                  else f", {abs(to_peak)} day(s) {'before' if to_peak > 0 else 'past'} the centre")
-                 + " — the highest-odds window of the year.")
-        how = ("Bulls are on their feet cruising for cows and at their most callable, so hunt this area "
-               "<b>aggressively and vocally</b>: set up on the funnels, edges and wallows the map flags, "
-               "run cow-in-estrus whines and bull grunts, rake brush, and be ready for a bull to commit "
-               "hard and fast. Because you're on the peak, the huntability here is weighted toward "
-               "<b>rut travel corridors and funnels</b> rather than feeding sign.")
-    elif cls == "pre-rut":
-        where = (f"Your hunt (<b>{span}</b>) is pre-rut, ~{max(to_peak,0)} day(s) before the ~{_fmt(peak_c)} "
-                 "peak — building, but cows aren't receptive yet.")
-        how = ("It's a <b>searching, cover-ground game</b>, not a peak-rut showdown: cold-call and rake to "
-               "pull a curious bull, hunt fresh sign and the travel between feeding and cover, and stay "
-               "mobile. For these dates the map leans on <b>feeding edges, regen and water</b> more than "
-               "rut funnels — find where they're eating and intercept the travel to it.")
+                 + ".")
+        how = ("Worth knowing: peak <i>breeding</i> is not peak <i>callability</i>. Mature bulls are tending "
+               "individual cows for days at a time — locally sedentary and quieter to the call than they were "
+               "a week earlier — and they stopped feeding around 18–20 Sep, so they're no longer in the "
+               "feeding habitat. <b>Hunt where the cows are:</b> security cover beside good feed, not lone-bull "
+               "travel terrain. A bull that hasn't found a cow will still come hard, so keep calling — just "
+               "expect silence from the tied-up ones. The map is weighted toward <b>cow habitat</b> for these dates.")
+    elif cls.startswith("seeking"):
+        where = (f"Your hunt (<b>{span}</b>) is in the <b>seeking phase</b>, ~{max(to_peak,0)} day(s) before the "
+                 f"~{_fmt(peak_c)} breeding peak.")
+        how = ("This is arguably the <b>best calling window of the year</b> — better than the peak itself. Bulls "
+               "are on their feet searching and no cow is receptive yet, so a lone bull will travel a long way "
+               "to a cow call. Cold-call aggressively from funnels and edges, rake brush, and keep moving "
+               "between setups rather than sitting. The map leans on <b>bull search corridors and feeding "
+               "edges</b> for these dates.")
     elif cls == "post-rut":
         where = (f"Your hunt (<b>{span}</b>) is post-rut, ~{abs(to_peak)} day(s) after the ~{_fmt(peak_c)} "
                  "peak — bulls are spent and wary.")
-        how = ("<b>Back off aggressive calling</b> (soft cow calls only) and hunt <b>feeding sign</b> hard; "
-               "a second estrus in unbred cows can spark a brief flurry, so stay alert near doe/cow "
-               "concentrations. The map leans toward <b>feeding and thermal cover</b> for these dates.")
+        how = ("<b>Back off aggressive calling</b> (soft cow calls only) and hunt <b>feeding sign</b> hard as "
+               "bulls try to recover weight before winter. Unbred cows re-cycle about 24 days after the peak, "
+               "which can spark a brief late flurry. The map leans toward <b>feeding and thermal cover</b>.")
     else:
         where = (f"Your hunt (<b>{span}</b>) falls outside the core rut window (peak ~{_fmt(peak_c)}).")
         how = ("Calling is far less reliable now — hunt <b>food and travel patterns</b>: feeding edges, "
@@ -203,6 +230,7 @@ def summary(ctx, weather_days=None) -> dict:
         targets.append({"date": ds, "phase": cls,
                         "responsiveness": round(base * fac, 3),
                         "responsiveness_date": base, "weather_factor": fac,
+                        "breeding_intensity": breeding_intensity(d, ph),
                         "weather_note": wnote, "guidance": GUIDANCE.get(cls, "")})
 
     # Weekly calendar across the rut span (pre start .. post end), Mondays.
@@ -229,9 +257,16 @@ def summary(ctx, weather_days=None) -> dict:
         "targets": targets,
         "best_target": best,
         "calendar": cal,
-        "lat_note": (f"Phenology shifted {ph['shift_days']:+d} day(s) for {ctx.aoi.center.lat:.1f}°N "
-                     "vs a 50°N anchor (northern moose rut slightly earlier). Approximate — rut "
-                     "timing varies year to year; verify against local reports."),
+        "lat_note": ("Peak breeding is anchored at ~2 October and is NOT shifted for latitude: "
+                     "median conception is 2 Oct at 47.5°N and 2 Oct at 63.5°N (16° of latitude, no "
+                     "shift), and most mating range-wide falls in 23 Sep – 8 Oct. Year-to-year and "
+                     "cow-condition variation (SD ≈ 5–8 days) exceeds any latitude effect — verify "
+                     "against local reports."),
+        "phase_note": ("Peak BREEDING is not peak CALLABILITY. Bulls are most responsive to calling "
+                       "while still searching (the seeking phase, roughly the two weeks before the "
+                       "peak); during peak breeding they're tending cows and go quiet, then partially "
+                       "re-engage as unbred cows re-cycle. The % below is calling responsiveness, "
+                       "not breeding activity."),
         "trigger_note": ("Rut response is TRIGGER-driven, not a calendar certainty: a hard frost / "
                          "cold snap switches bulls on, a warm front shuts them off. The % is the "
                          "date-based expectation damped for the forecast high — treat it as a guide, "

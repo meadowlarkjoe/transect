@@ -136,27 +136,34 @@ def methodology(ctx) -> dict:
     sp = ctx.species
     w = sp.hsm_weights
     order = sorted(w.items(), key=lambda kv: kv[1], reverse=True)
-    factor_names = {"browse": "browse (young regen, cutblocks/burns 5–25 yr, riparian willow/alder)",
-                    "water": "water & wetland proximity (aquatic feeding, bog/fen edges, beaver flowages)",
-                    "cover": "security/thermal cover (mature conifer & mixedwood next to browse)",
-                    "terrain": "terrain (valley bottoms, wet flats, saddles/funnels, gentle slopes)",
+    factor_names = {"browse": "browse — burn regeneration age (NBAC fire history, peaking 15–22 yr "
+                              "post-fire) plus shrub/wetland satellite land cover",
+                    "water": "water & wetland proximity (riparian browse, travel corridors; aquatic "
+                             "feeding is weighted only for summer dates — it ends by mid-September)",
+                    "cover": "security/thermal cover (satellite tree cover next to browse)",
+                    "terrain": "terrain (valley bottoms, wet flats, gentle slopes)",
                     "edge_density": "cover↔opening edge density (the feeding seam)"}
     weighted = [f"{factor_names.get(k,k)} ({int(v*100)}%)" for k, v in order]
     return {
         "summary": (
-            "Moose are edge animals of the water-rich boreal. I'm looking for the "
-            "seam where young browse meets mature cover, close to water — then I "
-            "weight each candidate by how retrievable a 400–600 lb animal is "
-            "(truck/canoe/ATV/pack-out) and how little hunter pressure it likely sees."),
+            "Moose are edge animals of the water-rich boreal, and in black-spruce country "
+            "they are concentrated, not spread out — the unburned matrix is close to a food "
+            "desert. So I hunt for regenerating burns of the right age beside security cover "
+            "and water, then weight each candidate by how retrievable a 400–600 lb animal is "
+            "and how little hunter pressure it likely sees."),
         "factors_weighted": weighted,
-        "then": ("The habitat score is multiplied by extraction ease and reduced by "
-                 "road-based hunter pressure, so the top areas are good habitat that is "
-                 "still retrievable but off the beaten path — usually near water, a bit "
-                 "off the main road."),
+        "then": ("The habitat score is re-weighted by where your hunt dates fall in the rut "
+                 "(at the breeding peak it leans toward cow habitat, because bulls stop feeding "
+                 "and go where the cows are; in the seeking phase it leans toward bull travel "
+                 "corridors), then multiplied by extraction ease and reduced by road-based "
+                 "hunter pressure."),
         "caveats": [
             "Every site is a hypothesis to ground-truth on foot (à valider sur le terrain).",
-            f"AOI is {'north' if ctx.aoi.center.lat >= 52 else 'south'} of ~52°N — "
-            "vegetation here comes from satellite, not stand-level forestry (lower confidence).",
+            "Vegetation comes from 10 m satellite land cover plus mapped burn perimeters — "
+            "NOT stand-level forestry inventory. Cutblock age is not modelled (only fire), "
+            "so logged regeneration is under-counted.",
+            "Scores are relative WITHIN this area of interest — a 0.85 here is not directly "
+            "comparable to a 0.85 in a different search box.",
         ],
     }
 

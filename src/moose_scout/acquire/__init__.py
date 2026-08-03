@@ -49,13 +49,14 @@ def run(ctx: Context) -> dict[str, str]:
     except Exception:
         pass
 
-    from . import dem, ecoforestiere, hydro, roads, sentinel, tenure, zones
+    from . import dem, ecoforestiere, fire, hydro, roads, sentinel, tenure, zones
 
     steps = [
         ("zones", zones.fetch),
         ("tenure", tenure.fetch),
         ("dem", dem.fetch),
         ("ecoforestiere", ecoforestiere.fetch),
+        ("fire", fire.fetch),          # burn history → disturbance-age browse curve
         ("hydro", hydro.fetch),
         ("roads", roads.fetch),
         ("sentinel", sentinel.fetch),
