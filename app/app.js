@@ -1012,9 +1012,9 @@ function renderSetup(){
     <div class="sec">
       <button id="runBtn" class="btn btn--primary btn--lg btn--block">RUN ANALYSIS →</button>
       <div class="callout" data-kind="info" style="margin-top:10px"><span class="mark">i</span><div class="body">
-        Recomputes live via the engine for the box you set — <b>3–5 min</b> (it downloads terrain,
-        imagery, land-cover, burn history &amp; hydrography). Progress sits at 0% through the
-        download stage; that's normal.</div></div>
+        <b>Live recompute — 3–5 minutes</b>
+        Downloads terrain, imagery, land-cover, burn history and hydrography for the box, then
+        re-runs the model. Progress sits at 0% through the download stage; that's normal.</div></div>
     </div>`;
 
   // wiring
@@ -1177,13 +1177,22 @@ function renderBrief(){
   const dates=(DOC.meta&&DOC.meta.target_dates)||(draft.dates||[]);
   const styleTxt=SETUP.huntStyle==='vehicle'?'back to the truck nightly':'spike camp';
   const wcTxt={none:'no boat (foot access)',canoe:'canoe',motor:'motorboat'}[SETUP.watercraft]||SETUP.watercraft;
-  let h=`<div class="radii" style="margin-bottom:10px">`+
-    DOC.areas.map(x=>`<button class="briefpick ${x.rank===a.rank?'on':''}" data-rank="${x.rank}">Area ${x.rank}</button>`).join('')+`</div>`;
+  const g2=DOC.legal||{};
+  let h=`<div class="seg" style="margin-bottom:14px">`+
+    DOC.areas.map(x=>`<button class="briefpick" data-rank="${x.rank}" ${x.rank===a.rank?'aria-pressed="true"':''}>Area ${x.rank}</button>`).join('')+`</div>`;
   // ---- the plan this brief is written for ----
-  h+=`<h2>Your hunt — Area ${a.rank}</h2>
-    <p class="planline">If you hunt <b>Area ${a.rank}</b> (${a.area_km2} km²)${dates.length?`, <b>${dates.join(' – ')}</b>`:''}, running a <b>${styleTxt}</b> with <b>${wcTxt}</b> — here's how to make the most of it.</p>
-    <div class="meta" style="color:#93a1a8;font-size:12px">huntability ${a.huntability} · camp ${a.camp} · ${a.centroid[1].toFixed(4)}, ${a.centroid[0].toFixed(4)}`
-    +`${a.conf?` · confidence ${Math.round(a.conf.score*100)}% (${a.conf.band})`:''}</div>`;
+  h+=`<div class="kicker">Field brief · Zone ${g2.zone||'?'} · ${(g2.huntable_tenures||['—'])[0]} · ${g2.diy_possible?'DIY':'restricted'}</div>
+    <h2>Your hunt — Area ${a.rank}</h2>
+    <div class="dataline">${a.area_km2} KM² · CAMP ${a.camp} · ${a.centroid[1].toFixed(4)}, ${a.centroid[0].toFixed(4)}`
+    +`${a.conf?` · CONF ${Math.round(a.conf.score*100)}%`:''}</div>
+    ${a.habitat_score!=null?`<div class="axes" style="margin:0 0 14px">
+      <div class="ax"><span class="k">habitat</span><span class="bar"><i style="width:${Math.round(a.habitat_score*100)}%"></i></span><span class="v">${a.habitat_score}</span></div>
+      <div class="ax"><span class="k">pack-out</span><span class="bar"><i class="ret" style="width:${Math.round((a.retrieval_score||0)*100)}%"></i></span><span class="v">${a.retrieval_score}</span></div>
+    </div>`:''}
+    <div class="callout" data-kind="info"><span class="mark">i</span><div class="body">
+      <i style="font-family:var(--serif)">À valider sur le terrain.</i> Every mark below is a hypothesis
+      to ground-truth on foot — the model reads habitat, not animals.</div></div>
+    <p class="planline">If you hunt <b>Area ${a.rank}</b> (${a.area_km2} km²)${dates.length?`, <b>${dates.join(' – ')}</b>`:''}, running a <b>${styleTxt}</b> with <b>${wcTxt}</b> — here's how to make the most of it.</p>`;
   // ---- where your dates land + how that shapes the hunt ----
   if(DOC.rut&&(DOC.rut.hunt_read||rutT.length)){ h+=`<h3>Your dates &amp; the rut</h3>`;
     if(DOC.rut.hunt_read) h+=`<p class="huntread">${DOC.rut.hunt_read}</p>`;
@@ -1208,6 +1217,17 @@ function renderBrief(){
   // ---- day plan ----
   h+=`<h3>Your day plan — ${wps.length} site${wps.length!==1?'s':''}</h3>`+
     wps.map(w=>`<p><b style="color:${COLORS[w.type]||'#ccc'}">●</b> <b>${LABELS[w.type]||w.type}</b> — ${w.properties.when||(w.properties.optimal_wind||{}).note||''}</p>`).join('');
+  // ---- what the score was built from ----
+  const fw=((DOC.methodology||{}).factors_weighted)||[];
+  if(fw.length){
+    h+=`<h3>Weighted factors</h3>`;
+    fw.forEach(f=>{
+      const m=f.match(/\((\d+)%\)\s*$/);
+      const pct=m?+m[1]:null, label=f.replace(/\s*\(\d+%\)\s*$/,'');
+      h+=`<div class="wf"><span>${label}</span>
+        <span class="wfbar"><i style="width:${pct?Math.min(100,pct*2.2):40}%"></i></span></div>`;
+    });
+  }
   // ---- how to do better (the leverage) ----
   const recs=(DOC.recommendations||[]);
   if(recs.length){ h+=`<h3>How to do better</h3><div class="recs">`+
