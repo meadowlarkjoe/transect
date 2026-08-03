@@ -46,6 +46,60 @@ JOBS: dict[str, dict] = {}
 STAGES = ["acquire", "terrain", "habitat", "behavior", "access", "synth", "contract"]
 SPECIES = {"moose", "whitetail_deer", "black_bear"}
 
+# ---- accounts + cross-device saved plans (stdlib sqlite; no extra deps) ----
+import hashlib
+import hmac
+import secrets
+import sqlite3
+import time
+from pathlib import Path
+
+DB_PATH = os.environ.get("TRANSECT_DB", "/app/data/transect.db")
+
+
+def _db():
+    Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
+    con = sqlite3.connect(DB_PATH, timeout=10)
+    con.execute("CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, email TEXT UNIQUE, pw TEXT, created REAL)")
+    con.execute("CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, uid INTEGER, created REAL)")
+    con.execute("CREATE TABLE IF NOT EXISTS plans(id TEXT PRIMARY KEY, uid INTEGER, name TEXT, data TEXT, updated REAL)")
+    return con
+
+
+def _hash_pw(pw, salt=None):
+    salt = salt or secrets.token_hex(16)
+    h = hashlib.pbkdf2_hmac("sha256", pw.encode(), salt.encode(), 200_000).hex()
+    return f"{salt}${h}"
+
+
+def _verify_pw(pw, stored):
+    try:
+        salt, h = stored.split("$", 1)
+        return hmac.compare_digest(hashlib.pbkdf2_hmac("sha256", pw.encode(), salt.encode(), 200_000).hex(), h)
+    except Exception:
+        return False
+
+
+def _uid(authorization):
+    if not authorization:
+        return None
+    tok = authorization.replace("Bearer ", "").strip()
+    con = _db()
+    r = con.execute("SELECT uid FROM sessions WHERE token=?", (tok,)).fetchone()
+    con.close()
+    return r[0] if r else None
+
+
+class Auth(BaseModel):
+    email: str
+    password: str
+
+
+class PlanIn(BaseModel):
+    id: str
+    name: str = ""
+    data: dict = {}
+
 
 class ScoutReq(BaseModel):
     species: str = "moose"
@@ -102,3 +156,94 @@ def job(jid: str):
 @app.get("/health")
 def health():
     return {"ok": True, "species": sorted(SPECIES)}
+
+
+# ---- auth ----
+def _new_session(uid):
+    tok = secrets.token_hex(24)
+    con = _db()
+    con.execute("INSERT INTO sessions(token, uid, created) VALUES(?,?,?)", (tok, uid, time.time()))
+    con.commit()
+    con.close()
+    return tok
+
+
+@app.post("/auth/signup")
+def signup(a: Auth):
+    email = a.email.strip().lower()
+    if "@" not in email or len(a.password) < 6:
+        raise HTTPException(400, "enter a valid email and a password of 6+ characters")
+    con = _db()
+    try:
+        con.execute("INSERT INTO users(email, pw, created) VALUES(?,?,?)",
+                    (email, _hash_pw(a.password), time.time()))
+        con.commit()
+    except sqlite3.IntegrityError:
+        con.close()
+        raise HTTPException(409, "that email is already registered — sign in instead")
+    uid = con.execute("SELECT id FROM users WHERE email=?", (email,)).fetchone()[0]
+    con.close()
+    return {"token": _new_session(uid), "email": email}
+
+
+@app.post("/auth/login")
+def login(a: Auth):
+    email = a.email.strip().lower()
+    con = _db()
+    r = con.execute("SELECT id, pw FROM users WHERE email=?", (email,)).fetchone()
+    con.close()
+    if not r or not _verify_pw(a.password, r[1]):
+        raise HTTPException(401, "wrong email or password")
+    return {"token": _new_session(r[0]), "email": email}
+
+
+@app.post("/auth/logout")
+def logout(authorization: str = Header(default=None)):
+    if authorization:
+        tok = authorization.replace("Bearer ", "").strip()
+        con = _db(); con.execute("DELETE FROM sessions WHERE token=?", (tok,)); con.commit(); con.close()
+    return {"ok": True}
+
+
+@app.get("/auth/me")
+def me(authorization: str = Header(default=None)):
+    uid = _uid(authorization)
+    if not uid:
+        return {"signed_in": False}
+    con = _db(); r = con.execute("SELECT email FROM users WHERE id=?", (uid,)).fetchone(); con.close()
+    return {"signed_in": True, "email": r[0] if r else None}
+
+
+# ---- cross-device saved plans ----
+@app.get("/plans")
+def get_plans(authorization: str = Header(default=None)):
+    uid = _uid(authorization)
+    if not uid:
+        raise HTTPException(401, "sign in to sync plans")
+    con = _db()
+    rows = con.execute("SELECT id, name, data, updated FROM plans WHERE uid=? ORDER BY updated DESC", (uid,)).fetchall()
+    con.close()
+    return {"plans": [{"id": r[0], "name": r[1], "data": json.loads(r[2]), "updated": r[3]} for r in rows]}
+
+
+@app.put("/plans")
+def put_plan(p: PlanIn, authorization: str = Header(default=None)):
+    uid = _uid(authorization)
+    if not uid:
+        raise HTTPException(401, "sign in to sync plans")
+    con = _db()
+    con.execute("INSERT INTO plans(id, uid, name, data, updated) VALUES(?,?,?,?,?) "
+                "ON CONFLICT(id) DO UPDATE SET name=excluded.name, data=excluded.data, updated=excluded.updated",
+                (p.id, uid, p.name, json.dumps(p.data), time.time()))
+    con.commit()
+    con.close()
+    return {"ok": True}
+
+
+@app.delete("/plans/{pid}")
+def del_plan(pid: str, authorization: str = Header(default=None)):
+    uid = _uid(authorization)
+    if not uid:
+        raise HTTPException(401, "sign in to sync plans")
+    con = _db(); con.execute("DELETE FROM plans WHERE id=? AND uid=?", (pid, uid)); con.commit(); con.close()
+    return {"ok": True}
