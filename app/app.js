@@ -445,7 +445,7 @@ function init(){
   buildShooters(); buildThermal();
   buildPanel(); buildWeather(); buildLegend(); buildTools();
   setVis(LYR_MAP.roads,true); setVis(LYR_MAP.boundaries,true);   // roads + borders on by default in every view
-  renderSetup(); renderBrief(); wireTabs(); initPlans(); initExport(); setTab('overview');
+  renderSetup(); renderBrief(); wireTabs(); initPlans(); initExport(); setTab(startTab());
   map.fitBounds(bbox(DOC.areas),{padding:{top:80,left:400,right:200,bottom:120}});
 }
 
@@ -461,7 +461,7 @@ function chromeFallback(){
   try{ buildPanel(); }catch(e){}
   try{ buildTools(); }catch(e){}
   try{ buildWeather(); }catch(e){}
-  try{ renderSetup(); renderBrief(); wireTabs(); initPlans(); initExport(); }catch(e){}
+  try{ renderSetup(); renderBrief(); wireTabs(); initPlans(); initExport(); setTab(startTab()); }catch(e){}
   try{ setPlanName(planTitle(),false);
     document.getElementById('subtitle').textContent=
       `${DOC.meta.species} · ${DOC.meta.target_dates.join(' – ')} · r${DOC.meta.radius_km} km`; }catch(e){}
@@ -1438,7 +1438,21 @@ function setTab(name){
     exitDeep();
   }
   if(name==='brief') renderBrief();   // scope the brief to the currently chosen area
+  try{ localStorage.setItem('transect_tab',name); }catch(e){}
   setTimeout(()=>map.resize(),60);
+}
+/* Where to land. The steps are numbered 1→4 for a reason: on a first visit you have
+   not defined a box yet, so dropping you on someone else's Overview is confusing.
+   Land on Setup the first time, then remember where you were, and honour ?tab= . */
+function startTab(){
+  const q=new URLSearchParams(location.search).get('tab');
+  if(q && TAB_SHOW[q]) return q;
+  try{
+    const last=localStorage.getItem('transect_tab');
+    if(last && TAB_SHOW[last]) return last;
+    if(!localStorage.getItem('transect_seen')){ localStorage.setItem('transect_seen','1'); return 'setup'; }
+  }catch(e){}
+  return 'overview';
 }
 function wireTabs(){ document.querySelectorAll('#tabbar button[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab)); }
 /* plan identity in the top bar: auto-named, renamable inline, with a saved state */
