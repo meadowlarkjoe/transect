@@ -340,7 +340,7 @@ function init(){
 
   buildShooters(); buildThermal();
   buildPanel(); buildWeather(); buildLegend(); buildTools();
-  renderSetup(); renderBrief(); wireTabs(); setTab('overview');
+  renderSetup(); renderBrief(); wireTabs(); initPlans(); setTab('overview');
   map.fitBounds(bbox(DOC.areas),{padding:{top:80,left:400,right:200,bottom:120}});
 }
 
@@ -496,75 +496,68 @@ function toggleType(t,row){
 }
 
 /* ---------------- tools panel ---------------- */
+function setVis(ids,on){(ids||[]).forEach(id=>map.getLayer(id)&&map.setLayoutProperty(id,'visibility',on?'visible':'none'));}
+const LYR_MAP={areas:['areas-fill','areas-line','area-badges'],sites:['sites'],camps2:['camps','staging'],
+  packin:['packin'],water:['lakes','lakes-line','rivers'],crossings:['crossings'],
+  shooters:['shooters','shooters-label','shooterLines'],thermal:['thermal']};
 function buildTools(){
   const t=document.getElementById('tools');
-  // basemap + 3D + measure already in HTML; wire them + add heat controls
-  // add a Relief basemap button if the HTML doesn't have one
-  const bmGroup=t.querySelector('[data-base]') && t.querySelector('[data-base]').parentElement;
-  if(bmGroup && !t.querySelector('[data-base="relief"]')){
-    const rb=document.createElement('button'); rb.dataset.base='relief'; rb.textContent='Relief'; bmGroup.appendChild(rb);
-  }
+  const grp=(title,html)=>`<div class="tgroup"><div class="tlabel">${title}</div><div class="tbody">${html}</div></div>`;
+  t.innerHTML =
+    grp('Map',
+      `<div class="chips">${BASEMAPS.map(b=>`<button data-base="${b}" class="${curBase===b?'on':''}">${BASE_LABEL[b]}</button>`).join('')}</div>
+       <button id="btn3d" class="wbtn">3D terrain</button>`)
+    + grp('Model zones',
+      `<label><input type="checkbox" data-hz="high" checked> <b style="color:${HUNT_CLS.high.c}">■</b> High likelihood</label>
+       <label><input type="checkbox" data-hz="medium" checked> <b style="color:${HUNT_CLS.medium.c}">■</b> Medium</label>
+       <label><input type="checkbox" data-hz="low" checked> <b style="color:${HUNT_CLS.low.c}">■</b> Low</label>
+       <label><input id="refugeOn" type="checkbox" checked> <b style="color:${REFUGE_COL}">▨</b> Thermal refuge</label>
+       <label><input id="funnelOn" type="checkbox" checked> <b style="color:${FUNNEL_COL}">▨</b> Funnels / passes</label>
+       <label><input id="browseOn" type="checkbox"> <b style="color:#22a884">▨</b> Browse / feeding</label>`)
+    + grp('Hydrography',
+      `<label><input type="checkbox" data-lyr="water" checked> Rivers &amp; lakes</label>
+       <label><input type="checkbox" data-lyr="crossings" checked> River crossings</label>`)
+    + grp('Field features',
+      `<label><input type="checkbox" data-lyr="areas" checked> Focus areas</label>
+       <label><input type="checkbox" data-lyr="sites" checked> Sites</label>
+       <label><input type="checkbox" data-lyr="camps2" checked> Camps &amp; staging</label>
+       <label><input type="checkbox" data-lyr="packin" checked> Pack-in routes</label>
+       <label><input type="checkbox" data-lyr="shooters" checked> Caller / shooter</label>
+       <label><input type="checkbox" data-lyr="thermal"> Thermal drift <span class="s" id="thermLbl"></span></label>`);
+
   t.querySelectorAll('[data-base]').forEach(b=>b.onclick=()=>switchBase(b.dataset.base));
   let on3d=false;
   document.getElementById('btn3d').onclick=e=>{on3d=!on3d;e.target.classList.toggle('on',on3d);
     if(on3d){map.setTerrain({source:'dem',exaggeration:1.4});map.easeTo({pitch:60});}
     else{map.setTerrain(null);map.easeTo({pitch:0});}};
-  setupDraw();
-  // OnX-style field tools group
-  const toolg=document.createElement('div'); toolg.className='tgroup';
-  toolg.innerHTML=`<div class="tlabel">Field tools</div>
-    <div id="drawbar">
-      <button data-tool="dist">📏 Distance</button>
-      <button data-tool="area">▱ Area</button>
-      <button data-tool="line">✎ Line</button>
-      <button data-tool="route">➤ Route</button>
-      <button data-tool="waypoint">📍 Waypoint</button>
-      <button id="drawClear">✕ Clear</button>
-    </div>
-    <div class="drawhint" id="drawhint"></div>`;
-  t.appendChild(toolg);
-  toolg.querySelectorAll('#drawbar button[data-tool]').forEach(b=>b.onclick=()=>setDrawTool(b.dataset.tool));
-  document.getElementById('drawClear').onclick=()=>{clearDraw();setDrawTool(drawTool);};
-  const oldMeasure=document.getElementById('btnmeasure'); if(oldMeasure){oldMeasure.style.display='none';}
-  // extra controls injected under Layers
-  const extra=document.createElement('div'); extra.className='tgroup';
-  extra.innerHTML=`
-    <div class="tlabel">Huntability zones</div>
-    <label><input type="checkbox" data-hz="high" checked> <b style="color:${HUNT_CLS.high.c}">■</b> High likelihood</label>
-    <label><input type="checkbox" data-hz="medium" checked> <b style="color:${HUNT_CLS.medium.c}">■</b> Medium</label>
-    <label><input type="checkbox" data-hz="low" checked> <b style="color:${HUNT_CLS.low.c}">■</b> Low</label>
-    <label style="margin-top:7px"><input id="browseOn" type="checkbox"> <b style="color:#22a884">▨</b> Browse / feeding zones</label>
-    <label><input id="refugeOn" type="checkbox" checked> <b style="color:${REFUGE_COL}">▨</b> Thermal refuge zones</label>
-    <label><input id="funnelOn" type="checkbox" checked> <b style="color:${FUNNEL_COL}">▨</b> Funnel / pass zones</label>`;
-  t.appendChild(extra);
-  document.getElementById('refugeOn').onchange=e=>{const v=e.target.checked?'visible':'none';['refugeZones','refugeZones-line'].forEach(id=>map.setLayoutProperty(id,'visibility',v));};
-  document.getElementById('funnelOn').onchange=e=>{const v=e.target.checked?'visible':'none';['funnelZones','funnelZones-line'].forEach(id=>map.setLayoutProperty(id,'visibility',v));};
-  const applyHZ=()=>{const on=[...extra.querySelectorAll('[data-hz]')].filter(c=>c.checked).map(c=>c.dataset.hz);
+  const applyHZ=()=>{const on=[...t.querySelectorAll('[data-hz]')].filter(c=>c.checked).map(c=>c.dataset.hz);
     map.setFilter('huntZones',['in',['get','cls'],['literal',on.length?on:['__none__']]]);
     map.setFilter('huntZones-line',['in',['get','cls'],['literal',on.length?on:['__none__']]]);};
-  extra.querySelectorAll('[data-hz]').forEach(cb=>cb.onchange=applyHZ);
-  document.getElementById('browseOn').onchange=e=>{showBrowse=e.target.checked;const v=showBrowse?'visible':'none';
-    ['browseZones','browseZones-line'].forEach(id=>map.getLayer(id)&&map.setLayoutProperty(id,'visibility',v));};
-  // per-layer visibility (areas/routes)
-  const lay=document.createElement('div'); lay.className='tgroup';
-  lay.innerHTML=`<div class="tlabel">Layers</div>
-    <label><input type="checkbox" data-lyr="water" checked> Rivers &amp; lakes</label>
-    <label><input type="checkbox" data-lyr="crossings" checked> River crossings</label>
-    <label><input type="checkbox" data-lyr="areas" checked> Focus areas</label>
-    <label><input type="checkbox" data-lyr="packin" checked> Pack-in routes</label>
-    <label><input type="checkbox" data-lyr="shooters" checked> Caller / shooter pairs</label>
-    <label><input type="checkbox" data-lyr="thermal"> Thermal drift <span class="s" id="thermLbl"></span></label>`;
-  t.appendChild(lay);
-  lay.querySelectorAll('[data-lyr]').forEach(cb=>cb.onchange=()=>{
-    const vis=cb.checked?'visible':'none';
-    ({areas:['areas-fill','areas-line','area-badges'],packin:['packin'],
-      water:['lakes','lakes-line','rivers'],crossings:['crossings'],
-      shooters:['shooters','shooters-label','shooterLines'],thermal:['thermal']})[cb.dataset.lyr]
-      .forEach(id=>map.getLayer(id)&&map.setLayoutProperty(id,'visibility',vis));
+  t.querySelectorAll('[data-hz]').forEach(cb=>cb.onchange=applyHZ);
+  document.getElementById('refugeOn').onchange=e=>setVis(['refugeZones','refugeZones-line'],e.target.checked);
+  document.getElementById('funnelOn').onchange=e=>setVis(['funnelZones','funnelZones-line'],e.target.checked);
+  document.getElementById('browseOn').onchange=e=>{showBrowse=e.target.checked;setVis(['browseZones','browseZones-line'],showBrowse);};
+  t.querySelectorAll('[data-lyr]').forEach(cb=>cb.onchange=()=>{
+    setVis(LYR_MAP[cb.dataset.lyr],cb.checked);
     if(cb.dataset.lyr==='thermal'&&cb.checked){const hr=document.getElementById('hour');updateThermal(hr?+hr.value:12);}});
-  // make every labelled tool group collapsible (click the header)
-  t.querySelectorAll('.tgroup').forEach(g=>{const lbl=g.querySelector('.tlabel');
-    if(lbl) lbl.onclick=()=>g.classList.toggle('collapsed');});
+  // collapsible sections (click the header caret)
+  t.querySelectorAll('.tgroup .tlabel').forEach(lbl=>lbl.onclick=()=>lbl.parentElement.classList.toggle('collapsed'));
+
+  setupDraw();          // annotation source/layers + map handlers (once)
+  buildDrawToolbar();   // the separate floating draw/measure strip
+}
+function buildDrawToolbar(){
+  const d=document.getElementById('drawtools'); if(!d) return;
+  d.innerHTML=`<div class="dt-title">TOOLS</div>
+    <button data-tool="dist" title="Measure distance">📏</button>
+    <button data-tool="area" title="Measure area">▱</button>
+    <button data-tool="line" title="Draw line">✎</button>
+    <button data-tool="route" title="Build route">➤</button>
+    <button data-tool="waypoint" title="Drop waypoint">📍</button>
+    <button id="drawClear" title="Clear drawings">✕</button>
+    <div class="dt-hint" id="drawhint"></div>`;
+  d.querySelectorAll('button[data-tool]').forEach(b=>b.onclick=()=>setDrawTool(b.dataset.tool));
+  document.getElementById('drawClear').onclick=()=>{clearDraw();setDrawTool(null);};
 }
 /* ---- OnX-style field tools: distance / line / area / route / waypoint ---- */
 let drawTool=null, drawPts=[], drawWpts=[], drawSaved=[];
@@ -622,7 +615,8 @@ function renderAnnot(){
 function setDrawTool(t){
   finishDraw();                         // commit any in-progress geometry
   drawTool=(drawTool===t)?null:t; drawPts=[];
-  document.querySelectorAll('#drawbar button').forEach(b=>b.classList.toggle('on',b.dataset.tool===drawTool));
+  document.querySelectorAll('#drawtools button[data-tool]').forEach(b=>b.classList.toggle('on',b.dataset.tool===drawTool));
+  const dtb=document.getElementById('drawtools'); if(dtb) dtb.classList.toggle('active',!!drawTool);
   map.getCanvas().style.cursor=drawTool?'crosshair':'';
   map.doubleClickZoom[drawTool?'disable':'enable']();
   const hint=document.getElementById('drawhint');
@@ -983,4 +977,58 @@ function setTab(name){
   if(name==='brief') renderBrief();   // scope the brief to the currently chosen area
   setTimeout(()=>map.resize(),60);
 }
-function wireTabs(){ document.querySelectorAll('#tabbar button').forEach(b=>b.onclick=()=>setTab(b.dataset.tab)); }
+function wireTabs(){ document.querySelectorAll('#tabbar button[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab)); }
+
+/* ---------------- saved hunt plans (UUID + local storage) ----------------
+   A plan captures your Setup, chosen area, and map drawings — saved under a UUID
+   in this browser. (Cross-device accounts come with the durable server.) */
+function uuid(){ return (crypto&&crypto.randomUUID)?crypto.randomUUID():'p-'+Date.now()+'-'+Math.random().toString(16).slice(2); }
+function loadPlans(){ try{return JSON.parse(localStorage.getItem('transect_plans')||'[]');}catch(e){return [];} }
+function savePlans(a){ try{localStorage.setItem('transect_plans',JSON.stringify(a));}catch(e){alert('Could not save (storage full).');} }
+function currentPlan(name){
+  return {id:uuid(), name:name||('Plan '+new Date().toLocaleDateString()), savedAt:Date.now(),
+    aoi:(DOC.meta&&DOC.meta.title)||'', units:UNITS,
+    setup:{center:draft.center.slice(),radius:draft.radius,walkAccess:draft.walkAccess,walkHunt:draft.walkHunt,
+      leaving:draft.leaving,watercraft:SETUP.watercraft,huntStyle:SETUP.huntStyle},
+    area:lastSel, annot:JSON.parse(JSON.stringify(drawSaved||[]))};
+}
+function applyPlan(p){
+  if(!p) return;
+  const s=p.setup||{};
+  draft.center=(s.center||draft.center).slice(); draft.radius=s.radius||draft.radius;
+  draft.walkAccess=s.walkAccess??draft.walkAccess; draft.walkHunt=s.walkHunt??draft.walkHunt;
+  draft.leaving=s.leaving||draft.leaving;
+  SETUP.watercraft=s.watercraft||SETUP.watercraft; SETUP.huntStyle=s.huntStyle||SETUP.huntStyle;
+  UNITS=p.units||UNITS;
+  drawSaved=JSON.parse(JSON.stringify(p.annot||[])); if(map.getSource('annot')) renderAnnot();
+  lastSel=p.area||1;
+  renderSetup();
+  map.flyTo({center:draft.center,zoom:9.5}); drawDraft();
+  document.getElementById('plans').classList.add('hidden');
+  alert('Loaded "'+p.name+'". Its Setup + drawings are restored — hit RUN ANALYSIS to recompute this area, or browse the current scout.');
+}
+function renderPlans(){
+  const el=document.getElementById('plans'); const plans=loadPlans();
+  el.innerHTML=`<div class="phead"><b>Hunt plans</b><button id="plansClose" class="ghost">✕</button></div>
+    <div class="prow"><input id="planName" placeholder="Name this plan…"><button id="planSave">Save current</button></div>
+    <div class="s" style="margin:2px 0 8px">Saved in this browser. Accounts &amp; cross-device sync arrive with the hosted server.</div>
+    ${plans.length?plans.map(p=>`<div class="plan" data-id="${p.id}">
+        <div><b>${p.name}</b><div class="s">${new Date(p.savedAt).toLocaleString()} · ${p.aoi||''} · r=${p.setup?p.setup.radius:'?'}km</div></div>
+        <div class="pacts"><button data-act="load" data-id="${p.id}">Load</button><button data-act="del" data-id="${p.id}" class="ghost">Delete</button></div>
+      </div>`).join(''):'<div class="s">No saved plans yet.</div>'}`;
+  document.getElementById('plansClose').onclick=()=>el.classList.add('hidden');
+  document.getElementById('planSave').onclick=()=>{
+    const nm=document.getElementById('planName').value.trim();
+    const arr=loadPlans(); arr.unshift(currentPlan(nm)); savePlans(arr); renderPlans();
+  };
+  el.querySelectorAll('button[data-act]').forEach(b=>b.onclick=()=>{
+    const arr=loadPlans(), id=b.dataset.id;
+    if(b.dataset.act==='del'){ savePlans(arr.filter(x=>x.id!==id)); renderPlans(); }
+    else { applyPlan(arr.find(x=>x.id===id)); }
+  });
+}
+function initPlans(){
+  const btn=document.getElementById('plansBtn'); if(!btn) return;
+  btn.onclick=()=>{ const el=document.getElementById('plans');
+    if(el.classList.contains('hidden')){ renderPlans(); el.classList.remove('hidden'); } else el.classList.add('hidden'); };
+}

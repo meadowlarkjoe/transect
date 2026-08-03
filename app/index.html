@@ -17,8 +17,14 @@
   <button data-tab="overview" class="on">Overview</button>
   <button data-tab="field">Field</button>
   <button data-tab="brief">Brief</button>
+  <button id="plansBtn" class="ghost">Plans</button>
   <div id="subtitle">loading…</div>
 </nav>
+
+<!-- floating draw / measure toolbar (separate from layer controls) -->
+<div id="drawtools"></div>
+<!-- saved hunt plans -->
+<aside id="plans" class="hidden"></aside>
 
 <!-- Overview: ranked areas + pros/cons (Phase 1) / detail (Phase 2) -->
 <aside id="panel" class="tabpanel">
@@ -34,26 +40,8 @@
 <!-- Brief: full rationale document -->
 <aside id="brief" class="tabpanel hidden"></aside>
 
-<!-- Right: tools -->
-<aside id="tools">
-  <div class="tgroup">
-    <div class="tlabel">Basemap</div>
-    <button data-base="satellite" class="on">Satellite</button>
-    <button data-base="topo">Topo</button>
-    <button data-base="hybrid">Hybrid</button>
-  </div>
-  <div class="tgroup">
-    <button id="btn3d">3D terrain</button>
-    <button id="btnmeasure">📏 Measure</button>
-  </div>
-  <div class="tgroup">
-    <div class="tlabel">Layers</div>
-    <label><input type="checkbox" data-layer="areas" checked> Focus areas</label>
-    <label><input type="checkbox" data-layer="camps" checked> Camps</label>
-    <label><input type="checkbox" data-layer="waypoints" checked> Sites</label>
-    <label><input type="checkbox" data-layer="routes" checked> Routes</label>
-  </div>
-</aside>
+<!-- Right: layer + map controls (built in app.js) -->
+<aside id="tools"></aside>
 
 <!-- Bottom: weather / wind calendar -->
 <div id="weather"></div>
@@ -62,8 +50,8 @@
 <div id="legend"></div>
 
 <script src="vendor/maplibre-gl.js"></script>
-<script src="data.js?v=14"></script>
-<script src="area_detail.js?v=14"></script>
-<script src="app.js?v=14"></script>
+<script src="data.js?v=15"></script>
+<script src="area_detail.js?v=15"></script>
+<script src="app.js?v=15"></script>
 </body>
 </html>

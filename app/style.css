@@ -153,3 +153,36 @@ details summary{cursor:pointer;color:var(--muted);font-size:12px;margin-top:4px}
 #deepBadge{position:absolute;top:60px;left:50%;transform:translateX(-50%);z-index:9;
   background:#2a1618;color:#ffcdd0;border:1px solid var(--accent);border-radius:20px;
   padding:5px 14px;font-size:12px;font-weight:600;box-shadow:0 4px 16px #0009;pointer-events:none}
+
+/* ---- reorganized tools panel ---- */
+#tools .tgroup{padding:0;border-bottom:1px solid var(--line)}
+#tools .tlabel{margin:0;padding:9px 10px;background:#141a17}
+#tools .tbody{padding:8px 10px}
+#tools .chips{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:6px}
+#tools .chips button{flex:1 1 40%;margin:0}
+#tools .wbtn{width:100%;margin:0}
+/* floating draw / measure toolbar (separate from layers) */
+#drawtools{position:absolute;left:14px;top:70px;z-index:6;background:var(--panel);border:1px solid var(--line);
+  border-radius:12px;box-shadow:0 6px 24px #0008;padding:6px;display:flex;flex-direction:column;gap:4px;width:52px;align-items:center}
+#drawtools .dt-title{font-size:8px;letter-spacing:.14em;color:var(--muted);margin-bottom:2px}
+#drawtools button{width:38px;height:34px;padding:0;font-size:15px;background:#20272b;color:var(--text);
+  border:1px solid var(--line);border-radius:8px;cursor:pointer}
+#drawtools button.on{background:var(--accent);border-color:var(--accent)}
+#drawtools .dt-hint{display:none}
+/* draw-tool active hint as a top-center banner */
+#drawtools.active .dt-hint{display:block;position:absolute;left:60px;top:6px;width:230px;background:var(--panel);
+  border:1px solid var(--line);border-radius:8px;padding:6px 9px;color:#cdd7dc;font-size:11px;text-align:left}
+/* tabbar ghost button (Plans) */
+#tabbar .ghost{margin-left:6px;border:1px solid var(--line);color:#cdd7dc}
+#tabbar #plansBtn{background:#20272b}
+/* saved plans panel */
+#plans{top:62px;right:14px;width:300px;max-height:calc(100vh - 80px);overflow:auto;padding:12px 14px;z-index:20}
+#plans .phead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+#plans .ghost{background:none;border:1px solid var(--line);color:var(--muted);border-radius:8px;padding:4px 8px;cursor:pointer}
+#plans .prow{display:flex;gap:6px}
+#plans .prow input{flex:1;background:#20272b;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px}
+#plans .prow button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:8px 12px;cursor:pointer;font-weight:600}
+#plans .plan{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px;border:1px solid var(--line);
+  border-radius:8px;margin:6px 0;background:var(--panel2)}
+#plans .pacts{display:flex;gap:4px;flex:none}
+#plans .pacts button{background:#20272b;color:var(--text);border:1px solid var(--line);border-radius:7px;padding:5px 8px;cursor:pointer;font-size:12px}
