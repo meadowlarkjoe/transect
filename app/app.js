@@ -1110,8 +1110,9 @@ function initPlans(){
 const _xesc=s=>String(s==null?'':s).replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
 function exportWaypoints(){
   const w=[];
-  (window._sites||[]).forEach(f=>w.push({lon:f.geometry.coordinates[0],lat:f.geometry.coordinates[1],
-    name:LABELS[f.properties.type]||f.properties.type, desc:f.properties.when||''}));
+  // pull sites from the data (robust regardless of map-render state)
+  (DOC.waypoints||[]).filter(x=>SITE_TYPES.includes(x.type)).forEach(x=>w.push(
+    {lon:x.lon,lat:x.lat,name:LABELS[x.type]||x.type,desc:(x.properties&&x.properties.when)||''}));
   (DOC.camps||[]).forEach(c=>w.push({lon:c.site.lon,lat:c.site.lat,name:'Camp '+c.id,desc:'base camp'}));
   (DOC.waypoints||[]).filter(x=>x.type==='parking').forEach(x=>w.push({lon:x.lon,lat:x.lat,name:'Vehicle staging',desc:'leave the truck here'}));
   (DOC.crossings||[]).forEach(c=>w.push({lon:c.ll[0],lat:c.ll[1],
