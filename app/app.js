@@ -947,10 +947,11 @@ function renderBrief(){
     <p><b>Pros:</b> ${(a.pros||[]).join('; ')}.</p>
     <p><b>Watch-outs:</b> ${(a.cons||[]).join('; ')}.</p>`;
   if(st.dist_water_m!=null) h+=`<p class="s">water ${metres(st.dist_water_m)} · to road ${km((st.dist_road_m||0)/1000)} · slope ${st.mean_slope_deg}°</p>`;
-  if(rutT.length){ h+=`<h3>Rut &amp; calling strategy</h3>`+
-    rutT.map(t=>`<p>${t.date}: <b style="color:#f2b98a">${t.phase}</b> (${Math.round(t.responsiveness*100)}% responsive). ${t.guidance}`
-      +(t.weather_note?` <span class="s">Weather: ${t.weather_note}.</span>`:'')+`</p>`).join('');
-    if(DOC.rut.trigger_note) h+=`<p class="s" style="color:#e0b985">${DOC.rut.trigger_note}</p>`; }
+  if(rutT.length||DOC.rut.hunt_read){ h+=`<h3>Your dates &amp; the rut</h3>`;
+    if(DOC.rut.hunt_read) h+=`<p class="huntread">${DOC.rut.hunt_read}</p>`;
+    if(rutT.length) h+=`<div class="rutdates">`+rutT.map(t=>
+      `<span class="pill" style="background:#2a2117;color:#f2b98a">${t.date} · ${t.phase} · ${Math.round(t.responsiveness*100)}%</span>`).join('')+`</div>`;
+    if(DOC.rut.trigger_note) h+=`<p class="s" style="color:#e0b985;margin-top:6px">${DOC.rut.trigger_note}</p>`; }
   if(DOC.strategy){ h+=`<p><b>${DOC.strategy.headline}</b> — ${DOC.strategy.approach} ${DOC.strategy.calling||''}</p>`;
     if(DOC.strategy.scent_warning) h+=`<div class="warn">${DOC.strategy.scent_warning}</div>`; }
   h+=`<h3>Camp &amp; access</h3>`;

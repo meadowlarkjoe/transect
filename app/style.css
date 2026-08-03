@@ -217,6 +217,11 @@ details summary{cursor:pointer;color:var(--muted);font-size:12px;margin-top:4px}
 #plans .authbox input{flex:1;background:#20272b;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px}
 #plans .authbox button{flex:1;background:var(--accent);color:#fff;border:0;border-radius:8px;padding:8px;cursor:pointer;font-weight:600}
 #plans .authbox button.ghost{background:#20272b;border:1px solid var(--line);color:#cdd7dc}
+/* personalized rut read in the brief */
+.huntread{line-height:1.55;font-size:13.5px;background:#1c1712;border:1px solid #4a3a22;
+  border-radius:10px;padding:11px 13px;color:#e8dcc8}
+.huntread b{color:#f2c67a}
+.rutdates{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
 /* export menu */
 #exportMenu{position:absolute;top:52px;left:12px;z-index:30;background:var(--panel);border:1px solid var(--line);
   border-radius:10px;box-shadow:0 8px 28px #000a;padding:12px;width:260px}

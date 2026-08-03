@@ -120,6 +120,66 @@ def _temp_factor(day):
     return round(f, 2), note
 
 
+def _fmt(d: date) -> str:
+    return f"{d.strftime('%b')} {d.day}"
+
+
+def _hunt_read(ph: dict, targets: list, peak_c: date) -> str:
+    """A personalized paragraph: where THIS hunt lands relative to the rut, and how
+    hunting these specific dates changes the way the area gets hunted (and what the
+    huntability map is leaning on). Not generic phase boilerplate."""
+    if not targets:
+        return ""
+    ds = sorted(t["date"] for t in targets)
+    d0, d1 = date.fromisoformat(ds[0]), date.fromisoformat(ds[-1])
+    mid = d0 + timedelta(days=(d1 - d0).days // 2)
+    cls = classify(mid, ph)
+    to_peak = (peak_c - mid).days                      # +ve = before peak, -ve = after
+    best = max(targets, key=lambda t: t.get("responsiveness", 0))
+    resp = int(round(best.get("responsiveness", 0) * 100))
+    span = _fmt(d0) if d0 == d1 else f"{_fmt(d0)}–{_fmt(d1)}"
+
+    # where it lands
+    if cls == "peak rut":
+        where = (f"Your hunt (<b>{span}</b>) lands {'squarely on' if abs(to_peak) <= 3 else 'inside'} the "
+                 f"rut peak (~{_fmt(peak_c)})" + ("" if abs(to_peak) <= 3
+                 else f", {abs(to_peak)} day(s) {'before' if to_peak > 0 else 'past'} the centre")
+                 + " — the highest-odds window of the year.")
+        how = ("Bulls are on their feet cruising for cows and at their most callable, so hunt this area "
+               "<b>aggressively and vocally</b>: set up on the funnels, edges and wallows the map flags, "
+               "run cow-in-estrus whines and bull grunts, rake brush, and be ready for a bull to commit "
+               "hard and fast. Because you're on the peak, the huntability here is weighted toward "
+               "<b>rut travel corridors and funnels</b> rather than feeding sign.")
+    elif cls == "pre-rut":
+        where = (f"Your hunt (<b>{span}</b>) is pre-rut, ~{max(to_peak,0)} day(s) before the ~{_fmt(peak_c)} "
+                 "peak — building, but cows aren't receptive yet.")
+        how = ("It's a <b>searching, cover-ground game</b>, not a peak-rut showdown: cold-call and rake to "
+               "pull a curious bull, hunt fresh sign and the travel between feeding and cover, and stay "
+               "mobile. For these dates the map leans on <b>feeding edges, regen and water</b> more than "
+               "rut funnels — find where they're eating and intercept the travel to it.")
+    elif cls == "post-rut":
+        where = (f"Your hunt (<b>{span}</b>) is post-rut, ~{abs(to_peak)} day(s) after the ~{_fmt(peak_c)} "
+                 "peak — bulls are spent and wary.")
+        how = ("<b>Back off aggressive calling</b> (soft cow calls only) and hunt <b>feeding sign</b> hard; "
+               "a second estrus in unbred cows can spark a brief flurry, so stay alert near doe/cow "
+               "concentrations. The map leans toward <b>feeding and thermal cover</b> for these dates.")
+    else:
+        where = (f"Your hunt (<b>{span}</b>) falls outside the core rut window (peak ~{_fmt(peak_c)}).")
+        how = ("Calling is far less reliable now — hunt <b>food and travel patterns</b>: feeding edges, "
+               "water, and the trails between bedding and forage. The map is weighted to feeding ground "
+               "rather than rut terrain.")
+
+    read = f"{where} {how}"
+    # weather trigger, if the forecast/proxy says anything notable across the window
+    wnotes = [t.get("weather_note") for t in targets if t.get("weather_note")]
+    if wnotes:
+        read += (f" <b>Weather for your dates:</b> {wnotes[0]}" +
+                 (" — and a warm spell will knock the calling response down further, so lean on the "
+                  "first/last-light feeding sits" if resp < 55 else "."))
+    read += f" (Best of your dates ≈ {resp}% calling responsiveness.)"
+    return read
+
+
 def summary(ctx, weather_days=None) -> dict:
     """Full rut payload for the app + brief: latitude-adjusted windows, per-target-date
     phase + responsiveness (damped by the forecast weather trigger), a Sept–Oct weekly
@@ -162,6 +222,7 @@ def summary(ctx, weather_days=None) -> dict:
 
     return {
         "peak_date": peak_c.isoformat(),
+        "hunt_read": _hunt_read(ph, targets, peak_c),
         "shift_days": ph["shift_days"],
         "windows": {"pre_rut": fmt(ph["pre"]), "peak_rut": fmt(ph["peak"]),
                     "post_rut": fmt(ph["post"])},
