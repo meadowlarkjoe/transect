@@ -431,6 +431,43 @@ def build(ctx: Context) -> dict:
     except Exception:
         doc["recommendations"] = []
 
+    # TENURE / OUTFITTER BOUNDARIES — the legal gate is filter #1, so it has to be
+    # visible, not just narrated. Emitted with a huntable flag per polygon so the map
+    # can draw "you may not hunt here" distinctly from "bookable".
+    try:
+        from . import legal as _lg
+        from shapely.geometry import mapping as _map
+        from shapely.ops import transform as _tf
+        from pyproj import Transformer as _T
+        pts = _lg.classify_tenure(ctx) or []
+        north = ctx.aoi.center.lat >= _lg.PARALLEL_52
+        resid = ctx.aoi.hunter.residency
+        out_t = []
+        for p in pts:
+            if p.geometry is None:
+                continue
+            acc = _lg._access_for(resid, p.tenure, north)
+            g = p.geometry
+            try:                               # tenure source is EPSG:32198
+                if getattr(g, "is_empty", False):
+                    continue
+                tr = _T.from_crs("EPSG:32198", "EPSG:4326", always_xy=True)
+                if abs(g.bounds[0]) > 180:     # projected → reproject for the app
+                    g = _tf(lambda xs, ys: tr.transform(xs, ys), g)
+            except Exception:
+                pass
+            gg = g.simplify(0.0008)
+            out_t.append({"tenure": p.tenure.value, "name": p.name, "access": acc,
+                          "huntable": acc in ("yes", "draw"),
+                          "geometry": _map(gg)})
+        doc["tenure_zones"] = out_t[:60]
+    except Exception:
+        doc["tenure_zones"] = []
+    try:
+        doc["blocked_tenure"] = json.loads((cache / "blocked_tenure.json").read_text())
+    except Exception:
+        doc["blocked_tenure"] = None
+
     # Tell the app plainly when the road network never arrived, so "no areas" reads as
     # a DATA gap rather than a verdict about the ground.
     try:

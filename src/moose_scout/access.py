@@ -19,6 +19,7 @@ map actually reflects what THIS hunter can reach and hunt:
 """
 from __future__ import annotations
 
+import json
 from datetime import date
 
 import numpy as np
@@ -81,6 +82,41 @@ def _cost_dist_from_roads(roads_mask, barrier_mask, res):
     d = (costs * res).astype("float32")
     d[~np.isfinite(d)] = 1e6                         # cut off by a river = unreachable
     return d
+
+
+def _blocked_tenure_mask(ctx, prof, shape):
+    """Rasterize the tenure polygons this hunter may NOT hunt (pourvoiries à droits
+    exclusifs for a DIY resident, etc.).
+
+    The legal gate is meant to be filter #1 — the design has always said so — but it
+    only ever produced TEXT. Nothing masked the rasters, so the model would happily
+    rank a focus area inside an exclusive outfitter concession where hunting it would
+    be trespass. Returns (mask, [names]) or (None, []) when tenure data is absent.
+    """
+    import numpy as np
+    try:
+        from rasterio.features import rasterize
+        from . import legal as lg
+        patches = lg.classify_tenure(ctx)
+        if not patches:
+            return None, []
+        north = ctx.aoi.center.lat >= lg.PARALLEL_52
+        res_ = ctx.aoi.hunter.residency
+        blocked, names = [], []
+        for p in patches:
+            if p.geometry is None:
+                continue
+            if lg._access_for(res_, p.tenure, north) in ("no", "outfitter"):
+                blocked.append(p.geometry)
+                names.append(f"{p.tenure.value}: {p.name}")
+        if not blocked:
+            return None, []
+        arr = rasterize(((g, 1) for g in blocked), out_shape=shape,
+                        transform=prof["transform"], fill=0, dtype="uint8",
+                        all_touched=True)
+        return arr.astype(bool), names
+    except Exception:
+        return None, []
 
 
 def _rut_emphasis(ctx) -> tuple:
@@ -248,4 +284,16 @@ def run(ctx: Context) -> None:
 
     hunt = np.clip(hsm_phase * retrieval, 0, 1)
     hunt[np.isnan(hsm)] = np.nan
+
+    # LEGAL GATE — filter #1, and it must bite on the raster, not just the prose.
+    # Ground you may not legally hunt is not "low-scoring", it is out of play, so it
+    # is masked to NaN before focus areas are extracted.
+    blocked, bnames = _blocked_tenure_mask(ctx, prof, hunt.shape)
+    if blocked is not None and blocked.any():
+        hunt[blocked] = np.nan
+        try:
+            (cache / "blocked_tenure.json").write_text(json.dumps(
+                {"pct_of_aoi": round(float(blocked.mean()) * 100, 1), "names": bnames[:12]}))
+        except Exception:
+            pass
     ru.write(cache / "huntability.tif", hunt.astype("float32"), prof)

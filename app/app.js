@@ -34,6 +34,17 @@ const COLORS = {
 const FILL_ALPHA = 0.14;
 /* browse stipple — texture survives overlapping the likelihood bands; a fifth flat
    fill in that stack is unreadable */
+/* diagonal hatch — the universal "closed / no-go" convention on a hunting map */
+function hatchImage(hex){
+  const S=12,cv=document.createElement('canvas');cv.width=cv.height=S;
+  const c=cv.getContext('2d');
+  c.clearRect(0,0,S,S);
+  c.strokeStyle=hex; c.lineWidth=2; c.globalAlpha=0.55;
+  c.beginPath(); c.moveTo(-2,S+2); c.lineTo(S+2,-2); c.stroke();
+  c.beginPath(); c.moveTo(S/2-2,S+2); c.lineTo(S+2,S/2-2); c.stroke();
+  const d=c.getImageData(0,0,S,S);
+  return {width:S,height:S,data:new Uint8Array(d.data)};
+}
 function stippleImage(){
   const S=16,cv=document.createElement('canvas');cv.width=cv.height=S;
   const c=cv.getContext('2d');
@@ -213,8 +224,10 @@ function buildSources(){
   const refugeZones=zFC(DOC.refuge_zones), funnelZones=zFC(DOC.funnel_zones);
   const burnZones=fc((DOC.burn_zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},
     properties:{cls:z.cls,area_km2:z.area_km2}})));
+  const tenureZones=fc((DOC.tenure_zones||[]).map(t=>({type:'Feature',geometry:t.geometry,
+    properties:{tenure:t.tenure,name:t.name,access:t.access,huntable:!!t.huntable}})));
   const infra=fc((DOC.infra||[]).map(o=>({type:'Feature',geometry:{type:'LineString',coordinates:o.ll},properties:{t:o.t}})));
-  return {areas,areaLabels,camps,staging,packin,routes,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones,burnZones,infra};
+  return {areas,areaLabels,camps,staging,packin,routes,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones,burnZones,tenureZones,infra};
 }
 
 function init(){
@@ -252,6 +265,19 @@ function init(){
     layout:{visibility:'none'},paint:{'fill-pattern':'stipple','fill-opacity':0.9}});
   map.addLayer({id:'browseZones-line',type:'line',source:'browseZones',
     layout:{visibility:'none'},paint:{'line-color':brCol,'line-width':1.5,'line-opacity':1,'line-dasharray':[2,1]}});
+  // TENURE — closed ground gets a hatched red wash + hard outline; bookable ground a
+  // dashed amber outline only. This is the legal gate made visible.
+  map.addImage('nogo', hatchImage('#C9564A'), {pixelRatio:2});
+  map.addSource('tenureZones',{type:'geojson',data:S.tenureZones});
+  map.addLayer({id:'tenureBlocked',type:'fill',source:'tenureZones',
+    filter:['==',['get','huntable'],false],
+    paint:{'fill-pattern':'nogo','fill-opacity':0.85}});
+  map.addLayer({id:'tenureZones-line',type:'line',source:'tenureZones',
+    paint:{'line-color':['case',['==',['get','huntable'],false],'#C9564A','#E0A62E'],
+      'line-width':['case',['==',['get','huntable'],false],2,1.4],
+      'line-opacity':0.95,
+      'line-dasharray':['case',['==',['get','huntable'],false],['literal',[1,0]],['literal',[4,2]]]}});
+
   // burn regeneration — prime (15–22 yr) reads hotter than the wider regen band
   map.addSource('burnZones',{type:'geojson',data:S.burnZones});
   const burnCol=['case',['==',['get','cls'],'prime'],'#E07B39','#8A5A2B'];
@@ -366,6 +392,8 @@ function init(){
       .setHTML(`<h4>${p.type} · ${p.area_km2} km²</h4><div class="s">${p.what}</div><div class="s" style="margin-top:4px"><b>When:</b> ${p.when}</div>`).addTo(map);});
   map.on('click','refugeZones',e=>{ new maplibregl.Popup().setLngLat(e.lngLat)
     .setHTML(`<h4><span style="color:${REFUGE_COL}">▨</span> Thermal refuge · ${e.features[0].properties.area_km2} km²</h4><div class="s">${ZONE_WHY.refuge}</div>`).addTo(map);});
+  map.on('click','tenureZones-line',e=>{ const p=e.features[0].properties; tenurePopup(e.lngLat,p); });
+  map.on('click','tenureBlocked',e=>{ const p=e.features[0].properties; tenurePopup(e.lngLat,p); });
   map.on('click','burnZones',e=>{ const p=e.features[0].properties;
     const prime=p.cls==='prime';
     const bm=DOC.burn_meta||{};
@@ -627,6 +655,20 @@ function updateHour(h){
   if(tl) tl.textContent=thermalRising(h)?'· ↑ upslope':'· ↓ downslope';
 }
 
+const TENURE_WHY={
+  pourvoirie_exclusive:'Pourvoirie à droits exclusifs — an outfitter holds exclusive hunting rights here. You cannot hunt it DIY; you would be hunting as their client or not at all.',
+  pourvoirie:'Pourvoirie (without exclusive rights) — outfitter operates here but the land may still be open. Confirm before counting it in.',
+  zec:'ZEC — open to you, but you must register and pay at the gate on the way in and out.',
+  reserve_faunique:'Réserve faunique (SEPAQ) — open only by draw or reservation; you cannot simply drive in and hunt.',
+  crown:'Terres du domaine de l\'État — general crown land, open to a Québec resident DIY.'};
+function tenurePopup(lngLat,p){
+  const closed=!(p.huntable===true||p.huntable==='true');
+  new maplibregl.Popup().setLngLat(lngLat).setHTML(
+    `<h4><span style="color:${closed?'#C9564A':'#E0A62E'}">${closed?'⃠':'▨'}</span> ${p.name||p.tenure}</h4>`+
+    `<div class="s"><b style="color:${closed?'#E58077':'#E0A62E'}">${closed?'CLOSED to you — masked out of the ranking':'Open with conditions'}</b></div>`+
+    `<div class="s" style="margin-top:4px">${TENURE_WHY[p.tenure]||p.tenure}</div>`+
+    `<div class="s" style="margin-top:4px;opacity:.7">Tenure boundaries are from the MRNF layer and can lag reality — verify before you hunt.</div>`).addTo(map);
+}
 function buildLegend(){ /* the separate legend is gone — colour meaning now lives in
   the layer rows themselves (each swatch previews how that layer actually draws), so
   panel and map cannot drift apart. See LAYERS below. */ }
@@ -648,7 +690,8 @@ const LYR_MAP={areas:['areas-fill','areas-line','area-badges'],sites:['sites','s
   refuge:['refugeZones','refugeZones-line'],
   funnel:['funnelZones','funnelZones-line'],
   browse:['browseZones','browseZones-line'],
-  burns:['burnZones','burnZones-line']};
+  burns:['burnZones','burnZones-line'],
+  tenure:['tenureBlocked','tenureZones-line']};
 
 const LAYERS=[
  {group:'Model zones', rows:[
@@ -689,6 +732,9 @@ const LAYERS=[
     on:true, lyr:'routes', count:()=>(DOC.routes||[]).length},
    {k:'roads', kind:'line', c:'var(--ref-outline)', name:'Roads & rail',
     note:'Reference geography, not a model output', on:true, lyr:'roads'},
+   {k:'tenure', kind:'zone', c:'var(--danger)', name:'Outfitter / tenure',
+    note:'Pourvoiries, ZECs, réserves — hatched red is CLOSED to you and is masked out of the ranking',
+    on:true, lyr:'tenure', count:()=>(DOC.tenure_zones||[]).length},
    {k:'boundaries', kind:'outline', c:'var(--ref-outline)', name:'Borders & places',
     note:'Reference geography', on:true, lyr:'boundaries'},
    {k:'water', kind:'line', c:'var(--water-shore)', name:'Rivers & lakes',
@@ -1111,7 +1157,7 @@ function applyDoc(newDoc){        // re-bind the whole map + panels to fresh eng
   const S=buildSources();
   const setD=(id,data)=>{const s=map.getSource(id); if(s&&data) s.setData(data);};
   setD('huntZones',S.huntZones); setD('browseZones',S.browseZones);
-  setD('refugeZones',S.refugeZones); setD('funnelZones',S.funnelZones); setD('burnZones',S.burnZones);
+  setD('refugeZones',S.refugeZones); setD('funnelZones',S.funnelZones); setD('burnZones',S.burnZones); setD('tenureZones',S.tenureZones);
   setD('rivers',S.rivers); setD('lakes',S.lakes); setD('crossings',S.crossings); setD('infra',S.infra);
   setD('areas',S.areas); setD('areaLabels',S.areaLabels); setD('camps',S.camps);
   setD('staging',S.staging); setD('packin',fc(S.packin)); setD('sites',fc(window._sites));
