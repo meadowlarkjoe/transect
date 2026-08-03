@@ -14,6 +14,120 @@ from datetime import date
 
 from .config import Context, cache_dir, outputs_dir
 from . import wind as windmod
+from . import rasterio_utils as ru
+
+
+def _polygonize(ctx, cache, tif, bands, min_km2=1.5, smooth_m=320, per_class=8, simp=0.0008):
+    """Classify a 0..1 raster into a FEW cohesive class polygons (defined areas, not
+    heat). `bands` = [(name, lo)] ascending; a cell takes the highest class whose lo
+    it meets. Heavy smoothing + morphology + top-N-by-area keeps it legible + light."""
+    import numpy as np
+    from pyproj import Transformer
+    from rasterio.features import shapes as rio_shapes
+    from scipy.ndimage import binary_closing, binary_fill_holes, binary_opening, uniform_filter
+    from shapely.geometry import shape as shp_shape
+    from shapely.ops import transform as shp_transform
+
+    try:
+        arr, prof = ru.read(cache / tif)
+    except Exception:
+        return []
+    res = abs(prof["transform"].a)
+    finite = np.isfinite(arr)
+    if not finite.any():
+        return []
+    sm = uniform_filter(np.where(finite, arr, 0.0), size=max(1, int(round(smooth_m / res))))
+    sm[~finite] = np.nan
+    tr = Transformer.from_crs(prof["crs"], "EPSG:4326", always_xy=True)
+    to_wgs = lambda g: shp_transform(lambda xs, ys: tr.transform(xs, ys), g)
+    it = max(1, int(round(120 / res)))
+
+    cls_id = np.zeros(arr.shape, dtype="int32")
+    for i, (_name, lo) in enumerate(bands, start=1):
+        cls_id[np.nan_to_num(sm) >= lo] = i
+    cls_id[~finite] = 0
+
+    out = []
+    for i, (name, _lo) in enumerate(bands, start=1):
+        mask = cls_id == i
+        if not mask.any():
+            continue
+        mask = binary_fill_holes(binary_closing(binary_opening(mask, iterations=it), iterations=it * 2))
+        polys = []
+        for g, v in rio_shapes(mask.astype("uint8"), mask=mask, transform=prof["transform"]):
+            if v != 1:
+                continue
+            gm = shp_shape(g)
+            if gm.area / 1e6 >= min_km2:
+                polys.append(gm)
+        polys.sort(key=lambda p: p.area, reverse=True)
+        for gm in polys[:per_class]:
+            gw = to_wgs(gm).simplify(simp)
+            for pp in (gw.geoms if gw.geom_type == "MultiPolygon" else [gw]):
+                ring = [[round(x, 5), round(y, 5)] for x, y in pp.exterior.coords]
+                if len(ring) >= 4:
+                    out.append({"cls": name, "ll": ring, "area_km2": round(gm.area / 1e6, 1)})
+    return out
+
+
+def _browse_zones(ctx, cache, min_km2=0.8, smooth_m=280):
+    """Browse/feeding zones split BY TYPE (from land cover), each with what it is and
+    when moose feed on it. Separate from huntability."""
+    import numpy as np
+    from pyproj import Transformer
+    from rasterio.features import shapes as rio_shapes
+    from scipy.ndimage import binary_closing, binary_opening, uniform_filter
+    from shapely.geometry import shape as shp_shape
+    from shapely.ops import transform as shp_transform
+
+    try:
+        browse, prof = ru.read(cache / "browse.tif")
+    except Exception:
+        return []
+    lc = None
+    try:
+        lc = ru.read(cache / "landcover.tif")[0]
+    except Exception:
+        return []
+    if lc is None:
+        return []
+    res = abs(prof["transform"].a)
+    br = uniform_filter(np.nan_to_num(browse), size=max(1, int(round(smooth_m / res))))
+    tr = Transformer.from_crs(prof["crs"], "EPSG:4326", always_xy=True)
+    to_wgs = lambda g: shp_transform(lambda xs, ys: tr.transform(xs, ys), g)
+
+    TYPES = {
+        20: ("Shrub / regen browse", "Willow, birch, aspen and mountain-ash at moose height — the money browse.",
+             "First & last light; heaviest use early season and through the rut."),
+        90: ("Riparian / wetland browse", "Alder edges plus emergent/submergent aquatics — sodium-rich aquatic feeding.",
+             "Dawn & dusk feeding; midday water use in warm weather."),
+        30: ("Herbaceous opening", "Grass and forbs in openings — lighter browse, best at the edges.",
+             "Early-season and green-up; edges at first/last light."),
+        10: ("Forest-edge browse", "Regenerating conifer/mixedwood edge — the cover-to-forage seam.",
+             "All day where cover meets forage; prime travel/feeding edge."),
+    }
+    it = max(1, int(round(120 / res)))
+    out = []
+    for cls, (name, what, when) in TYPES.items():
+        mask = (lc == cls) & (br > 0.4)
+        if not mask.any():
+            continue
+        mask = binary_closing(binary_opening(mask, iterations=it), iterations=it * 2)
+        polys = []
+        for g, v in rio_shapes(mask.astype("uint8"), mask=mask, transform=prof["transform"]):
+            if v == 1:
+                gm = shp_shape(g)
+                if gm.area / 1e6 >= min_km2:
+                    polys.append(gm)
+        polys.sort(key=lambda p: p.area, reverse=True)
+        for gm in polys[:8]:
+            gw = to_wgs(gm).simplify(0.0008)
+            for pp in (gw.geoms if gw.geom_type == "MultiPolygon" else [gw]):
+                ring = [[round(x, 5), round(y, 5)] for x, y in pp.exterior.coords]
+                if len(ring) >= 4:
+                    out.append({"type": name, "what": what, "when": when,
+                                "area_km2": round(gm.area / 1e6, 1), "ll": ring})
+    return out
 
 
 def _haversine_km(a, b):
@@ -185,22 +299,6 @@ def build(ctx: Context) -> dict:
     minlon, minlat, maxlon, maxlat = ctx.aoi.bbox_wgs84()
     doc["box"] = {"w": round(minlon, 6), "e": round(maxlon, 6),
                   "n": round(maxlat, 6), "s": round(minlat, 6)}
-    grid = {"gw": 260, "gh": 175}
-    try:
-        import numpy as np
-        for key, tif in (("hunt", "huntability.tif"), ("elev", "dem.tif"), ("browse", "browse.tif")):
-            try:
-                g = _ex._grid_260x175(ctx, cache, tif)
-                if key == "elev":
-                    mean_e = float(np.nanmean(g)) if np.isfinite(g).any() else 600.0
-                    grid[key] = [round(float(mean_e if not np.isfinite(v) else v), 1) for v in g.ravel()]
-                else:
-                    grid[key] = [(-1.0 if not np.isfinite(v) else round(float(v), 4)) for v in g.ravel()]
-            except Exception:
-                pass
-    except Exception:
-        pass
-    doc["grid"] = grid
 
     # wind list (forecastFor shape) for behaviour's expected-midday
     wind_list = [{"from": d.get("wind_from_deg"), "kph": d.get("wind_kmh"),
@@ -213,6 +311,10 @@ def build(ctx: Context) -> dict:
             doc[key] = fn()
         except Exception:
             doc[key] = None
+    # Zones (not heat) drive the map now — drop the heavy behaviour raster grids,
+    # keep the narrative (periods/heat thresholds/expected midday).
+    if isinstance(doc.get("behavior"), dict):
+        doc["behavior"].pop("grids", None)
     try:
         from . import rut_timing
         doc["rut"] = rut_timing.summary(ctx)
@@ -228,6 +330,17 @@ def build(ctx: Context) -> dict:
         doc["strategy"] = _strategy(ctx)
     except Exception:
         doc["strategy"] = None
+
+    # classified suitability + browse zones (defined clickable areas, not heat)
+    try:
+        doc["hunt_zones"] = _polygonize(ctx, cache, "huntability.tif",
+                                        [("low", 0.42), ("medium", 0.6), ("high", 0.76)])
+    except Exception:
+        doc["hunt_zones"] = []
+    try:
+        doc["browse_zones"] = _browse_zones(ctx, cache)
+    except Exception:
+        doc["browse_zones"] = []
 
     # --- exact vector hydrography (OSM) — narrow rivers the raster misses, for
     # crisp display + route river-crossing detection. ---

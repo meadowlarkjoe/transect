@@ -31,6 +31,15 @@ const SHAPE = {
 };
 // Sites we render (base_camp/parking handled separately as camp + staging)
 const SITE_TYPES = ['rut_calling','thermal_refuge','saline_blind','funnel','glassing','validate_ground'];
+// Huntability likelihood classes (defined zones, not heat) — red = best.
+const HUNT_CLS = {high:{c:'#e2231a',label:'High likelihood'},medium:{c:'#ff8c00',label:'Medium likelihood'},low:{c:'#f2d02a',label:'Low likelihood'}};
+const HUNT_WHY = {
+  high:'Top of the model here — the browse/water/edge/terrain factors line up best. Prime ground to hunt.',
+  medium:'Solid ground — a good mix of the factors, worth hunting especially near the high zones and edges.',
+  low:'Marginal — some habitat value but the factors are weaker; travel/edge only, or skip for the better zones.'};
+const BROWSE_COL = {'Shrub / regen browse':'#7ad151','Riparian / wetland browse':'#22a884',
+  'Herbaceous opening':'#bddf26','Forest-edge browse':'#35b779'};
+let showBrowse = false;
 
 /* ---------------- basemap ---------------- */
 const ESRI = k => `https://server.arcgisonline.com/ArcGIS/rest/services/${k}/MapServer/tile/{z}/{y}/{x}`;
@@ -40,6 +49,7 @@ function baseStyle(){
     sources:{
       satellite:{type:'raster',tiles:[ESRI('World_Imagery')],tileSize:256,attribution:'Esri'},
       topo:{type:'raster',tiles:[ESRI('World_Topo_Map')],tileSize:256,attribution:'Esri'},
+      relief:{type:'raster',tiles:[ESRI('Elevation/World_Hillshade')],tileSize:256,attribution:'Esri — Hillshade'},
       trans:{type:'raster',tiles:[ESRI('Reference/World_Transportation')],tileSize:256},
       dem:{type:'raster-dem',tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
            encoding:'terrarium',tileSize:256,maxzoom:14}
@@ -47,10 +57,23 @@ function baseStyle(){
     layers:[
       {id:'satellite',type:'raster',source:'satellite'},
       {id:'topo',type:'raster',source:'topo',layout:{visibility:'none'}},
+      {id:'relief',type:'raster',source:'relief',layout:{visibility:'none'}},
       {id:'trans',type:'raster',source:'trans',layout:{visibility:'none'}}
     ],
     sky:{}
   };
+}
+const BASEMAPS=['satellite','topo','relief','hybrid'];
+const BASE_LABEL={satellite:'Satellite',topo:'Topo',relief:'Relief',hybrid:'Hybrid'};
+let curBase='satellite';
+function switchBase(base){
+  curBase=base;
+  const vis=(id,on)=>map.getLayer(id)&&map.setLayoutProperty(id,'visibility',on?'visible':'none');
+  vis('satellite', base==='satellite'||base==='hybrid');
+  vis('topo', base==='topo');
+  vis('relief', base==='relief');
+  vis('trans', base==='hybrid');
+  document.querySelectorAll('[data-base]').forEach(b=>b.classList.toggle('on',b.dataset.base===base));
 }
 const map = new maplibregl.Map({container:'map',style:baseStyle(),
   center:[DOC.meta.center.lon,DOC.meta.center.lat],zoom:9.4,pitch:0,maxPitch:80,
@@ -169,7 +192,12 @@ function buildSources(){
   const lakes=fc((h.lakes||[]).map(r=>({type:'Feature',geometry:{type:'Polygon',coordinates:[r]},properties:{}})));
   const crossings=fc((DOC.crossings||[]).map(c=>({type:'Feature',geometry:{type:'Point',coordinates:c.ll},
     properties:{route:c.route,kind:c.kind||'stream'}})));
-  return {areas,areaLabels,camps,staging,packin,rivers,lakes,crossings};
+  // classified suitability zones (defined areas, not heat)
+  const huntZones=fc((DOC.hunt_zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},
+    properties:{cls:z.cls,area_km2:z.area_km2}})));
+  const browseZones=fc((DOC.browse_zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},
+    properties:{type:z.type,what:z.what,when:z.when,area_km2:z.area_km2}})));
+  return {areas,areaLabels,camps,staging,packin,rivers,lakes,crossings,huntZones,browseZones};
 }
 
 function init(){
@@ -178,10 +206,23 @@ function init(){
   addIcons();
   const S=buildSources();
 
-  // heat surface (image source over the AOI box)
-  map.addSource('heat',{type:'image',url:heatURL(),coordinates:heatCoords()});
-  map.addLayer({id:'heat',type:'raster',source:'heat',
-    paint:{'raster-opacity':HEAT.opacity,'raster-resampling':'linear','raster-fade-duration':0}});
+  // classified suitability zones (defined areas, not heat) — clickable for rationale
+  map.addSource('huntZones',{type:'geojson',data:S.huntZones});
+  map.addSource('browseZones',{type:'geojson',data:S.browseZones});
+  const clsColor=['match',['get','cls'],'high',HUNT_CLS.high.c,'medium',HUNT_CLS.medium.c,'low',HUNT_CLS.low.c,'#888'];
+  map.addLayer({id:'huntZones',type:'fill',source:'huntZones',
+    paint:{'fill-color':clsColor,'fill-opacity':['match',['get','cls'],'high',0.42,'medium',0.3,'low',0.18,0.2]}});
+  map.addLayer({id:'huntZones-line',type:'line',source:'huntZones',
+    paint:{'line-color':clsColor,'line-width':1.4,'line-opacity':0.85}});
+  const brCol=['match',['get','type'],
+    'Shrub / regen browse',BROWSE_COL['Shrub / regen browse'],
+    'Riparian / wetland browse',BROWSE_COL['Riparian / wetland browse'],
+    'Herbaceous opening',BROWSE_COL['Herbaceous opening'],
+    'Forest-edge browse',BROWSE_COL['Forest-edge browse'],'#7ad151'];
+  map.addLayer({id:'browseZones',type:'fill',source:'browseZones',
+    layout:{visibility:'none'},paint:{'fill-color':brCol,'fill-opacity':0.4}});
+  map.addLayer({id:'browseZones-line',type:'line',source:'browseZones',
+    layout:{visibility:'none'},paint:{'line-color':brCol,'line-width':1.2,'line-opacity':0.9,'line-dasharray':[2,1]}});
 
   map.addSource('lakes',{type:'geojson',data:S.lakes});
   map.addSource('rivers',{type:'geojson',data:S.rivers});
@@ -227,6 +268,13 @@ function init(){
       'circle-stroke-color':'#0b0f0d','circle-stroke-width':2.5}});
 
   // interactions
+  map.on('click','huntZones',e=>{ const p=e.features[0].properties; const cl=HUNT_CLS[p.cls]||{};
+    new maplibregl.Popup().setLngLat(e.lngLat)
+      .setHTML(`<h4><span style="color:${cl.c}">●</span> ${cl.label||p.cls} · ${p.area_km2} km²</h4><div class="s">${HUNT_WHY[p.cls]||''}</div>`).addTo(map);});
+  map.on('click','browseZones',e=>{ const p=e.features[0].properties;
+    new maplibregl.Popup().setLngLat(e.lngLat)
+      .setHTML(`<h4>${p.type} · ${p.area_km2} km²</h4><div class="s">${p.what}</div><div class="s" style="margin-top:4px"><b>When:</b> ${p.when}</div>`).addTo(map);});
+  ['huntZones','browseZones'].forEach(l=>{map.on('mouseenter',l,()=>map.getCanvas().style.cursor='pointer');map.on('mouseleave',l,()=>map.getCanvas().style.cursor='');});
   map.on('click','crossings',e=>{ const p=e.features[0].properties;
     const river=p.kind==='river', noBoat=SETUP.watercraft==='none';
     const msg = river ? (noBoat
@@ -301,7 +349,7 @@ function selectArea(rank){
   const st=a.stats||{};
   const rutT=(DOC.rut&&DOC.rut.targets&&DOC.rut.targets[0])||null;
   d.innerHTML=`<div class="back">← all areas</div>
-    <h2><span class="badge ${rank<=2?'top':''}" style="display:inline-grid">${rank}</span> Area ${rank} · ${a.area_km2} km²</h2>
+    <h2><span class="badge ${rank<=2?'top':''}" style="display:inline-flex;vertical-align:middle">${rank}</span> Area ${rank} · ${a.area_km2} km²</h2>
     <div class="meta">huntability ${a.huntability} · camp ${a.camp} · ${a.centroid[1].toFixed(4)}, ${a.centroid[0].toFixed(4)}</div>
     <p class="why">${a.why||''}</p>
     <div class="dd"><b>Why it scored</b>
@@ -397,12 +445,12 @@ function toggleType(t,row){
 function buildTools(){
   const t=document.getElementById('tools');
   // basemap + 3D + measure already in HTML; wire them + add heat controls
-  t.querySelectorAll('[data-base]').forEach(b=>b.onclick=()=>{
-    t.querySelectorAll('[data-base]').forEach(x=>x.classList.remove('on')); b.classList.add('on');
-    const base=b.dataset.base;
-    map.setLayoutProperty('satellite','visibility',base==='topo'?'none':'visible');
-    map.setLayoutProperty('topo','visibility',base==='topo'?'visible':'none');
-    map.setLayoutProperty('trans','visibility',base==='hybrid'?'visible':'none');});
+  // add a Relief basemap button if the HTML doesn't have one
+  const bmGroup=t.querySelector('[data-base]') && t.querySelector('[data-base]').parentElement;
+  if(bmGroup && !t.querySelector('[data-base="relief"]')){
+    const rb=document.createElement('button'); rb.dataset.base='relief'; rb.textContent='Relief'; bmGroup.appendChild(rb);
+  }
+  t.querySelectorAll('[data-base]').forEach(b=>b.onclick=()=>switchBase(b.dataset.base));
   let on3d=false;
   document.getElementById('btn3d').onclick=e=>{on3d=!on3d;e.target.classList.toggle('on',on3d);
     if(on3d){map.setTerrain({source:'dem',exaggeration:1.4});map.easeTo({pitch:60});}
@@ -411,14 +459,18 @@ function buildTools(){
   // extra controls injected under Layers
   const extra=document.createElement('div'); extra.className='tgroup';
   extra.innerHTML=`
-    <div class="tlabel">Huntability</div>
-    <label style="display:flex;align-items:center;gap:6px"><input id="heatOn" type="checkbox" checked> Surface</label>
-    <div class="srow"><span class="s">threshold</span><input id="thresh" type="range" min="0" max="0.95" step="0.01" value="${HEAT.thresh}"></div>
-    <label style="display:flex;align-items:center;gap:6px;margin-top:4px"><input id="browseOn" type="checkbox"> Browse / feeding</label>`;
+    <div class="tlabel">Huntability zones</div>
+    <label><input type="checkbox" data-hz="high" checked> <b style="color:${HUNT_CLS.high.c}">■</b> High likelihood</label>
+    <label><input type="checkbox" data-hz="medium" checked> <b style="color:${HUNT_CLS.medium.c}">■</b> Medium</label>
+    <label><input type="checkbox" data-hz="low" checked> <b style="color:${HUNT_CLS.low.c}">■</b> Low</label>
+    <label style="margin-top:7px"><input id="browseOn" type="checkbox"> Browse / feeding zones</label>`;
   t.appendChild(extra);
-  document.getElementById('heatOn').onchange=e=>{HEAT.on=e.target.checked;updateHeat();};
-  document.getElementById('thresh').oninput=e=>{HEAT.thresh=+e.target.value;updateHeat();};
-  document.getElementById('browseOn').onchange=e=>{HEAT.source=e.target.checked?'browse':'hunt';updateHeat();};
+  const applyHZ=()=>{const on=[...extra.querySelectorAll('[data-hz]')].filter(c=>c.checked).map(c=>c.dataset.hz);
+    map.setFilter('huntZones',['in',['get','cls'],['literal',on.length?on:['__none__']]]);
+    map.setFilter('huntZones-line',['in',['get','cls'],['literal',on.length?on:['__none__']]]);};
+  extra.querySelectorAll('[data-hz]').forEach(cb=>cb.onchange=applyHZ);
+  document.getElementById('browseOn').onchange=e=>{showBrowse=e.target.checked;const v=showBrowse?'visible':'none';
+    ['browseZones','browseZones-line'].forEach(id=>map.getLayer(id)&&map.setLayoutProperty(id,'visibility',v));};
   // per-layer visibility (areas/routes)
   const lay=document.createElement('div'); lay.className='tgroup';
   lay.innerHTML=`<div class="tlabel">Layers</div>
@@ -496,6 +548,9 @@ function renderSetup(){
       <div class="radii"><button id="uMetric" class="${UNITS==='metric'?'on':''}">Metric (km/m)</button>
         <button id="uImperial" class="${UNITS==='imperial'?'on':''}">Imperial (mi/yd)</button></div></div>
 
+    <div class="fld"><label>Basemap</label>
+      <div class="radii">${BASEMAPS.map(b=>`<button data-base="${b}" class="${curBase===b?'on':''}">${BASE_LABEL[b]}</button>`).join('')}</div></div>
+
     <button id="runBtn" class="run">RUN ANALYSIS →</button>
     <div class="note">Live recompute for a new area/species/radius needs the engine API online
       (not yet wired). Controls are ready; results shown are the Fire Lake scout.</div>`;
@@ -524,6 +579,7 @@ function renderSetup(){
   document.getElementById('dragBox').onclick=()=>startBoxDraw();
   document.getElementById('uMetric').onclick=()=>setUnits('metric');
   document.getElementById('uImperial').onclick=()=>setUnits('imperial');
+  document.querySelectorAll('#setup [data-base]').forEach(b=>b.onclick=()=>switchBase(b.dataset.base));
   const setWC=(w)=>{SETUP.watercraft=w;
     ['wcNone','wcCanoe','wcMotor'].forEach(id=>document.getElementById(id)&&document.getElementById(id).classList.remove('on'));
     const b=document.getElementById({none:'wcNone',canoe:'wcCanoe',motor:'wcMotor'}[w]); if(b)b.classList.add('on'); applyHunt();};
@@ -630,6 +686,10 @@ function setTab(name){
   const show=TAB_SHOW[name]||{};
   ids.forEach(id=>{const el=document.getElementById(id); if(el) el.classList.toggle('hidden',!show[id]);});
   document.querySelectorAll('#tabbar button').forEach(b=>b.classList.toggle('on',b.dataset.tab===name));
+  // the draft AOI box is a Setup-only preview — hide it elsewhere so it doesn't
+  // cover the map or intercept zone clicks.
+  const dv=(name==='setup')?'visible':'none';
+  ['draft-fill','draft-line'].forEach(id=>map.getLayer&&map.getLayer(id)&&map.setLayoutProperty(id,'visibility',dv));
   setTimeout(()=>map.resize(),60);
 }
 function wireTabs(){ document.querySelectorAll('#tabbar button').forEach(b=>b.onclick=()=>setTab(b.dataset.tab)); }
