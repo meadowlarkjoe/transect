@@ -124,7 +124,22 @@ def _run(job_id: str, req: ScoutReq) -> None:
                              target_dates=req.target_dates or ["2026-09-25", "2026-10-05"]),
             hunter=HunterCfg(residency=req.residency),
         )
-        ctx = Context(aoi=aoi, species=load_species(species), model=load_model())
+        # Scale analysis resolution with AOI size so a big area doesn't blow past RAM.
+        # The grid is (2*halfwidth*1000 / res) px per side, and memory grows with px² —
+        # a 120 km-radius run at 40 m is 6000²=36M px/raster and OOMs. Cap the grid to
+        # ~TARGET_PX per side (never finer than the configured resolution).
+        import math
+        model = load_model()
+        TARGET_PX = 2400
+        res = max(float(model.raster_resolution_m),
+                  math.ceil(2 * aoi.bbox_halfwidth_km * 1000 / TARGET_PX))
+        if res != model.raster_resolution_m:
+            try:
+                model = model.model_copy(update={"raster_resolution_m": res})
+            except Exception:
+                model.raster_resolution_m = res
+            JOBS[job_id]["res_m"] = res
+        ctx = Context(aoi=aoi, species=load_species(species), model=model)
         for i, stage in enumerate(STAGES):
             JOBS[job_id].update(stage=stage, progress=round(i / len(STAGES), 2))
             pipeline.run_stage(stage, ctx)
