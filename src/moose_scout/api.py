@@ -19,9 +19,20 @@ import threading
 import traceback
 import uuid
 
-from fastapi import FastAPI
+import os
+
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+
+# Optional shared-key guard: if TRANSECT_API_KEY is set, /scout requires it. Keeps a
+# public deployment from being abused into running expensive analyses for strangers.
+API_KEY = os.environ.get("TRANSECT_API_KEY")
+
+
+def _require_key(x_api_key):
+    if API_KEY and x_api_key != API_KEY:
+        raise HTTPException(status_code=401, detail="invalid or missing API key")
 
 from . import pipeline
 from .config import (AOI, Context, HunterCfg, LatLon, SeasonCfg, cache_dir,
@@ -75,7 +86,8 @@ def _run(job_id: str, req: ScoutReq) -> None:
 
 
 @app.post("/scout")
-def scout(req: ScoutReq):
+def scout(req: ScoutReq, x_api_key: str = Header(default=None)):
+    _require_key(x_api_key)
     jid = uuid.uuid4().hex[:12]
     JOBS[jid] = {"status": "running", "stage": "queued", "progress": 0.0}
     threading.Thread(target=_run, args=(jid, req), daemon=True).start()
