@@ -475,7 +475,11 @@ function areaCard(a){
     <div class="top"><div class="badge ${a.rank<=2?'top':''}">${a.rank}</div>
       <div class="ttl">Area ${a.rank}</div><div class="val">${a.area_km2} km²</div></div>
     <div class="metaline">${a.conf?confGauge(a.conf.score)+`<span>conf ${Math.round(a.conf.score*100)}%</span>`:''}
-      <span>${km(dr/1000)} to road</span><span>score ${a.huntability}</span></div>
+      <span>${km(dr/1000)} to road</span></div>
+    ${a.habitat_score!=null?`<div class="axes">
+      <div class="ax"><span class="k">habitat</span><span class="bar"><i style="width:${Math.round(a.habitat_score*100)}%"></i></span><span class="v">${a.habitat_score}</span></div>
+      <div class="ax"><span class="k">pack-out</span><span class="bar"><i class="ret" style="width:${Math.round((a.retrieval_score||0)*100)}%"></i></span><span class="v">${a.retrieval_score}</span></div>
+    </div>`:`<div class="metaline"><span>score ${a.huntability}</span></div>`}
     ${a.access_flag?`<div class="callout" data-kind="${boat?'danger':'warn'}"><span class="mark">${boat?'✕':'!'}</span><div class="body">${a.access_flag}</div></div>`:''}
     <div class="why">${(a.why||'').slice(0,190)}</div>
     ${ev}

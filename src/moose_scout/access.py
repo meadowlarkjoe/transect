@@ -186,8 +186,10 @@ def run(ctx: Context) -> None:
     if feed is None:
         feed = _opt(cache / "browse.tif")
 
+    # These surfaces are already on a real 0..1 scale — clip, don't re-rank. Every
+    # extra percentile stretch turns an absolute score back into a within-AOI rank.
     def _n(a):
-        return np.nan_to_num(ru.normalize(a)) if a is not None else None
+        return np.clip(np.nan_to_num(a), 0, 1) if a is not None else None
 
     # bull travel corridors (seeking phase)
     seek_term = None
@@ -217,11 +219,17 @@ def run(ctx: Context) -> None:
     tot = sum(wts)
     if parts and tot > 0:
         phase_sig = sum(w * p for w, p in zip(wts, parts)) / tot
-        hsm_phase = ru.normalize(0.4 * base + 0.6 * phase_sig)
+        hsm_phase = np.clip(0.4 * base + 0.6 * phase_sig, 0, 1)
     else:                                               # missing sub-scores → base only
-        hsm_phase = ru.normalize(base)
+        hsm_phase = np.clip(base, 0, 1)
+    ru.write(cache / "habitat_phase.tif", hsm_phase.astype("float32"), prof)
 
-    hunt = hsm_phase * extraction * (1 - pw * pressure)
-    hunt = ru.normalize(hunt)
+    # TWO AXES, reported separately as well as combined. A hunter needs to see
+    # "A+ habitat, 11 km pack-out" — not one number in which a 4-decade exponential
+    # decay from the road has silently eaten the habitat signal.
+    retrieval = np.clip(extraction * (1 - pw * pressure), 0, 1).astype("float32")
+    ru.write(cache / "retrieval.tif", retrieval, prof)
+
+    hunt = np.clip(hsm_phase * retrieval, 0, 1)
     hunt[np.isnan(hsm)] = np.nan
     ru.write(cache / "huntability.tif", hunt.astype("float32"), prof)

@@ -246,8 +246,15 @@ def _explain_area(sel, L, res, med, hunter=None):
            f"{'strong' if 0.25<f_cover<0.85 else 'moderate'} cover-to-opening edge. "
            f"{'Retrievable and low-pressure' if (extr and extr>0.6 and pres and pres<0.2) else 'Weigh the access/extraction trade-off'} "
            f"for the rut window.")
+    # Report habitat quality and retrievability as SEPARATE axes as well as the
+    # combined score, so "A+ habitat, brutal pack-out" stays legible instead of being
+    # averaged into one number.
+    hab = mean(L.get("habitat_phase"))
+    ret = mean(L.get("retrieval"))
     return {"why": why, "pros": pros, "cons": cons,
             "access_flag": access_flag, "boat_required": boat_required,
+            "habitat_score": None if hab is None else round(hab, 3),
+            "retrieval_score": None if ret is None else round(ret, 3),
             "stats": {"dist_water_m": None if dw is None else int(dw),
                       "dist_road_m": None if dr is None else int(dr),
                       "mean_slope_deg": None if slp is None else round(slp, 1)}}
@@ -296,6 +303,8 @@ def run(ctx: Context) -> None:
            "rut": rut, "thermal": thermal,
            "extraction": _opt(cache / "extraction.tif"),
            "pressure": _opt(cache / "pressure.tif"),
+           "habitat_phase": _opt(cache / "habitat_phase.tif"),
+           "retrieval": _opt(cache / "retrieval.tif"),
            "slope": _opt(cache / "terrain/slope.tif"),
            "lc": _opt(cache / "landcover.tif"),
            "ndvi": _opt(cache / "ndvi.tif"), "lat": ctx.aoi.center.lat}

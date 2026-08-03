@@ -157,6 +157,15 @@ input[type=range]{accent-color:var(--accent);width:100%}
 .conf>i[data-on]{background:var(--warn)}
 .conf[data-level="high"]>i[data-on]{background:var(--good)}
 .conf[data-level="low"]>i[data-on]{background:var(--danger)}
+/* two axes: habitat quality and retrievability, never averaged into one number */
+.axes{display:flex;flex-direction:column;gap:4px;margin:8px 0}
+.ax{display:grid;grid-template-columns:56px 1fr 34px;gap:8px;align-items:center}
+.ax .k{font:500 9.5px/1.2 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--text-3)}
+.ax .bar{height:4px;border-radius:2px;background:var(--line);overflow:hidden}
+.ax .bar>i{display:block;height:100%;background:var(--accent);border-radius:2px}
+.ax .bar>i.ret{background:var(--text-3)}
+.ax .v{font:500 10.5px/1.2 var(--mono);color:var(--text-2);text-align:right}
+
 .ev{display:grid;grid-template-columns:14px 1fr;gap:9px;align-items:start;
   padding:7px 0;border-top:1px solid #1F262A}
 .ev>.op{font:600 12px/1.5 var(--mono)}

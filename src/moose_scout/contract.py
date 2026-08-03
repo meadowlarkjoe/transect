@@ -329,6 +329,7 @@ def build(ctx: Context) -> dict:
                          "centroid": p.get("centroid"),
                          "why": p.get("why"), "pros": p.get("pros"), "cons": p.get("cons"),
                          "access_flag": p.get("access_flag"), "boat_required": p.get("boat_required", False),
+                         "habitat_score": p.get("habitat_score"), "retrieval_score": p.get("retrieval_score"),
                          "stats": p.get("stats"), "conf": p.get("conf"),
                          "geometry": a["geometry"]})
 
@@ -432,8 +433,13 @@ def build(ctx: Context) -> dict:
 
     # classified suitability + browse zones (defined clickable areas, not heat)
     try:
+        # ABSOLUTE thresholds on an absolute surface. The old bands (0.42/0.6/0.76)
+        # were tuned against a percentile-stretched raster, which guaranteed ~31% of
+        # EVERY AOI came out "high" no matter how poor the ground actually was. These
+        # are fixed cut-offs: a weak area should return few or no high zones, and a
+        # genuinely good one should return many. That is the point of the rescale.
         doc["hunt_zones"] = _polygonize(ctx, cache, "huntability.tif",
-                                        [("low", 0.42), ("medium", 0.6), ("high", 0.76)])
+                                        [("low", 0.25), ("medium", 0.40), ("high", 0.55)])
     except Exception:
         doc["hunt_zones"] = []
     try:
