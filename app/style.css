@@ -186,3 +186,6 @@ details summary{cursor:pointer;color:var(--muted);font-size:12px;margin-top:4px}
   border-radius:8px;margin:6px 0;background:var(--panel2)}
 #plans .pacts{display:flex;gap:4px;flex:none}
 #plans .pacts button{background:#20272b;color:var(--text);border:1px solid var(--line);border-radius:7px;padding:5px 8px;cursor:pointer;font-size:12px}
+/* warning / caveat box */
+.warn{background:#31160f;border:1px solid #7a3a1f;border-radius:8px;padding:8px 10px;margin:8px 0;
+  color:#f2b98a;font-size:12px;line-height:1.45}

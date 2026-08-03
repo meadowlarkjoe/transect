@@ -329,7 +329,7 @@ def build(ctx: Context) -> dict:
         doc["behavior"].pop("grids", None)
     try:
         from . import rut_timing
-        doc["rut"] = rut_timing.summary(ctx)
+        doc["rut"] = rut_timing.summary(ctx, weather_days=wthr.get("days"))
     except Exception:
         doc["rut"] = None
     try:

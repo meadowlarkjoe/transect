@@ -36350,12 +36350,18 @@ window.TRANSECT_DATA={
         "date": "2026-09-25",
         "phase": "peak rut",
         "responsiveness": 0.817,
+        "responsiveness_date": 0.817,
+        "weather_factor": 1.0,
+        "weather_note": "",
         "guidance": "Prime. Bulls are cruising for cows and most responsive to calling \u2014 aggressive cow-in-estrus sequences and bull grunts, work the funnels and wallows, be ready for a bull to come hard."
       },
       {
         "date": "2026-10-05",
         "phase": "peak rut",
         "responsiveness": 0.963,
+        "responsiveness_date": 0.963,
+        "weather_factor": 1.0,
+        "weather_note": "",
         "guidance": "Prime. Bulls are cruising for cows and most responsive to calling \u2014 aggressive cow-in-estrus sequences and bull grunts, work the funnels and wallows, be ready for a bull to come hard."
       }
     ],
@@ -36363,6 +36369,9 @@ window.TRANSECT_DATA={
       "date": "2026-10-05",
       "phase": "peak rut",
       "responsiveness": 0.963,
+      "responsiveness_date": 0.963,
+      "weather_factor": 1.0,
+      "weather_note": "",
       "guidance": "Prime. Bulls are cruising for cows and most responsive to calling \u2014 aggressive cow-in-estrus sequences and bull grunts, work the funnels and wallows, be ready for a bull to come hard."
     },
     "calendar": [
@@ -36412,7 +36421,8 @@ window.TRANSECT_DATA={
         "responsiveness": 0.049
       }
     ],
-    "lat_note": "Phenology shifted -2 day(s) for 52.3\u00b0N vs a 50\u00b0N anchor (northern moose rut slightly earlier). Approximate \u2014 rut timing varies year to year; verify against local reports."
+    "lat_note": "Phenology shifted -2 day(s) for 52.3\u00b0N vs a 50\u00b0N anchor (northern moose rut slightly earlier). Approximate \u2014 rut timing varies year to year; verify against local reports.",
+    "trigger_note": "Rut response is TRIGGER-driven, not a calendar certainty: a hard frost / cold snap switches bulls on, a warm front shuts them off. The % is the date-based expectation damped for the forecast high \u2014 treat it as a guide, not a guarantee, and read the actual weather."
   },
   "confidence": {
     "score": 0.62,
@@ -36442,7 +36452,8 @@ window.TRANSECT_DATA={
     "why": "Few animals over a lot of ground: if you sit and wait, nothing walks by. You have to advertise and make one come find you.",
     "density_per_10km2": 0.6,
     "density_source": "bioclimatic prior (no aerial survey for this zone)",
-    "density_is_estimate": true
+    "density_is_estimate": true,
+    "scent_warning": "\u26a0 Scents, lures, mineral/saline sites and bait are regulated and vary by zone \u2014 some are prohibited. Verify the current Zone 19 rules on quebec.ca before using ANY attractant. When in doubt, don't \u2014 calling and hunting sign are always legal; a citation ends the hunt."
   },
   "hunt_zones": [
     {

@@ -331,9 +331,11 @@ function init(){
       .setHTML('<h4>'+(river?'River':'Stream')+' crossing</h4><div class="s">'+msg+'</div>').addTo(map);});
   map.on('click','areas-fill',e=>selectArea(e.features[0].properties.rank));
   map.on('click','sites',e=>{const p=e.features[0].properties;
+    const scent = p.type==='saline_blind'
+      ? '<div class="s" style="color:#e0a05a;margin-top:4px">⚠ Mineral/saline &amp; scents are regulated and may be prohibited in this zone — verify Zone '+((DOC.legal||{}).zone||'?')+' rules before using any attractant.</div>' : '';
     new maplibregl.Popup().setLngLat(e.lngLat).setHTML(
       `<h4>${LABELS[p.type]||p.type}</h4>${p.when?('<div class="s">'+p.when+'</div>'):''}`+
-      (p.windnote?('<div class="s">'+p.windnote+'</div>'):'')).addTo(map);});
+      (p.windnote?('<div class="s">'+p.windnote+'</div>'):'')+scent).addTo(map);});
   ['areas-fill','sites','camps','staging'].forEach(l=>{
     map.on('mouseenter',l,()=>map.getCanvas().style.cursor='pointer');
     map.on('mouseleave',l,()=>map.getCanvas().style.cursor='');});
@@ -412,7 +414,7 @@ function selectArea(rank){
     </div>
     <div><b>Pros</b><br>${(a.pros||[]).map(p=>`<span class="pill pro">${p}</span>`).join('')}</div>
     <div style="margin-top:6px"><b>Watch-outs</b><br>${(a.cons||[]).map(p=>`<span class="pill con">${p}</span>`).join('')}</div>
-    ${rutT?`<div class="dd" style="margin-top:8px"><b>Rut</b> — ${rutT.date}: <b style="color:#f2b98a">${rutT.phase}</b> (${Math.round(rutT.responsiveness*100)}% responsive). ${rutT.guidance}</div>`:''}
+    ${rutT?`<div class="dd" style="margin-top:8px"><b>Rut</b> — ${rutT.date}: <b style="color:#f2b98a">${rutT.phase}</b> (${Math.round(rutT.responsiveness*100)}% responsive). ${rutT.guidance}${rutT.weather_note?` <span class="s">Weather: ${rutT.weather_note}.</span>`:''}<div class="s" style="margin-top:3px;color:#c99">Trigger-driven — a warm front kills the response, a hard frost fires it up.</div></div>`:''}
     <h3 style="margin:12px 0 2px">Sites (${wps.length})</h3>
     ${wps.map(w=>{const ow=w.properties.optimal_wind||{};return `<div class="wp">
       <span class="dot" style="background:${COLORS[w.type]||'#ccc'}"></span>
@@ -439,8 +441,9 @@ function buildWeather(){
     html+=`<div class="hourrow"><input id="hour" type="range" min="4" max="21" step="0.5" value="6.5">
       <span id="hourlbl" class="s"></span></div>`;
   }
-  html+=`<div class="note">Pick a day → sites turn <b style="color:#2fbf5b">green</b> when the wind fits their approach.`+
-    (w.days[0].is_proxy?' (prior-year proxy — hunt is months out)':'')+'</div>';
+  html+=`<div class="note">Pick a day → sites turn <b style="color:#2fbf5b">green</b> when the forecast wind fits their approach`+
+    (w.days[0].is_proxy?' — but this is a <b>prior-year proxy</b> (hunt is months out), treat as rough':' (forecast — verify on the ground)')+
+    `. At <b>first &amp; last light the thermal drift usually wins</b>, not the forecast wind — use the Thermal-drift layer for those windows.</div>`;
   el.innerHTML=html;
   el.querySelectorAll('.day').forEach(del=>del.onclick=()=>{
     el.querySelectorAll('.day').forEach(x=>x.classList.remove('sel')); del.classList.add('sel');
@@ -894,8 +897,11 @@ function renderBrief(){
     <p><b>Watch-outs:</b> ${(a.cons||[]).join('; ')}.</p>`;
   if(st.dist_water_m!=null) h+=`<p class="s">water ${metres(st.dist_water_m)} · to road ${km((st.dist_road_m||0)/1000)} · slope ${st.mean_slope_deg}°</p>`;
   if(rutT.length){ h+=`<h3>Rut &amp; calling strategy</h3>`+
-    rutT.map(t=>`<p>${t.date}: <b style="color:#f2b98a">${t.phase}</b> (${Math.round(t.responsiveness*100)}% responsive). ${t.guidance}</p>`).join(''); }
-  if(DOC.strategy) h+=`<p><b>${DOC.strategy.headline}</b> — ${DOC.strategy.approach} ${DOC.strategy.calling||''}</p>`;
+    rutT.map(t=>`<p>${t.date}: <b style="color:#f2b98a">${t.phase}</b> (${Math.round(t.responsiveness*100)}% responsive). ${t.guidance}`
+      +(t.weather_note?` <span class="s">Weather: ${t.weather_note}.</span>`:'')+`</p>`).join('');
+    if(DOC.rut.trigger_note) h+=`<p class="s" style="color:#e0b985">${DOC.rut.trigger_note}</p>`; }
+  if(DOC.strategy){ h+=`<p><b>${DOC.strategy.headline}</b> — ${DOC.strategy.approach} ${DOC.strategy.calling||''}</p>`;
+    if(DOC.strategy.scent_warning) h+=`<div class="warn">${DOC.strategy.scent_warning}</div>`; }
   h+=`<h3>Camp &amp; access</h3>`;
   if(camp) h+=`<p>Camp ${camp.id} · via ${camp.access_type} · pack-in ≤ ${km(camp.max_packin_km)}.</p>`;
   h+=`<p><b>Watercraft:</b> ${SETUP.watercraft} · <b>style:</b> ${SETUP.huntStyle==='vehicle'?'return to vehicle nightly':'spike camp'}.</p>`;

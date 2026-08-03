@@ -98,4 +98,10 @@ def strategy(ctx: Context) -> dict:
     prof = dict(PROFILES[cls])
     prof.update(density_per_10km2=round(d["per_10km2"], 2),
                 density_source=d["source"], density_is_estimate=d["is_estimate"])
+    # Attractants are baiting-adjacent and REGULATED — never recommend them blind.
+    prof["scent_warning"] = (
+        "⚠ Scents, lures, mineral/saline sites and bait are regulated and vary by zone — "
+        f"some are prohibited. Verify the current Zone {ctx.aoi.zone_hint or '?'} rules on "
+        "quebec.ca before using ANY attractant. When in doubt, don't — calling and hunting "
+        "sign are always legal; a citation ends the hunt.")
     return prof

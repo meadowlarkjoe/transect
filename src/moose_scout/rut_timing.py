@@ -97,12 +97,36 @@ GUIDANCE = {
 }
 
 
-def summary(ctx) -> dict:
-    """Full rut payload for SCOUT_DATA.RUT + the brief: latitude-adjusted windows,
-    per-target-date phase + responsiveness, a Sept–Oct weekly calendar, and the
-    peak date."""
+def _temp_factor(day):
+    """Weather damping on calling response. Rut response is TRIGGER-driven: warm days
+    bed moose down and kill the calling response; a hard frost / cold snap fires it up.
+    Returns (factor 0..1.0, note)."""
+    if not day:
+        return 1.0, ""
+    hi, lo = day.get("t_max_c"), day.get("t_min_c")
+    f, note = 1.0, ""
+    if hi is not None:
+        if hi >= 20:
+            f, note = 0.4, "warm (>20 °C) — poor calling response; hunt shade/water, first & last light only"
+        elif hi >= 17:
+            f, note = 0.6, "mild (>17 °C) — response damped through midday"
+        elif hi >= 14:
+            f, note = 0.8, "moderate — good early/late, quiet midday"
+        else:
+            note = "cool — favourable for calling"
+    if lo is not None and lo <= 0:
+        f = min(1.0, f * 1.2)
+        note = (note + " · " if note else "") + "hard frost overnight — trigger favourable"
+    return round(f, 2), note
+
+
+def summary(ctx, weather_days=None) -> dict:
+    """Full rut payload for the app + brief: latitude-adjusted windows, per-target-date
+    phase + responsiveness (damped by the forecast weather trigger), a Sept–Oct weekly
+    calendar, and the peak date."""
     ph = phases(ctx)
     peak_c = _peak_center(ph)
+    wd = {w.get("date"): w for w in (weather_days or []) if w.get("date")}
 
     def fmt(win):
         return [win[0].isoformat(), win[1].isoformat()]
@@ -114,9 +138,12 @@ def summary(ctx) -> dict:
         except Exception:
             continue
         cls = classify(d, ph)
+        base = responsiveness(d, ph)
+        fac, wnote = _temp_factor(wd.get(ds))
         targets.append({"date": ds, "phase": cls,
-                        "responsiveness": responsiveness(d, ph),
-                        "guidance": GUIDANCE.get(cls, "")})
+                        "responsiveness": round(base * fac, 3),
+                        "responsiveness_date": base, "weather_factor": fac,
+                        "weather_note": wnote, "guidance": GUIDANCE.get(cls, "")})
 
     # Weekly calendar across the rut span (pre start .. post end), Mondays.
     cal = []
@@ -144,4 +171,8 @@ def summary(ctx) -> dict:
         "lat_note": (f"Phenology shifted {ph['shift_days']:+d} day(s) for {ctx.aoi.center.lat:.1f}°N "
                      "vs a 50°N anchor (northern moose rut slightly earlier). Approximate — rut "
                      "timing varies year to year; verify against local reports."),
+        "trigger_note": ("Rut response is TRIGGER-driven, not a calendar certainty: a hard frost / "
+                         "cold snap switches bulls on, a warm front shuts them off. The % is the "
+                         "date-based expectation damped for the forecast high — treat it as a guide, "
+                         "not a guarantee, and read the actual weather."),
     }
