@@ -64,9 +64,9 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
   background:transparent;color:var(--text-2);border:0;border-radius:var(--r-md);
   padding:7px 12px;cursor:pointer;font:500 12px/1 var(--sans)}
 #tabbar button[data-tab]:hover{background:var(--surface-2);color:var(--text)}
-#tabbar button[data-tab] .n{display:grid;place-items:center;width:16px;height:16px;
-  border-radius:50%;background:var(--line);color:var(--text-3);
-  font:600 9.5px/1 var(--mono);flex:0 0 auto}
+#tabbar button[data-tab] .n{display:inline-flex;align-items:center;justify-content:center;
+  width:16px;height:16px;min-width:16px;border-radius:50%;background:var(--line);color:var(--text-3);
+  font:600 9.5px/1 var(--mono);letter-spacing:0;font-variant-numeric:tabular-nums;flex:0 0 auto}
 #tabbar button[data-tab].on{background:var(--accent-tint);color:var(--accent-hi);font-weight:600}
 #tabbar button[data-tab].on .n{background:var(--accent);color:var(--accent-on)}
 #tabbar button[data-tab].done .n{background:var(--good);color:#04210F}
@@ -122,11 +122,29 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
 .lede{font:400 11.5px/1.55 var(--sans);color:var(--text-2);margin:0 0 var(--s-3)}
 label.fld{display:block;font:500 11px/1.2 var(--mono);letter-spacing:.06em;
   text-transform:uppercase;color:var(--text-3);margin:var(--s-3) 0 6px}
-input[type=text],input[type=number],input[type=date],input[type=email],input[type=password],input[type=search]{
+/* Match ANY text-ish input, including ones written without a type attribute —
+   `input[type=text]` does not match `<input placeholder="…">`, which is why the
+   place-search, coordinate and departure fields were falling back to default
+   browser chrome (white box, light focus ring) instead of the design system. */
+input:not([type=range]):not([type=checkbox]):not([type=radio]):not([type=submit]),
+textarea,select{
   width:100%;background:var(--bg);color:var(--text);border:1px solid var(--line-2);
-  border-radius:var(--r-md);padding:9px 11px;font:400 12.5px/1.2 var(--sans)}
-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-ring)}
-input[type=range]{accent-color:var(--accent);width:100%}
+  border-radius:var(--r-md);padding:9px 11px;font:400 12.5px/1.2 var(--sans);
+  color-scheme:dark}                    /* dark native pickers/spinners */
+input::placeholder,textarea::placeholder{color:var(--text-4)}
+input:hover:not([type=range]):not([type=checkbox]){border-color:#4A565D}
+input:focus,input:focus-visible,textarea:focus,select:focus{
+  outline:none !important;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-ring)}
+/* number steppers: keep them, but quiet and on-theme */
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button{opacity:.35;height:22px}
+input[type=number]:hover::-webkit-inner-spin-button{opacity:.8}
+/* date fields: the native calendar glyph is black-on-dark by default */
+input[type=date]::-webkit-calendar-picker-indicator{filter:invert(.75);cursor:pointer}
+input[type=date]{font-variant-numeric:tabular-nums}
+input[type=range]{accent-color:var(--accent);width:100%;background:transparent;
+  border:0;padding:0;height:18px}
+input[type=range]:focus{box-shadow:none;border:0}
 .row{display:flex;gap:var(--s-2);align-items:center}
 .numrow{display:flex;gap:6px;align-items:center}
 .numrow input{flex:1}
@@ -144,8 +162,16 @@ input[type=range]{accent-color:var(--accent);width:100%}
 .card.on{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-ring)}
 .card.dim{opacity:.55}
 .card .top{display:flex;align-items:center;gap:10px}
-.badge{display:grid;place-items:center;width:22px;height:22px;border-radius:50%;
-  background:var(--surface-3);color:var(--text-2);font:600 11px/1 var(--mono);flex:0 0 auto}
+/* A trailing letter-space is added AFTER the glyph, so any inherited letter-spacing
+   shoves a single digit visibly left of centre. Zero it and centre with flex. */
+.badge{display:inline-flex;align-items:center;justify-content:center;
+  width:22px;height:22px;min-width:22px;border-radius:50%;
+  background:var(--surface-3);color:var(--text-2);
+  font:600 11px/1 var(--mono);letter-spacing:0;text-indent:0;
+  font-variant-numeric:tabular-nums;flex:0 0 auto;
+  /* digits carry no descender ink, so they ride above the line-box centre —
+     nudge the content box down to centre the glyph optically */
+  box-sizing:border-box;padding-top:1px}
 .badge.top{background:var(--accent);color:var(--accent-on)}
 .card .ttl{font:600 14px/1.2 var(--sans);color:var(--text)}
 .card .val{margin-left:auto;font:500 12px/1.3 var(--mono);color:var(--text-2)}
