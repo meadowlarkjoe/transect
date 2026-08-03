@@ -300,6 +300,18 @@ def build(ctx: Context) -> dict:
     doc["box"] = {"w": round(minlon, 6), "e": round(maxlon, 6),
                   "n": round(maxlat, 6), "s": round(minlat, 6)}
 
+    # coarse elevation grid (decimated) — powers the thermal-drift arrow field.
+    try:
+        import numpy as np
+        eg = _ex._grid_260x175(ctx, cache, "dem.tif")       # (175, 260), row 0 = north
+        dec = eg[::2, ::2]                                    # ~(88, 130)
+        gh2, gw2 = dec.shape
+        mean_e = float(np.nanmean(dec)) if np.isfinite(dec).any() else 600.0
+        doc["elev"] = {"gw": gw2, "gh": gh2,
+                       "v": [int(round(mean_e if not np.isfinite(v) else v)) for v in dec.ravel()]}
+    except Exception:
+        doc["elev"] = None
+
     # wind list (forecastFor shape) for behaviour's expected-midday
     wind_list = [{"from": d.get("wind_from_deg"), "kph": d.get("wind_kmh"),
                   "tempC": d.get("t_max_c"), "date": d.get("date"),

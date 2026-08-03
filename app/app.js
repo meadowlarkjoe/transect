@@ -252,6 +252,13 @@ function init(){
     paint:{'line-color':'#ffffff','line-width':2,'line-opacity':0.9,'line-dasharray':[3,2]}});
   map.addLayer({id:'packin',type:'line',source:'packin',
     paint:{'line-color':'#b98a3e','line-width':1.6,'line-dasharray':[2,2],'line-opacity':0.75}});
+  // thermal-drift arrow field (off by default; toggle in tools)
+  if(!map.hasImage('thermal-arrow')) map.addImage('thermal-arrow',arrowIcon(),{pixelRatio:2});
+  map.addSource('thermal',{type:'geojson',data:fc([])});
+  map.addLayer({id:'thermal',type:'symbol',source:'thermal',
+    layout:{visibility:'none','icon-image':'thermal-arrow','icon-rotate':['get','brg'],
+      'icon-size':0.55,'icon-allow-overlap':true,'icon-rotation-alignment':'map'},
+    paint:{'icon-opacity':0.85}});
   // caller/shooter pairs: the shooter sets up ~70 m downwind of each calling
   // station, because a bull circles downwind to scent-check before showing.
   map.addSource('shooterLines',{type:'geojson',data:fc([])});
@@ -305,7 +312,7 @@ function init(){
     map.on('mouseenter',l,()=>map.getCanvas().style.cursor='pointer');
     map.on('mouseleave',l,()=>map.getCanvas().style.cursor='');});
 
-  buildShooters();
+  buildShooters(); buildThermal();
   buildPanel(); buildWeather(); buildLegend(); buildTools();
   renderSetup(); renderBrief(); wireTabs(); setTab('overview');
   map.fitBounds(bbox(DOC.areas),{padding:{top:80,left:400,right:200,bottom:120}});
@@ -433,6 +440,9 @@ function updateHour(h){
   else {period='night';src='feed';}
   if(lbl) lbl.textContent=`${Math.floor(h)}:${String(Math.round((h%1)*60)).padStart(2,'0')} · ${period}`;
   if(HEAT.source!==src){ HEAT.source=src; updateHeat(); }
+  updateThermal(h);
+  const tl=document.getElementById('thermLbl');
+  if(tl) tl.textContent=thermalRising(h)?'· ↑ upslope':'· ↓ downslope';
 }
 
 /* ---------------- legend (per-type show/hide) ---------------- */
@@ -493,13 +503,17 @@ function buildTools(){
     <label><input type="checkbox" data-lyr="water" checked> Rivers &amp; lakes</label>
     <label><input type="checkbox" data-lyr="crossings" checked> River crossings</label>
     <label><input type="checkbox" data-lyr="areas" checked> Focus areas</label>
-    <label><input type="checkbox" data-lyr="packin" checked> Pack-in routes</label>`;
+    <label><input type="checkbox" data-lyr="packin" checked> Pack-in routes</label>
+    <label><input type="checkbox" data-lyr="shooters" checked> Caller / shooter pairs</label>
+    <label><input type="checkbox" data-lyr="thermal"> Thermal drift <span class="s" id="thermLbl"></span></label>`;
   t.appendChild(lay);
   lay.querySelectorAll('[data-lyr]').forEach(cb=>cb.onchange=()=>{
     const vis=cb.checked?'visible':'none';
     ({areas:['areas-fill','areas-line','area-badges'],packin:['packin'],
-      water:['lakes','lakes-line','rivers'],crossings:['crossings']})[cb.dataset.lyr]
-      .forEach(id=>map.getLayer(id)&&map.setLayoutProperty(id,'visibility',vis));});
+      water:['lakes','lakes-line','rivers'],crossings:['crossings'],
+      shooters:['shooters','shooters-label','shooterLines'],thermal:['thermal']})[cb.dataset.lyr]
+      .forEach(id=>map.getLayer(id)&&map.setLayoutProperty(id,'visibility',vis));
+    if(cb.dataset.lyr==='thermal'&&cb.checked){const hr=document.getElementById('hour');updateThermal(hr?+hr.value:12);}});
 }
 function wireMeasure(){
   const btn=document.getElementById('btnmeasure');let on=false,pts=[];
@@ -527,6 +541,33 @@ function buildShooters(){
     lines.push({type:'Feature',geometry:{type:'LineString',coordinates:[c,s]},properties:{}});});
   map.getSource('shooters').setData(fc(pts));
   map.getSource('shooterLines').setData(fc(lines));
+}
+/* thermal drift: air drains DOWNSLOPE at night/evening (katabatic) and rises
+   UPSLOPE through a warming day (anabatic). Arrow field from the elevation grid. */
+function arrowIcon(){const S=30,cv=document.createElement('canvas');cv.width=cv.height=S;const c=cv.getContext('2d');
+  c.translate(S/2,S/2);c.strokeStyle='#ffd9a0';c.fillStyle='#ffd9a0';c.lineWidth=2.5;c.lineCap='round';c.lineJoin='round';
+  c.beginPath();c.moveTo(0,10);c.lineTo(0,-7);c.stroke();
+  c.beginPath();c.moveTo(0,-12);c.lineTo(-5,-4);c.lineTo(5,-4);c.closePath();c.fill();
+  return {width:S,height:S,data:c.getImageData(0,0,S,S).data};}
+function elevAt(gi,gj){const e=DOC.elev;gi=Math.max(0,Math.min(e.gw-1,gi));gj=Math.max(0,Math.min(e.gh-1,gj));return e.v[gj*e.gw+gi];}
+function buildThermal(){
+  const e=DOC.elev,b=DOC.box; if(!e||!map.getSource('thermal'))return;
+  const step=6,pts=[];
+  for(let gj=step;gj<e.gh-step;gj+=step)for(let gi=step;gi<e.gw-step;gi+=step){
+    const lon=b.w+(gi+0.5)/e.gw*(b.e-b.w), lat=b.n-(gj+0.5)/e.gh*(b.n-b.s);
+    const gx=elevAt(gi+1,gj)-elevAt(gi-1,gj);      // east-west uphill component
+    const gyN=elevAt(gi,gj-1)-elevAt(gi,gj+1);     // north-south uphill component (row 0 = north)
+    if(Math.hypot(gx,gyN)<1.2) continue;           // skip flats
+    const upAz=(Math.atan2(gx,gyN)*180/Math.PI+360)%360;
+    pts.push({type:'Feature',geometry:{type:'Point',coordinates:[lon,lat]},properties:{brg:Math.round((upAz+180)%360)}}); // downslope (drainage)
+  }
+  map.getSource('thermal').setData(fc(pts));
+}
+function thermalRising(h){ return h>=8 && h<=17; }   // warming day = upslope; else drainage
+function updateThermal(h){
+  if(!map.getLayer('thermal'))return;
+  const off=thermalRising(h)?180:0;   // brg is drainage; +180 = upslope by day
+  map.setLayoutProperty('thermal','icon-rotate',['+',['get','brg'],off]);
 }
 function hav(a,b){const R=6371,dLat=(b[1]-a[1])*Math.PI/180,dLon=(b[0]-a[0])*Math.PI/180,
   s=Math.sin(dLat/2)**2+Math.cos(a[1]*Math.PI/180)*Math.cos(b[1]*Math.PI/180)*Math.sin(dLon/2)**2;
