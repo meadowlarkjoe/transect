@@ -84,7 +84,9 @@ function switchBase(base){
   vis('satellite', base==='satellite'||base==='hybrid');
   vis('topo', base==='topo');
   vis('relief', base==='relief');
-  vis('trans', base==='hybrid');
+  // NOTE: 'trans' (global roads overlay) is NOT tied to the basemap anymore — the
+  // "Roads & rail" layer toggle owns it, so roads render on every basemap independent
+  // of the engine analysis. Don't touch its visibility here.
   document.querySelectorAll('[data-base]').forEach(b=>b.classList.toggle('on',b.dataset.base===base));
 }
 const map = new maplibregl.Map({container:'map',style:baseStyle(),
@@ -514,7 +516,7 @@ function toggleType(t,row){
 function setVis(ids,on){(ids||[]).forEach(id=>map.getLayer(id)&&map.setLayoutProperty(id,'visibility',on?'visible':'none'));}
 const LYR_MAP={areas:['areas-fill','areas-line','area-badges'],sites:['sites'],camps2:['camps','staging'],
   packin:['packin'],water:['lakes','lakes-line','rivers'],crossings:['crossings'],
-  roads:['roads','roads-case','rail'],
+  roads:['roads','roads-case','rail','trans'],   // 'trans' = global roads overlay, always available regardless of analysis
   shooters:['shooters','shooters-label','shooterLines'],thermal:['thermal']};
 function buildTools(){
   const t=document.getElementById('tools');       // Map / basemap only
