@@ -76,16 +76,25 @@ def run(ctx: Context) -> None:
     constriction = np.zeros(dem.shape, "float32")
     if barrier.any():
         passable = ~barrier
-        # metres from each passable cell to the nearest barrier
+        # Distance to the nearest barrier. The medial-axis (corridor-centre) value is the
+        # corridor HALF-width, so full corridor width = 2*db. The old detector scored
+        # absolute half-width up to 700 m — admitting ~1.4 km-wide "funnels" and lighting
+        # a uniform isthmus end-to-end. A real funnel is a NECK: narrow in absolute terms
+        # AND a local minimum of corridor width (it pinches HERE vs up/downstream).
         db = distance_transform_edt(passable) * res
-        # medial axis: a passable cell that is a local ridge of db (centre of a
-        # corridor). A NECK is a ridge cell whose corridor half-width is small — a
-        # squeezed passage — within a plausible moose-travel width (~40–700 m). The
-        # narrower the neck, the stronger the funnel.
         ridge = (db >= maximum_filter(db, size=3) - 1e-6) & passable & (db > res)
-        width = np.clip((700.0 - db) / 700.0, 0.0, 1.0)   # narrower ⇒ higher
-        constriction = np.where(ridge & (db < 700.0), width, 0.0).astype("float32")
-        # thicken the ridge a touch so a neck reads as a small zone, not a 1-px line
+        full_w = 2.0 * db
+        # Moose readily cross a few-hundred-metre gap, so only necks under ~300 m full
+        # width count, strongest well below that (a 300 m cap = db < 150 m).
+        NECK_M = 300.0
+        narrow = np.clip((NECK_M - full_w) / NECK_M, 0.0, 1.0)
+        # Local minimum: compare db to its ~600 m neighbourhood average; where the corridor
+        # is markedly narrower than nearby, it is squeezing — that is the pinch.
+        db_local = uniform_filter(db, size=max(3, int(round(600 / res)) | 1))
+        pinch = np.clip((db_local - db) / (db_local + 1e-6), 0.0, 1.0)
+        strength = narrow * (0.35 + 0.65 * pinch)
+        constriction = np.where(ridge & (full_w < NECK_M), strength, 0.0).astype("float32")
+        # thicken the 1-px centreline so a neck reads as a small zone, not a hairline
         constriction = maximum_filter(constriction, size=max(3, int(round(120 / res)) | 1))
 
     # topographic saddle — trustworthy ONLY on steep ground; near-zero and noisy on

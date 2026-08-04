@@ -161,7 +161,9 @@ def run(ctx: Context) -> None:
     # --- THERMAL REFUGE (midday, warm): cool conifer near water. Reuse the HSM
     # thermal surface if present, else rebuild from cover × near-water.
     if thermal is not None:
-        refuge = ru.normalize(z(thermal))
+        # Use the ABSOLUTE hsm_thermal surface as-is (audit #54): re-ranking it per-AOI
+        # made the midday routing disagree with the map's fixed 0.5 refuge threshold.
+        refuge = np.clip(np.nan_to_num(thermal), 0.0, 1.0)
     else:
         refuge = ru.normalize(z(cover) * z(_prox(dist_water, 100, 400), 0.3))
     refuge[water_nan] = np.nan

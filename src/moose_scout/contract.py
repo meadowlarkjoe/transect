@@ -539,7 +539,7 @@ def build(ctx: Context) -> dict:
         doc["refuge_zones"] = []
     try:
         doc["funnel_zones"] = _polygonize(ctx, cache, "terrain/funnel.tif",
-                                          [("funnel", 0.4)], min_km2=0.06, smooth_m=90, per_class=18)
+                                          [("funnel", 0.25)], min_km2=0.06, smooth_m=90, per_class=18)
     except Exception:
         doc["funnel_zones"] = []
 

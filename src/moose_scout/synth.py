@@ -341,6 +341,9 @@ def run(ctx: Context, manual_areas=None) -> None:
     funnel = ru.read(cache / "terrain/funnel.tif")[0]
     dem = ru.read(cache / "dem.tif")[0]
     dist_water = ru.read(cache / "dist_water.tif")[0]
+    tpi = _opt(cache / "terrain/tpi.tif")          # prominence for glassing
+    cover = _opt(cache / "cover.tif")
+    browse = _opt(cache / "browse.tif")            # glassable openings / feeding edge
 
     dist_road = _opt(cache / "dist_road.tif")
     # Behavioral occupancy surfaces (behavior stage) — richer signals than the
@@ -440,7 +443,25 @@ def run(ctx: Context, manual_areas=None) -> None:
                                  "properties": props})
 
     near_water = np.where(np.isfinite(hunt), hunt * np.exp(-dist_water / 400), np.nan)
-    glass = np.where(np.isfinite(hunt), ru.normalize(dem), np.nan)
+    # GLASSING (audit #56): a knob is worth glassing for what it OVERLOOKS, not its raw
+    # height. Was glass = normalize(dem) — pure elevation rank, which invents "knobs" on
+    # flat closed canopy. Rebuild as local PROMINENCE (height above the ~500 m
+    # neighbourhood, fixed-metre bounds → absolute) × VISIBLE OPENNESS (how much
+    # glassable feeding habitat lies within optical range). A prominent point in a sea of
+    # timber scores ~0; a modest rise over a willow flat scores high. On flat/closed AOIs
+    # this is ~0 everywhere, so the min_score floor below places NO glassing points —
+    # honest (the tactic degrades to calling/still-hunting).
+    from scipy.ndimage import uniform_filter as _ufg
+    _res = float(ctx.model.raster_resolution_m)
+    prom = np.clip(np.nan_to_num(tpi) / 12.0, 0.0, 1.0) if tpi is not None else \
+        np.where(np.isfinite(hunt), ru.normalize(dem), 0.0)
+    if browse is not None:
+        win_g = max(3, int(round(1200 / _res)) | 1)          # ~1.2 km glassing radius
+        openness = _ufg(np.clip(np.nan_to_num(browse), 0.0, 1.0), size=win_g)
+        openness = np.clip(openness / 0.40, 0.0, 1.0)
+    else:
+        openness = np.ones_like(prom)
+    glass = np.where(np.isfinite(hunt), prom * openness, np.nan)
     # Prefer the behavioral surfaces (time/temp-resolved) where the stage ran;
     # tag every sit with WHEN to hunt it so the map reads as a day plan.
     rut_surf = b_cruise if b_cruise is not None else rut
@@ -475,14 +496,31 @@ def run(ctx: Context, manual_areas=None) -> None:
                         {"min_stand_minutes": 30, "when": "dawn & dusk + all rut day (bulls cruise these edges)"})
     add_points_per_area(refuge_surf, "thermal_refuge", n_refuge,
                         {"when": "midday when it's warm (> ~14 °C) — hunt the cool cover, not the openings"})
-    add_points_per_area(feed_surf, "saline_blind", n_feed,
-                        {"when": "first & last light — feeding on browse edge / in water (aquatic sodium)"})
+    # FEEDING sites (audit #57): keep points on the browse EDGE, not bare shoreline, and
+    # tell the truth about the season — aquatic-sodium feeding is a summer behaviour that
+    # is over by the late-Sept/Oct rut, so only say "aquatic" when the hunt date is early.
+    if browse is not None:
+        feed_surf = np.where(np.nan_to_num(browse) > 0.20, feed_surf, np.nan)
+    def _aquatic_relevant():
+        try:
+            d = ctx.aoi.season.target_dates[0]           # 'YYYY-MM-DD'
+            mm, dd = int(d[5:7]), int(d[8:10])
+            return (mm < 9) or (mm == 9 and dd <= 20)
+        except Exception:
+            return False
+    feed_when = ("first & last light — aquatic feeding (shallow ponds & flowages) + browse edge"
+                 if _aquatic_relevant() else
+                 "first & last light — feeding along the browse edge / riparian willow")
+    add_points_per_area(feed_surf, "saline_blind", n_feed, {"when": feed_when})
     add_points_per_area(funnel, "funnel", n_funnel,
                         {"when": "travel corridor — any time, best when animals are moving"},
-                        min_score=0.12)   # only where a real constriction exists
+                        min_score=0.15)   # only where a real neck exists (tightened surface)
+    # min_score floor: on flat/closed-canopy ground with nothing to overlook, place NO
+    # glassing knob rather than inventing one on the tallest closed-canopy cell.
     add_points_per_area(glass, "glassing", n_glass,
                         {"when": "dawn & dusk — glass the openings from high ground",
-                         "pair": "glass in pairs where the crew allows — two sets of eyes on one basin beats two basins half-watched"})
+                         "pair": "glass in pairs where the crew allows — two sets of eyes on one basin beats two basins half-watched"},
+                        min_score=0.15)
     add_points_per_area(hunt, "validate_ground", 1)
 
     # --- access anchors: base camp + parking (need roads) ---
@@ -1108,7 +1146,7 @@ def _write_brief(ctx, features, cache, outdir, routes_msg):
     lines += ["## Placed features (Les Cartes Xperts legend)", ""]
     legend_names = {
         "rut_calling": "Rut / calling stations (≥30 min)", "thermal_refuge": "Thermal refuges",
-        "saline_blind": "Saline / blind sites", "funnel": "Natural funnels / passes",
+        "saline_blind": "Feeding edge (dawn/dusk)", "funnel": "Natural funnels / passes",
         "glassing": "Glassing knobs", "validate_ground": "Ground-truth points",
         "base_camp": "Base camps", "route_best": "Best approach routes",
         "route_midday_hot": "Midday / hot-weather routes",

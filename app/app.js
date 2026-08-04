@@ -135,7 +135,7 @@ function stippleImage(){
 }
 const LABELS = {
   rut_calling:'Rut / calling (≥30 min)', thermal_refuge:'Thermal refuge',
-  saline_blind:'Saline / feeding', funnel:'Funnel / pass', glassing:'Glassing knob',
+  saline_blind:'Feeding edge', funnel:'Funnel / pass', glassing:'Glassing knob',
   validate_ground:'Ground-truth', base_camp:'Base camp', parking:'Vehicle staging'
 };
 const SHAPE = {
@@ -1045,8 +1045,8 @@ const LAYERS=[
  {k:'st-rut', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Rut / calling',
   note:'Stands of 30 min or more — where you call from', hex:'#E2231A', icon:'megaphone',
   on:true, site:'rut_calling', count:()=>siteCount('rut_calling')},
- {k:'st-saline', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Saline / feeding',
-  note:'Browse edge and aquatic feed — first and last light. Regulated: check the zone.',
+ {k:'st-saline', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Feeding edge',
+  note:'Browse edge / riparian willow at first and last light. Not a detected salt lick — salines are regulated; check the zone.',
   hex:'#0047FF', icon:'droplets', on:true, site:'saline_blind', count:()=>siteCount('saline_blind')},
  {k:'st-glass', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Glassing knobs',
   note:'Computed viewshed — high ground worth sitting behind glass', hex:'#1F6F3F',

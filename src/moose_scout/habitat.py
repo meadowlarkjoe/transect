@@ -202,42 +202,56 @@ def run(ctx: Context) -> None:
     bull[water_mask] = np.nan
     ru.write(cache / "hsm_bull.tif", ru.normalize(bull).astype("float32"), prof)
 
-    # --- thermal refuge: SPECIFIC ground, not a wash over the whole box ------------
-    # Two failure modes bracket this. The original hard product (cool × cover × water)
-    # zeroed a good cover stand that happened to sit far from water. The fix over-
-    # corrected: cover × (0.40 + …) put a 0.40 floor under every forested cell and then
-    # ru.normalize() re-ranked the surface so 0.5 meant "AOI median" — on a boreal box
-    # that is ~half the map, so refuge blanketed everything (a hunter's own words:
-    # "thermal refuge is densely forested hilltops etc. — much more specific than this").
-    # A refuge is dense security/thermal cover that a cool aspect OR nearby water makes
-    # usable as a midday retreat. Build it on an ABSOLUTE scale (NO normalize) so the
-    # downstream 0.5 threshold means the same thing in every AOI:
-    #   • dense cover is NECESSARY — ramp 0.55→0.85 so open/regen ground contributes 0;
-    #   • a cool (N/E) aspect or water proximity is what turns cover into refuge;
-    #   • the 0.20 floor keeps a genuinely dense stand from zeroing when it has neither,
-    #     so sites can still be placed, but it can never clear threshold on its own.
-    # Dense canopy is NECESSARY; a genuinely cool (N/NE) aspect is what makes it a
-    # midday thermal retreat. Aspect is meaningless on flat ground — cos(aspect) there is
-    # just noise averaging to ~0.5 — so the cool-aspect credit is GATED BY SLOPE, or a
-    # lake-rich boreal box lights up ~everywhere. (Water proximity is a FEEDING driver,
-    # not a thermal one, so it no longer enters here.) Result: refuge keys on densely
-    # forested cool slopes, which is what a hunter means by it. NOTE: this misses flat
-    # lowland-conifer / cedar-swamp thermal cover — that needs canopy-closure or stand
-    # data we don't yet have; the rigorous definition is the datapoint-accuracy audit.
+    # --- thermal refuge: dense cover made usable by a cool microsite --------------
+    # Dense canopy is NECESSARY (ramp 0.60→0.85 so open/regen ground contributes 0). It
+    # becomes a midday retreat via EITHER of two cool-microsite pathways, whichever is
+    # stronger (accuracy audit #54):
+    #   (a) WET/LOWLAND — proximity to water/wetland OR a valley-bottom flat. Wet substrate
+    #       and standing water are the strongest cooling mechanism, stronger than canopy
+    #       (McCann 2013, van Beest 2012, Thompson 2021); this is what makes flat cedar /
+    #       black-spruce swamp a refuge — exactly what an aspect-only rule deletes.
+    #   (b) COOL ASPECT — a N/NE face, slope-gated (aspect is noise on flat ground).
+    # Aspect is NO LONGER the sole gate (Mumma 2020: no north-slope selection; canopy
+    # dominates), so flats are eligible through (a). Absolute scale, NO normalize, so the
+    # downstream 0.5 threshold stays portable across AOIs.
     cover0 = np.nan_to_num(cover)
     dense = np.clip((cover0 - 0.60) / 0.25, 0.0, 1.0)
-    slope_gate = np.clip(np.nan_to_num(slope) / 8.0, 0.0, 1.0)      # ~flat → no aspect credit
-    coolp = np.clip((np.nan_to_num(cool) - 0.50) / 0.40, 0.0, 1.0) * slope_gate
-    thermal = (dense * (0.10 + 0.90 * coolp)).astype("float32")
+    # NOTE: without écoforestière/NDVI, `cover` calls every tree pixel dense, so this
+    # pathway is broader than it will be once canopy-closure data (Tier B) sharpens
+    # `dense`. Keep the wet/lowland credit tight (close water, genuine valley bottoms).
+    lowland = np.clip(ru.normalize(-tpi, lo=0.0, hi=15.0), 0.0, 1.0)    # fixed bounds → absolute
+    wet_cool = np.maximum(_prox(dist_water, 100, 350), 0.7 * lowland)
+    slope_gate = np.clip(np.nan_to_num(slope) / 8.0, 0.0, 1.0)
+    aspect_cool = np.clip((np.nan_to_num(cool) - 0.50) / 0.40, 0.0, 1.0) * slope_gate
+    enhance = np.maximum(wet_cool, aspect_cool)
+    thermal = (dense * (0.12 + 0.88 * enhance)).astype("float32")
     thermal[water_mask] = np.nan
     ru.write(cache / "hsm_thermal.tif", thermal, prof)
 
-    # --- rut/calling sites: cover<->opening EDGE is the thing; funnel + water enhance --
-    # Same brittleness: edge × funnel × wet_prox meant a cruise edge far from water
-    # scored 0, so on a water-sparse AOI zero calling stands got placed. The edge is
-    # the primary signal (bulls cruise and call the cover-opening seam); funnels and
-    # water proximity are bonuses, not gates.
+    # --- rut/calling sites (accuracy audit #55) -----------------------------------
+    # A bull cruises and calls the SECURITY-COVER↔OPENING seam — not any 50/50 tree mix.
+    # The global `edge` above is a single-class tree/not-tree interspersion, which can't
+    # tell a cover-to-regen seam from a hardwood/conifer ecotone, so here we build a
+    # structural seam from the cover and browse surfaces: a cell scores where dense cover
+    # AND low open browse both occur within ~150 m (the callable lip). Three independent
+    # contributors soft-combine on an ABSOLUTE scale (no final normalize):
+    #   • the cover↔opening seam (primary — where bulls cruise/call),
+    #   • funnels/travel corridors (a good neck is a stand even off a perfect edge),
+    #   • WALLOWS (wet ground within/beside cover) — the strongest rut attractant, and
+    #     entirely absent before this.
+    from scipy.ndimage import uniform_filter as _uf
+    cov = np.nan_to_num(cover); brw = np.nan_to_num(browse)
+    win_e = max(3, int(round(150 / res)) | 1)
+    cov_near = _uf((cov > 0.55).astype("float32"), size=win_e)
+    open_near = _uf((brw > 0.45).astype("float32"), size=win_e)
+    rut_edge = np.clip(4.0 * cov_near * open_near, 0.0, 1.0)          # both present = a seam
+    win_w = max(3, int(round(120 / res)) | 1)
+    cover_adj = _uf((cov > 0.55).astype("float32"), size=win_w)
+    wallow = np.clip(np.nan_to_num(wet), 0.0, 1.0) * cover_adj        # wet depression beside cover
+    funnel_abs = np.clip(np.nan_to_num(funnel), 0.0, 1.0)            # already absolute from terrain
     wet_prox = _prox(_dist(wetland_mask | water_mask, res), 200, 1000)
-    rut = np.nan_to_num(edge) * (0.40 + 0.30 * ru.normalize(funnel) + 0.30 * wet_prox)
+    rut = np.clip(0.55 * rut_edge * (0.5 + 0.5 * wet_prox)
+                  + 0.30 * funnel_abs
+                  + 0.35 * wallow, 0.0, 1.0)
     rut[water_mask] = np.nan
-    ru.write(cache / "hsm_rut.tif", ru.normalize(rut).astype("float32"), prof)
+    ru.write(cache / "hsm_rut.tif", rut.astype("float32"), prof)
