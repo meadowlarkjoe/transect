@@ -8,6 +8,15 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;1,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="public.css?v=1">
+<script>
+  /* Access gate. This is UX, not security — the real enforcement is server-side:
+     POST /scout now requires a valid account token, so an unauthenticated visitor
+     cannot burn engine time even if they bypass this redirect. */
+  try{
+    var _t = localStorage.getItem('transect_tok') || localStorage.getItem('transect_token');
+    if(!_t) location.replace('signin?next=' + encodeURIComponent(location.pathname.split('/').pop() + location.search));
+  }catch(e){}
+</script>
 </head>
 <body>
 <div class="wrap">

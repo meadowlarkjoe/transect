@@ -86,7 +86,8 @@ $('f').onsubmit=async e=>{
     localStorage.setItem('transect_tok', d.token);
     localStorage.setItem('transect_email', d.email||email);
     localStorage.setItem('transect_seen','1');
-    location.href='plans';
+    const nx=new URLSearchParams(location.search).get('next');
+    location.href = (nx && /^[a-z0-9?=&_.-]+$/i.test(nx)) ? nx : 'plans';
   }catch(err){
     m.className='msg err'; m.textContent=err.message||'Something went wrong.';
     $('go').disabled=false; paint();

@@ -30,6 +30,11 @@ from pydantic import BaseModel
 API_KEY = os.environ.get("TRANSECT_API_KEY")
 
 
+# Require a signed-in account (not just the shared key) to start an analysis.
+# Off only if you deliberately set TRANSECT_OPEN=1 for a private/local deployment.
+REQUIRE_ACCOUNT = os.environ.get("TRANSECT_OPEN", "") != "1"
+
+
 def _require_key(x_api_key):
     if API_KEY and x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="invalid or missing API key")
@@ -168,17 +173,31 @@ def _run(job_id: str, req: ScoutReq) -> None:
 
 
 @app.post("/scout")
-def scout(req: ScoutReq, x_api_key: str = Header(default=None)):
+def scout(req: ScoutReq, x_api_key: str = Header(default=None),
+          authorization: str = Header(default=None)):
+    # A run costs minutes of CPU on a small box, and the shared API key ships inside
+    # the front end's config.js — i.e. it is public to anyone who views source. So the
+    # key alone is not access control; require a real signed-in account as well.
     _require_key(x_api_key)
+    uid = _uid(authorization)
+    if REQUIRE_ACCOUNT and not uid:
+        raise HTTPException(status_code=401, detail="sign in to run an analysis")
     jid = uuid.uuid4().hex[:12]
-    JOBS[jid] = {"status": "running", "stage": "queued", "progress": 0.0}
+    JOBS[jid] = {"status": "running", "stage": "queued", "progress": 0.0, "uid": uid}
     threading.Thread(target=_run, args=(jid, req), daemon=True).start()
     return {"job_id": jid}
 
 
 @app.get("/jobs/{jid}")
-def job(jid: str):
-    return JOBS.get(jid, {"status": "unknown"})
+def job(jid: str, authorization: str = Header(default=None)):
+    j = JOBS.get(jid)
+    if not j:
+        return {"status": "unknown"}
+    # Don't hand one account's analysis to another; jobs are readable by their owner.
+    if REQUIRE_ACCOUNT and j.get("uid") is not None:
+        if _uid(authorization) != j.get("uid"):
+            raise HTTPException(status_code=403, detail="not your job")
+    return j
 
 
 @app.get("/health")

@@ -38,7 +38,7 @@ const API_URL = (new URLSearchParams(location.search).get('api')) ||
 const API_KEY = (typeof window!=='undefined' && window.TRANSECT_API_KEY) || '';
 
 /* ---------------- hunt setup state ---------------- */
-let SETUP = { watercraft:'canoe', huntStyle:'spike' };   // watercraft: none|canoe|motor ; huntStyle: spike|vehicle
+let SETUP = { watercraft:'none', huntStyle:'spike' };   // watercraft: none|canoe|motor ; huntStyle: spike|vehicle
 
 /* ---------------- units ---------------- */
 let UNITS = 'metric';                       // 'metric' | 'imperial'
@@ -474,7 +474,7 @@ function init(){
   buildShooters(); buildThermal();
   buildPanel(); buildWeather(); buildLegend(); buildTools();
   setVis(LYR_MAP.roads,true); setVis(LYR_MAP.boundaries,true);   // roads + borders on by default in every view
-  renderSetup(); renderBrief(); wireTabs(); initPlans(); initExport(); setTab(startTab());
+  renderSetup(); renderBrief(); wireTabs(); initPlans(); initAccount(); initExport(); setTab(startTab());
   // Deep link from the plans dashboard: /transect/app?plan=<id> restores that plan
   // (and its cached analysis, when it has one) instead of opening blank.
   const _pid=new URLSearchParams(location.search).get('plan');
@@ -498,7 +498,7 @@ function chromeFallback(){
   try{ buildPanel(); }catch(e){}
   try{ buildTools(); }catch(e){}
   try{ buildWeather(); }catch(e){}
-  try{ renderSetup(); renderBrief(); wireTabs(); initPlans(); initExport(); setTab(startTab()); }catch(e){}
+  try{ renderSetup(); renderBrief(); wireTabs(); initPlans(); initAccount(); initExport(); setTab(startTab()); }catch(e){}
   try{ setPlanName(planTitle(),false);
     document.getElementById('subtitle').textContent=
       `${DOC.meta.species} · ${DOC.meta.target_dates.join(' – ')} · r${DOC.meta.radius_km} km`; }catch(e){}
@@ -1095,8 +1095,8 @@ function hav(a,b){const R=6371,dLat=(b[1]-a[1])*Math.PI/180,dLon=(b[0]-a[0])*Mat
 
 /* ---------------- Setup (redesigned) ---------------- */
 let draft={center:[DOC.meta.center.lon,DOC.meta.center.lat],radius:DOC.meta.radius_km||50,
-  walkAccess:2.0,walkHunt:4.0,leaving:'Baie-Comeau',
-  dates:((DOC.meta&&DOC.meta.target_dates)||['2026-09-25','2026-10-05']).slice()};
+  walkAccess:null, walkHunt:null, leaving:'',
+  dates: (USING_EXAMPLE && DOC.meta && DOC.meta.target_dates) ? DOC.meta.target_dates.slice() : []};
 function renderSetup(){
   const el=document.getElementById('setup');
   el.innerHTML=`
@@ -1115,8 +1115,8 @@ function renderSetup(){
       <label class="fld">Or paste coordinates</label>
       <input id="coord" placeholder="lat, lon" value="${draft.center[1].toFixed(4)}, ${draft.center[0].toFixed(4)}">
       <label class="fld">Hunt dates</label>
-      <div class="numrow"><input id="dateStart" type="date" value="${draft.dates[0]}">
-        <span>→</span><input id="dateEnd" type="date" value="${draft.dates[1]}"></div>
+      <div class="numrow"><input id="dateStart" type="date" required value="${draft.dates[0]||''}">
+        <span>→</span><input id="dateEnd" type="date" required value="${draft.dates[1]||''}"></div>
       <div class="s" style="margin-top:6px">Drives rut timing, weather and behaviour. Peak breeding ≈ Oct 2 at this latitude — but bulls are most <i>callable</i> in the two weeks before it.</div>
     </div>
 
@@ -1144,12 +1144,12 @@ function renderSetup(){
       <div class="s" style="margin-top:6px">With no boat, rivers become foot barriers — ground across one from the road drops out of the ranking.</div>
 
       <label class="fld">Walk: access → base camp (max)</label>
-      <div class="numrow"><input id="walkAccess" type="number" step="0.1" value="${toU(draft.walkAccess).toFixed(1)}"><span id="uAccess">${unitBig()}</span></div>
+      <div class="numrow"><input id="walkAccess" type="number" step="0.1" placeholder="e.g. 2" value="${draft.walkAccess!=null?toU(draft.walkAccess).toFixed(1):''}"><span id="uAccess">${unitBig()}</span></div>
       <label class="fld">Walk: base camp → hunting (max)</label>
-      <div class="numrow"><input id="walkHunt" type="number" step="0.1" value="${toU(draft.walkHunt).toFixed(1)}"><span id="uHunt">${unitBig()}</span></div>
+      <div class="numrow"><input id="walkHunt" type="number" step="0.1" placeholder="e.g. 4" value="${draft.walkHunt!=null?toU(draft.walkHunt).toFixed(1):''}"><span id="uHunt">${unitBig()}</span></div>
 
       <label class="fld">Leaving from</label>
-      <div class="row"><input id="leaveSearch" placeholder="Search departure town…" value="${draft.leaving}">
+      <div class="row"><input id="leaveSearch" placeholder="Search departure town…" value="${draft.leaving||''}">
         <button id="leaveBtn" class="btn btn--secondary btn--sm">Search</button></div>
       <div id="leaveRes" class="results"></div>
 
@@ -1162,6 +1162,7 @@ function renderSetup(){
     </div>
 
     <div class="sec">
+      <div id="setupErr"></div>
       <button id="runBtn" class="btn btn--primary btn--lg btn--block">RUN ANALYSIS →</button>
       <div class="callout" data-kind="info" style="margin-top:10px"><span class="mark">i</span><div class="body">
         <b>Live recompute — 3–5 minutes</b>
@@ -1190,8 +1191,9 @@ function renderSetup(){
   rad.oninput=()=>{draft.radius=fromU(+rad.value);document.getElementById('radVal').textContent=(+rad.value)+' '+unitBig();drawDraft();};
   document.getElementById('walkAccess').onchange=e=>{draft.walkAccess=fromU(+e.target.value);applyHunt();};
   document.getElementById('walkHunt').onchange=e=>draft.walkHunt=fromU(+e.target.value);
-  document.getElementById('dateStart').onchange=e=>{if(e.target.value)draft.dates[0]=e.target.value;};
-  document.getElementById('dateEnd').onchange=e=>{if(e.target.value)draft.dates[1]=e.target.value;};
+  const clearErr=()=>{const b=document.getElementById('setupErr'); if(b){b.className='';b.innerHTML='';}};
+  document.getElementById('dateStart').onchange=e=>{if(e.target.value)draft.dates[0]=e.target.value;clearErr();};
+  document.getElementById('dateEnd').onchange=e=>{if(e.target.value)draft.dates[1]=e.target.value;clearErr();};
   document.getElementById('dragBox').onclick=()=>startBoxDraw();
   document.getElementById('uMetric').onclick=()=>setUnits('metric');
   document.getElementById('uImperial').onclick=()=>setUnits('imperial');
@@ -1212,7 +1214,7 @@ function updateHsNote(){ const n=document.getElementById('hsNote'); if(!n)return
   n.textContent=SETUP.huntStyle==='vehicle'
     ? 'Analysis favours areas within your access-walk of a road — backcountry spots are dimmed.'
     : 'Backcountry spike camps allowed — remote areas stay in play.'; }
-function reachKm(){ return draft.walkAccess||2; }   // draft.walkAccess is canonical km
+function reachKm(){ return (draft.walkAccess!=null?draft.walkAccess:6); }  // km; 6 = neutral fallback when unset
 function applyHunt(){
   if(!map.getLayer('areas-fill'))return;
   const veh=SETUP.huntStyle==='vehicle', rk=reachKm()*1000;
@@ -1271,7 +1273,26 @@ function fmtElapsed(ms){
   const s = Math.floor(ms / 1000);
   return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
 }
+function missingSetup(){
+  const miss=[];
+  if(!(draft.dates && draft.dates.length===2 && draft.dates[0] && draft.dates[1]))
+    miss.push('hunt dates');
+  else if(new Date(draft.dates[1]) < new Date(draft.dates[0]))
+    miss.push('an end date after the start date');
+  return miss;
+}
 function runAnalysis(){
+  const miss=missingSetup();
+  if(miss.length){
+    const box=document.getElementById('setupErr');
+    if(box){ box.className='callout'; box.dataset.kind='warn';
+      box.innerHTML=`<span class="mark">!</span><div class="body"><b>Set your ${miss[0]} first</b>
+        Hunt dates drive rut phase, weather and which behaviour the model weights — without them
+        the result would be for dates you never chose.</div>`; }
+    setTab('setup');
+    const d=document.getElementById('dateStart'); if(d) d.focus();
+    return;
+  }
   const btn=document.getElementById('runBtn');
   const setBtn=(t,dis)=>{if(btn){btn.textContent=t;btn.disabled=!!dis;}};
   const est=estimateMinutes(draft.radius), t0=Date.now();
@@ -1287,13 +1308,21 @@ function runAnalysis(){
   // tick the elapsed clock even between polls so it never looks frozen
   let lastHead='ANALYSING… starting', tick=setInterval(()=>setBtn(line(lastHead),true),1000);
   const stop=()=>{ clearInterval(tick); };
-  fetch(API_URL+'/scout',{method:'POST',headers:{'Content-Type':'application/json','X-API-Key':API_KEY},body:JSON.stringify(req)})
-    .then(r=>r.json()).then(j=>{
+  const _ah={'Content-Type':'application/json','X-API-Key':API_KEY};
+  if(authTok()) _ah['Authorization']='Bearer '+authTok();
+  fetch(API_URL+'/scout',{method:'POST',headers:_ah,body:JSON.stringify(req)})
+    .then(async r=>{
+      if(r.status===401){ stop(); setBtn('RUN ANALYSIS →',false);
+        if(confirm('You need to be signed in to run an analysis.\n\nGo to the sign-in page?')) location.href='signin';
+        throw new Error('auth'); }
+      return r.json();
+    }).then(j=>{
       if(!j.job_id) throw new Error('no job');
       const STAGE={acquire:'fetching terrain, imagery, burns & hydro',terrain:'terrain analysis',
         habitat:'habitat model',behavior:'behavioural surfaces',access:'access & pack-out',
         synth:'placing areas & sites',contract:'building your plan'};
-      const poll=()=>fetch(API_URL+'/jobs/'+j.job_id).then(r=>r.json()).then(s=>{
+      const _jh=authTok()?{'Authorization':'Bearer '+authTok()}:{};
+      const poll=()=>fetch(API_URL+'/jobs/'+j.job_id,{headers:_jh}).then(r=>r.json()).then(s=>{
         if(s.status==='done'){ stop(); setBtn('RUN ANALYSIS →',false); applyDoc(s.scout); setTab('overview'); }
         else if(s.status==='error'){ stop(); setBtn('RUN ANALYSIS →',false); alert('Analysis failed: '+(s.error||'unknown')); }
         else if(s.status==='unknown'){ stop(); setBtn('RUN ANALYSIS →',false); alert('The engine restarted — please run again.'); }
@@ -1604,6 +1633,7 @@ async function doAuth(kind,email,pw){
 }
 function signOut(){ apiF('/auth/logout',{method:'POST'}).catch(()=>{});
   ['transect_token','transect_tok','transect_email'].forEach(k=>{try{localStorage.removeItem(k);}catch(e){}});
+  if(window._acctPaint) window._acctPaint();
   renderPlans(); }
 async function serverPlans(){
   try{ const r=await apiF('/plans'); if(!r.ok) return null;
@@ -1666,6 +1696,27 @@ async function openPlanById(id){
     if(p){ applyPlan(p); return true; }
   }catch(e){}
   return false;
+}
+function initAccount(){
+  const btn=document.getElementById('acctBtn'), menu=document.getElementById('acctMenu');
+  if(!btn||!menu) return;
+  const paint=()=>{
+    const on=isAuthed();
+    btn.textContent = on ? (authEmail()||'Account').split('@')[0] : 'Sign in';
+    menu.innerHTML = on
+      ? `<div class="s" style="margin-bottom:8px">Signed in as<br><b>${authEmail()}</b></div>
+         <a class="btn btn--secondary btn--block btn--sm" href="plans" style="margin-bottom:6px">Your hunt plans</a>
+         <button class="btn btn--danger btn--block btn--sm" id="acctOut">Sign out</button>`
+      : `<div class="s" style="margin-bottom:8px">You're not signed in. Plans stay in this browser and
+           you can't run an analysis.</div>
+         <a class="btn btn--primary btn--block btn--sm" href="signin">Sign in</a>`;
+    const o=document.getElementById('acctOut');
+    if(o) o.onclick=()=>{ signOut(); menu.classList.add('hidden'); paint(); };
+  };
+  paint();
+  btn.onclick=e=>{ e.stopPropagation(); paint(); menu.classList.toggle('hidden'); };
+  document.addEventListener('click',e=>{ if(!menu.contains(e.target)&&e.target!==btn) menu.classList.add('hidden'); });
+  window._acctPaint=paint;
 }
 function initPlans(){
   const btn=document.getElementById('plansBtn'); if(!btn) return;

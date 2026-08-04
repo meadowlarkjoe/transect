@@ -8,7 +8,16 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="vendor/maplibre-gl.css">
-<link rel="stylesheet" href="style.css?v=45">
+<link rel="stylesheet" href="style.css?v=46">
+<script>
+  /* Access gate. This is UX, not security — the real enforcement is server-side:
+     POST /scout now requires a valid account token, so an unauthenticated visitor
+     cannot burn engine time even if they bypass this redirect. */
+  try{
+    var _t = localStorage.getItem('transect_tok') || localStorage.getItem('transect_token');
+    if(!_t) location.replace('signin?next=' + encodeURIComponent(location.pathname.split('/').pop() + location.search));
+  }catch(e){}
+</script>
 </head>
 <body>
 <div id="map"></div>
@@ -31,6 +40,8 @@
   </div>
   <button id="plansBtn" class="btn btn--secondary btn--sm">Plans</button>
   <button id="exportBtn" class="btn btn--secondary btn--sm">Export</button>
+  <button id="acctBtn" class="btn btn--ghost btn--sm" title="Account">Account</button>
+  <div id="acctMenu" class="hidden"></div>
 </nav>
 
 <!-- Left ledger -->
@@ -69,8 +80,8 @@
 
 <script src="vendor/maplibre-gl.js"></script>
 <script src="config.js"></script>
-<script src="data.js?v=45"></script>
-<script src="area_detail.js?v=45"></script>
-<script src="app.js?v=45"></script>
+<script src="data.js?v=46"></script>
+<script src="area_detail.js?v=46"></script>
+<script src="app.js?v=46"></script>
 </body>
 </html>

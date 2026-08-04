@@ -417,3 +417,9 @@ input[type=range]:focus{box-shadow:none;border:0}
   background:var(--surface);border:1px solid var(--accent);color:var(--accent-hi);
   border-radius:99px;padding:6px 12px;font:500 10.5px/1 var(--mono);letter-spacing:.08em}
 .maplibregl-ctrl-bottom-right{margin-bottom:56px}
+
+/* account menu (top bar) */
+#acctMenu{position:absolute;z-index:30;top:calc(var(--bar-h) + 8px);right:10px;width:250px;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);
+  box-shadow:var(--e-pop);padding:var(--s-3)}
+#acctMenu.hidden{display:none}
