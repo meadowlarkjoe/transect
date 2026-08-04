@@ -133,8 +133,12 @@ def run(ctx: Context) -> dict[str, str]:
     status: dict[str, str] = {}
     for name, fn in steps:
         pool = ThreadPoolExecutor(max_workers=1)
+        # Écoforestière is a heavy full-stand vector pull (the richest habitat signal), so
+        # it gets a longer leash than the other sources — the user chose full stands over
+        # speed. Its own wall-clock budget (ECOFOR_BUDGET_S) still bounds it.
+        this_timeout = max(src_timeout, 900) if name == "ecoforestiere" else src_timeout
         try:
-            pool.submit(fn, ctx).result(timeout=src_timeout)
+            pool.submit(fn, ctx).result(timeout=this_timeout)
             status[name] = "ok"
         except _FTimeout:
             status[name] = "timeout"       # stalled source can no longer hang the job

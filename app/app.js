@@ -1828,9 +1828,11 @@ function renderSetup(){
         The areas, zones and brief on screen now are for a different box. Running again
         discards them — save the current plan first if you want to keep it.</div></div>`:''}
       <div class="callout" data-kind="info" style="margin-top:10px"><span class="mark">i</span><div class="body">
-        <b>Live recompute — 3–5 minutes</b>
-        Downloads terrain, imagery, land-cover, burn history and hydrography for the box, then
-        re-runs the model. Progress sits at 0% through the download stage; that's normal.</div></div>
+        <b>Live recompute — a few minutes (longer for large southern boxes)</b>
+        Downloads terrain, imagery, land-cover, burn history, hydrography and — south of ~52°N —
+        detailed forest-stand data (species, canopy closure, dated cuts), then re-runs the model.
+        Big boxes with full stand data can take 8–10 min; progress sits at 0% through the
+        download stage, which is normal.</div></div>
     </div>`;
 
   // wiring

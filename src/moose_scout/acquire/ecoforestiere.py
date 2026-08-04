@@ -128,7 +128,9 @@ def fetch(ctx: Context) -> None:
     # inside BUDGET, DISCARD the partial pull and fall back cleanly to WorldCover + S2 —
     # a complete coarse layer beats a half-covered good one. (Env-tunable.)
     import time as _time
-    BUDGET = float(os.environ.get("ECOFOR_BUDGET_S", "150"))
+    # Full-stand pull is worth the wait (richest habitat signal); the budget is a safety
+    # net for a genuinely stuck fetch, not a speed cap. Big boxes take several minutes.
+    BUDGET = float(os.environ.get("ECOFOR_BUDGET_S", "800"))
     t0 = _time.time()
     got_any = False
     start, PAGE = 0, 8000

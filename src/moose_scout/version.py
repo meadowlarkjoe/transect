@@ -13,11 +13,15 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 6
+ENGINE_REVISION = 7
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    7: "South of ~52°N the model now reads the MRNF écoforestière map: real stand species, "
+       "canopy closure and dated logging cuts. Thermal refuge keys on actual conifer + "
+       "closure (not 'any tree'), and browse counts cuts by age — the dominant food source "
+       "in commercial forest. Large southern boxes take a few minutes longer to fetch it.",
     6: "Fixed a bug that gutted the browse/food layer across any AOI with burns (the "
        "disturbance-age step propagated NaN and zeroed browse on all never-burned ground) "
        "— habitat now reads the whole area, not a sliver. Reachability is now driven by "
