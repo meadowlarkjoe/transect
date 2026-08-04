@@ -72,6 +72,27 @@ def run(ctx: Context) -> None:
             w = None
         if w is not None and w.shape == dem.shape:
             barrier |= np.nan_to_num(w) > 0
+    # Narrow rivers OSM maps but the 10 m WorldCover water raster misses are real travel
+    # barriers too — rasterize the OSM river/canal lines (lightly buffered) into the
+    # barrier so funnels form between them. Zero new data (already cached, if acquired).
+    try:
+        import geopandas as gpd
+        from rasterio.features import rasterize as _rasterize
+        wl = cache_dir(aoi) / "waterways.gpkg"
+        if wl.exists():
+            gw = gpd.read_file(wl)
+            if "waterway" in gw.columns:
+                gw = gw[gw["waterway"].isin(["river", "canal"])]
+            if len(gw):
+                if gw.crs and gw.crs.to_epsg() != prof["crs"].to_epsg():
+                    gw = gw.to_crs(prof["crs"])
+                buf = gw.geometry.buffer(max(res, 15.0))          # give the line real width
+                rr = _rasterize(((geom, 1) for geom in buf if geom is not None and not geom.is_empty),
+                                out_shape=dem.shape, transform=prof["transform"], fill=0,
+                                dtype="uint8", all_touched=True)
+                barrier |= rr > 0
+    except Exception:
+        pass
 
     constriction = np.zeros(dem.shape, "float32")
     if barrier.any():

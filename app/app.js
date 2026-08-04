@@ -29,7 +29,7 @@ function blankDoc(){
     weather: {source:'none', days:[]},
     hydro: {rivers:[], lakes:[]}, crossings: [], infra: [],
     hunt_zones: [], browse_zones: [], refuge_zones: [], funnel_zones: [],
-    burn_zones: [], burn_meta: {}, tenure_zones: [],
+    burn_zones: [], burn_meta: {}, cut_zones: [], cut_meta: {}, tenure_zones: [],
     rut: null, confidence: null, strategy: null, recommendations: [],
     disclaimer: (EXAMPLE && EXAMPLE.disclaimer) || ''
   };
@@ -450,10 +450,12 @@ function buildSources(){
   const refugeZones=zFC(DOC.refuge_zones), funnelZones=zFC(DOC.funnel_zones);
   const burnZones=fc((DOC.burn_zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},
     properties:{cls:z.cls,area_km2:z.area_km2}})));
+  const cutZones=fc((DOC.cut_zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},
+    properties:{cls:z.cls,area_km2:z.area_km2}})));
   const tenureZones=fc((DOC.tenure_zones||[]).map(t=>({type:'Feature',geometry:t.geometry,
     properties:{tenure:t.tenure,name:t.name,access:t.access,huntable:!!t.huntable}})));
   const infra=fc((DOC.infra||[]).map(o=>({type:'Feature',geometry:{type:'LineString',coordinates:o.ll},properties:{t:o.t}})));
-  return {areas,areaLabels,camps,staging,packin,routes,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones,burnZones,tenureZones,infra};
+  return {areas,areaLabels,camps,staging,packin,routes,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones,burnZones,cutZones,tenureZones,infra};
 }
 
 function init(){
@@ -520,6 +522,15 @@ function init(){
       'fill-opacity':['case',['==',['get','cls'],'prime'],0.95,0.5]}});
   map.addLayer({id:'burnZones-line',type:'line',source:'burnZones',
     layout:{visibility:'none'},paint:{'line-color':'#C97A2B','line-width':1.5,'line-opacity':1}});
+  // Recent LOGGING CUTS (écoforestière), coloured by age — a surveyed cutblock edge, so
+  // it earns a stroke. Green family (it's about browse), distinct from the ember burns:
+  // fresh = pale (open, browse not up yet), regen = bright (prime), closing = dark.
+  map.addSource('cutZones',{type:'geojson',data:S.cutZones});
+  const cutCol=['match',['get','cls'],'fresh','#C7C267','regen','#6FA83A','closing','#3F6B34','#6FA83A'];
+  map.addLayer({id:'cutZones',type:'fill',source:'cutZones',
+    layout:{visibility:'none'},paint:{'fill-color':cutCol,'fill-opacity':0.32}});
+  map.addLayer({id:'cutZones-line',type:'line',source:'cutZones',
+    layout:{visibility:'none'},paint:{'line-color':cutCol,'line-width':1.2,'line-opacity':0.95}});
   // thermal refuge + funnel ZONES (areas, not points)
   map.addSource('refugeZones',{type:'geojson',data:S.refugeZones});
   map.addSource('funnelZones',{type:'geojson',data:S.funnelZones});
@@ -1001,6 +1012,7 @@ const LYR_MAP={areas:['areas-fill','areas-line','area-badges'],sites:['sites','s
   funnel:['funnelZones','funnelZones-line'],
   browse:['browseZones','browseZones-line'],
   burns:['burnZones','burnZones-line'],
+  cuts:['cutZones','cutZones-line'],
   tenure:['tenureBlocked','tenureZones-line'],tenureOk:['tenureZones-line-ok']};
 
 /* ============================================================================
@@ -1035,6 +1047,9 @@ const LAYERS=[
  {k:'burns', group:'MODEL ZONES', kind:'hatch', edge:'solid', name:'Burn regeneration',
   note:'Fire perimeters by age — browse peaks 15–22 yr after a burn. Strongest single predictor here.',
   hex:'#C97A2B', icon:'flame', on:false, lyr:'burns', count:()=>(DOC.burn_zones||[]).length},
+ {k:'cuts', group:'MODEL ZONES', kind:'stipple', edge:'solid', name:'Recent cuts',
+  note:'Logging cutblocks by age (écoforestière) — pale = fresh, bright green = 10–25 yr prime browse, dark = closing in. South of ~52°N.',
+  hex:'#6FA83A', icon:'leaf', on:false, lyr:'cuts', count:()=>(DOC.cut_zones||[]).length},
  {k:'funnel', group:'MODEL ZONES', kind:'soft', edge:'none', name:'Funnels / passes',
   note:'Land necks between water/wetland where travelling bulls squeeze through',
   hex:'#FF8C00', icon:'fork', on:false, lyr:'funnel', count:()=>(DOC.funnel_zones||[]).length},
@@ -1952,7 +1967,7 @@ function applyDoc(newDoc){        // re-bind the whole map + panels to fresh eng
   const S=buildSources();
   const setD=(id,data)=>{const s=map.getSource(id); if(s&&data) s.setData(data);};
   setD('huntZones',S.huntZones); setD('browseZones',S.browseZones);
-  setD('refugeZones',S.refugeZones); setD('funnelZones',S.funnelZones); setD('burnZones',S.burnZones); setD('tenureZones',S.tenureZones);
+  setD('refugeZones',S.refugeZones); setD('funnelZones',S.funnelZones); setD('burnZones',S.burnZones); setD('cutZones',S.cutZones); setD('tenureZones',S.tenureZones);
   setD('rivers',S.rivers); setD('lakes',S.lakes); setD('crossings',S.crossings); setD('infra',S.infra);
   setD('areas',S.areas); setD('areaLabels',S.areaLabels); setD('camps',S.camps);
   setD('staging',S.staging); setD('packin',fc(S.packin)); setD('sites',fc(window._sites));
@@ -3008,6 +3023,8 @@ const IDENTIFY = [
   {lyr:'refugeZones',  row:'refuge',   title:()=>'Thermal refuge',   sub:p=>`${p.area_km2} km²`},
   {lyr:'browseZones',  row:'browse',   title:()=>'Browse / feeding', sub:p=>`${p.area_km2} km²`},
   {lyr:'burnZones',    row:'burns',    title:p=>`Burn regeneration · ${p.cls||''}`, sub:p=>`${p.area_km2} km²`},
+  {lyr:'cutZones',     row:'cuts',     title:p=>({fresh:'Recent cut · fresh (<10 yr)',regen:'Recent cut · prime regen (10–25 yr)',closing:'Recent cut · closing in (26–40 yr)'}[p.cls]||'Logging cut'),
+                       sub:p=>`${p.area_km2} km² · logged ground, browse by age`},
   {lyr:'funnelZones',  row:'funnel',   title:()=>'Funnel / pass',    sub:p=>`${p.area_km2} km²`},
   {lyr:'tenureBlocked',row:'tenure',   title:()=>'Closed to you',    sub:p=>p.name||'outfitter / reserve tenure'},
   {lyr:'tenureZones-line-ok', row:'tenure-ok', title:()=>'Bookable — register first',

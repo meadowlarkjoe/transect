@@ -108,6 +108,54 @@ def _worldcover_lakes(cache, min_km2=0.06, simp=0.0006):
     return rings
 
 
+def _cut_zones(ctx, cache):
+    """Recent logging cuts (écoforestière) as AGE-CLASSED polygons — distinct from burn
+    regen. Fresh cuts are open with little browse yet; 10–25 yr regen is prime browse;
+    26–40 yr is closing in. Older cuts read like mature forest and are dropped."""
+    import numpy as np
+    from pyproj import Transformer
+    from rasterio.features import shapes as rio_shapes
+    from scipy.ndimage import binary_closing, binary_opening
+    from shapely.geometry import shape as shp_shape
+    from shapely.ops import transform as shp_transform
+    try:
+        cy, prof = ru.read(cache / "cut_year.tif")
+    except Exception:
+        return [], {}
+    cy = np.nan_to_num(cy)
+    if not (cy > 0).any():
+        return [], {}
+    year = int(ctx.aoi.season.year)
+    age = np.where(cy > 0, year - cy, -1)
+    res = abs(prof["transform"].a)
+    tr = Transformer.from_crs(prof["crs"], "EPSG:4326", always_xy=True)
+    to_wgs = lambda g: shp_transform(lambda xs, ys: tr.transform(xs, ys), g)  # noqa: E731
+    it = max(1, int(round(90 / res)))
+    out = []
+    for name, lo, hi in (("fresh", 0, 9), ("regen", 10, 25), ("closing", 26, 40)):
+        mask = (age >= lo) & (age <= hi)
+        if not mask.any():
+            continue
+        mask = binary_closing(binary_opening(mask, iterations=it), iterations=it)
+        polys = []
+        for g, v in rio_shapes(mask.astype("uint8"), mask=mask, transform=prof["transform"]):
+            if v == 1:
+                gm = shp_shape(g)
+                if gm.area / 1e6 >= 0.06:
+                    polys.append(gm)
+        polys.sort(key=lambda p: p.area, reverse=True)
+        for gm in polys[:14]:
+            gw = to_wgs(gm).simplify(0.0006)
+            for pp in (gw.geoms if gw.geom_type == "MultiPolygon" else [gw]):
+                ring = [[round(x, 5), round(y, 5)] for x, y in pp.exterior.coords]
+                if len(ring) >= 4:
+                    out.append({"cls": name, "ll": ring, "area_km2": round(gm.area / 1e6, 1)})
+    v = cy[cy > 0]
+    meta = {"first_year": int(v.min()), "last_year": int(v.max()),
+            "pct_of_aoi": round(float((cy > 0).mean()) * 100, 1)}
+    return out, meta
+
+
 def _browse_zones(ctx, cache, min_km2=0.8, smooth_m=280):
     """Browse/feeding zones split BY TYPE (from land cover), each with what it is and
     when moose feed on it. Separate from huntability."""
@@ -541,6 +589,13 @@ def build(ctx: Context) -> dict:
     except Exception:
         doc["burn_zones"] = []
         doc["burn_meta"] = {}
+
+    # Recent logging cuts (écoforestière) — their own age-classed layer, distinct from
+    # fire regen. The dominant browse-creating disturbance in commercial forest.
+    try:
+        doc["cut_zones"], doc["cut_meta"] = _cut_zones(ctx, cache)
+    except Exception:
+        doc["cut_zones"], doc["cut_meta"] = [], {}
 
     # classified suitability + browse zones (defined clickable areas, not heat)
     try:
