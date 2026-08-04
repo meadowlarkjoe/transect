@@ -1,0 +1,64 @@
+# Region profile — Québec, boreal (E2).
+#
+# A REGION PROFILE is the set of assumptions that change when you leave a place:
+# which LEGAL regime governs the hunt, and which DATA SOURCES exist and how far
+# each one reaches. Until E2 the engine hardcoded Québec everywhere and a species'
+# `region_profile:` was read by nothing. Now the species names a profile, region.py
+# loads it, and downstream code READS it: legal.py dispatches on `legal_regime`
+# (a regime the engine doesn't implement raises, rather than silently applying
+# Québec law elsewhere), acquire skips a source when the AOI is outside its
+# coverage envelope, and the contract carries a per-run COVERAGE MANIFEST built
+# from these `sources` — the honest "what actually covered your box" readout.
+#
+# `region_profile` matches the value in config/species/*.yaml. A non-Québec profile
+# is a new file here plus its data adapters — no engine change to the shape.
+
+region_profile: quebec_boreal
+region: quebec                       # legal + data regime; both QC profiles share it
+name_en: "Québec — boreal"
+name_fr: "Québec — forêt boréale"
+legal_regime: quebec                 # selects legal.py's Québec adapter (see SUPPORTED_REGIMES)
+
+# Data sources this region draws on, each with a COVERAGE envelope. The manifest
+# (computed per run in contract.py) records, for THIS AOI, whether each source is
+# in bounds — and, where a source has a hard geographic edge, which side the box
+# falls on. Envelope keys understood by region.coverage_manifest:
+#   max_lat / min_lat  — hard latitude edge (computed against the AOI bbox)
+#   extent: global | country: <name> | region: <name>  — descriptive, treated as in-bounds
+sources:
+  - id: ecoforestiere
+    label_en: "Forest stand inventory (écoforestière)"
+    label_fr: "Carte écoforestière (MFFP)"
+    kind: forestry_stand
+    coverage: { max_lat: 52.0 }
+    out_caveat: "North of ~52°N the écoforestière map thins to nothing — stand species, closure and cut-age fall back to satellite land-cover and Sentinel-2, at lower confidence."
+  - id: grhq
+    label_en: "Hydrography (GRHQ)"
+    label_fr: "Réseau hydrographique (GRHQ)"
+    kind: hydro
+    coverage: { region: quebec }
+  - id: nbac
+    label_en: "Burn history (NBAC)"
+    label_fr: "Historique des feux (NBAC)"
+    kind: burn
+    coverage: { country: canada }
+  - id: sentinel2
+    label_en: "Satellite greenness (Sentinel-2)"
+    label_fr: "Verdure satellite (Sentinel-2)"
+    kind: ndvi
+    coverage: { extent: global }
+  - id: worldcover
+    label_en: "Land cover (ESA WorldCover)"
+    label_fr: "Couverture du sol (ESA WorldCover)"
+    kind: landcover
+    coverage: { extent: global }
+  - id: cdem
+    label_en: "Elevation (CDEM)"
+    label_fr: "Élévation (MNÉC)"
+    kind: dem
+    coverage: { country: canada }
+  - id: osm
+    label_en: "Roads, trails & water (OpenStreetMap)"
+    label_fr: "Routes, sentiers et eau (OpenStreetMap)"
+    kind: infrastructure
+    coverage: { extent: global }

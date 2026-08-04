@@ -105,6 +105,21 @@ def fetch(ctx: Context) -> None:
     if (cache / "stand_type.tif").exists():
         return
 
+    # E2: the region profile declares this source's coverage edge (écoforestière
+    # thins to nothing north of ~52°N). If the whole AOI is outside it, don't even
+    # attempt the heavy WFS pull that would only 400 — record absence and let habitat
+    # fall back to WorldCover + Sentinel-2, exactly as the in-fetch 400 path does.
+    try:
+        from ..region import resolve_region, source_covers_aoi
+
+        _srcs = {s.get("id"): s for s in (resolve_region(ctx).get("sources") or [])}
+        _cov = (_srcs.get("ecoforestiere") or {}).get("coverage")
+        if source_covers_aoi(_cov, ctx.aoi.bbox_wgs84()) == "out":
+            (cache / "ecoforestiere_absent.flag").write_text("region")
+            return
+    except Exception:
+        pass  # coverage check is an optimisation; the in-fetch 400 path still guards
+
     dst_crs, transform, w, h = target_grid(ctx)
     minlon, minlat, maxlon, maxlat = ctx.aoi.bbox_wgs84()
 

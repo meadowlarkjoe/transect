@@ -782,6 +782,27 @@ function packout(a){
       (days>=1?`${days.toFixed(days<2?1:0)} hard day${days>=2?'s':''}`:`${Math.round(hrs)} h`)+
       (boat?' — or one trip if you can float it out.':'.')};
 }
+// E2: the honest "what covered your box" readout. The engine emits a coverage
+// manifest (contract.build → DOC.coverage_manifest) — per declared data source, is
+// THIS AOI in the source's coverage, and did the source actually land a product.
+// 'fallback' = outside the source's envelope, using a coarser substitute (expected,
+// info); 'missing' = declared in-coverage but nothing landed this run (degraded, warn).
+// A collapsed summary by default; the caveats expand. Empty (older contract) → nothing.
+function coverageBlock(){
+  const m=DOC.coverage_manifest||[];
+  if(!m.length) return '';
+  const COL={ok:'var(--good)',in:'var(--good)',partial:'var(--z-medium,#FF8C00)',fallback:'var(--text-2)',missing:'var(--danger)'};
+  const full=m.filter(e=>e.status==='ok'||e.status==='in');
+  const deg =m.filter(e=>e.status==='missing');
+  const fb  =m.filter(e=>e.status==='fallback'||e.status==='partial');
+  const chips=m.map(e=>`<span class="t-micro" style="color:${COL[e.status]||'var(--text-2)'}" title="${(e.note||e.status).replace(/"/g,'&quot;')}">${e.label||e.id}</span>`).join(' · ');
+  let h=`<details style="margin-top:8px"><summary class="t-micro" style="cursor:pointer">`
+    +`Data coverage — ${full.length}/${m.length} full`
+    +(deg.length?`, ${deg.length} degraded`:'')+(fb.length?`, ${fb.length} fallback`:'')
+    +`</summary><div class="s" style="margin:6px 0">${chips}</div>`;
+  deg.concat(fb).forEach(e=>{ if(e.note) h+=`<div class="callout" data-kind="${e.status==='missing'?'warn':'info'}"><span class="mark">${e.status==='missing'?'!':'i'}</span><div class="body"><b>${e.label||e.id}</b> — ${e.note}</div></div>`; });
+  return h+`</details>`;
+}
 function buildPanel(){
   // Nothing analysed yet — say so, and offer the example explicitly rather than
   // silently pretending someone else's run is yours.
@@ -820,7 +841,8 @@ function buildPanel(){
         answer, not an error — try a different area, a larger radius, or different dates.</div></div>`:'')
     + ((g.flags||[]).length?`<div class="callout" data-kind="warn"><span class="mark">!</span><div class="body"><b>${(g.flags||[]).length} thing${g.flags.length>1?'s':''} to confirm before you go</b>${(g.flags||[]).join('<br>')}</div></div>`:'')
     + (cf&&cf.caveats?`<div class="callout" data-kind="info"><span class="mark">i</span><div class="body">${[].concat(cf.caveats).join(' ')}</div></div>`:'')
-    + (DOC.strategy&&DOC.strategy.density_per_10km2?`<div class="s" style="margin-top:8px">Density ≈ <b class="mono">${DOC.strategy.density_per_10km2}</b> moose/10 km² (${DOC.strategy.density_is_estimate?'estimate':'survey'}) — expect long silences; coverage beats sitting.</div>`:'');
+    + (DOC.strategy&&DOC.strategy.density_per_10km2?`<div class="s" style="margin-top:8px">Density ≈ <b class="mono">${DOC.strategy.density_per_10km2}</b> moose/10 km² (${DOC.strategy.density_is_estimate?'estimate':'survey'}) — expect long silences; coverage beats sitting.</div>`:'')
+    + coverageBlock();
   const m=DOC.methodology;
   document.getElementById('method').innerHTML=
     `<details><summary class="t-micro" style="cursor:pointer">What I'm looking for</summary>

@@ -153,6 +153,16 @@ def assess(ctx: Context) -> LegalAssessment:
     residency = aoi.hunter.residency
     north = aoi.center.lat >= PARALLEL_52
 
+    # E2: the residency × tenure × parallel tables below are the QUÉBEC regime. The
+    # region profile names which regime governs this AOI; if it isn't one the engine
+    # implements, DO NOT silently apply Québec law — flag it, run the best-effort
+    # geometry, and tell the hunter the legal read is unverified for their region.
+    from .region import SUPPORTED_REGIMES, resolve_region
+
+    region = resolve_region(ctx)
+    regime = region.get("legal_regime") or "quebec"
+    regime_ok = regime in SUPPORTED_REGIMES
+
     zone = resolve_zone(ctx)
     patches = classify_tenure(ctx)
 
@@ -164,6 +174,14 @@ def assess(ctx: Context) -> LegalAssessment:
         acquired=patches is not None,
         patches=patches or [],
     )
+
+    if not regime_ok:
+        la.verify.append(
+            f"Legal read UNVERIFIED for region '{region.get('name_en', regime)}': the "
+            f"engine implements Québec hunting law only, and the residency/tenure/"
+            f"season rules below do NOT apply outside Québec. Confirm every legal "
+            f"question against the governing authority before you plan around this."
+        )
 
     if patches is None:
         la.verify.append(

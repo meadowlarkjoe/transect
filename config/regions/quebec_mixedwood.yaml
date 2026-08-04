@@ -1,0 +1,49 @@
+# Region profile — Québec, mixedwood (E2). See quebec_boreal.yaml for the full
+# schema documentation. Same legal + data regime as the boreal profile; it exists
+# as its own profile so a mixedwood species (whitetail) resolves to the ecology and
+# naming of the southern hardwood/mixed forest rather than the boreal one. The
+# écoforestière covers the whole mixedwood range, so its north edge never bites here.
+
+region_profile: quebec_mixedwood
+region: quebec
+name_en: "Québec — mixedwood"
+name_fr: "Québec — forêt mixte"
+legal_regime: quebec
+
+sources:
+  - id: ecoforestiere
+    label_en: "Forest stand inventory (écoforestière)"
+    label_fr: "Carte écoforestière (MFFP)"
+    kind: forestry_stand
+    coverage: { max_lat: 52.0 }
+    out_caveat: "North of ~52°N the écoforestière map thins to nothing — stand species, closure and cut-age fall back to satellite land-cover and Sentinel-2, at lower confidence."
+  - id: grhq
+    label_en: "Hydrography (GRHQ)"
+    label_fr: "Réseau hydrographique (GRHQ)"
+    kind: hydro
+    coverage: { region: quebec }
+  - id: nbac
+    label_en: "Burn history (NBAC)"
+    label_fr: "Historique des feux (NBAC)"
+    kind: burn
+    coverage: { country: canada }
+  - id: sentinel2
+    label_en: "Satellite greenness (Sentinel-2)"
+    label_fr: "Verdure satellite (Sentinel-2)"
+    kind: ndvi
+    coverage: { extent: global }
+  - id: worldcover
+    label_en: "Land cover (ESA WorldCover)"
+    label_fr: "Couverture du sol (ESA WorldCover)"
+    kind: landcover
+    coverage: { extent: global }
+  - id: cdem
+    label_en: "Elevation (CDEM)"
+    label_fr: "Élévation (MNÉC)"
+    kind: dem
+    coverage: { country: canada }
+  - id: osm
+    label_en: "Roads, trails & water (OpenStreetMap)"
+    label_fr: "Routes, sentiers et eau (OpenStreetMap)"
+    kind: infrastructure
+    coverage: { extent: global }

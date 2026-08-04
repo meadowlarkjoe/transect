@@ -886,6 +886,45 @@ def build(ctx: Context) -> dict:
         doc["legend"] = []
         doc["legend_groups"] = []
 
+    # Region + coverage manifest (E2): which legal/data regime governs this AOI, and —
+    # per declared data source — whether the box is IN its coverage and whether the
+    # source actually landed a product this run. This is the honest "what covered your
+    # box" readout: a source declared in-coverage that returned nothing reads 'missing',
+    # not a silent gap; one outside its envelope reads 'fallback' with the caveat.
+    try:
+        from .region import coverage_manifest, resolve_region
+
+        _region = resolve_region(ctx)
+        doc["region"] = {
+            "profile": _region.get("region_profile"),
+            "name": _region.get("name_en"),
+            "legal_regime": _region.get("legal_regime"),
+        }
+        # source id -> the cache product that proves it landed (None = no bulk probe).
+        _PRODUCT = {
+            "ecoforestiere": "stand_type.tif", "nbac": "burn_year.tif",
+            "sentinel2": "ndvi.tif", "worldcover": "landcover.tif",
+            "cdem": "dem.tif", "osm": "roads.gpkg",
+        }
+        _man = coverage_manifest(ctx, _region)
+        for e in _man:
+            decl = e.get("coverage")            # declared: in | partial | out
+            prod = _PRODUCT.get(e.get("id"))
+            if decl == "out":
+                e["status"] = "fallback"
+            elif prod is None:
+                e["status"] = decl              # no runtime probe (e.g. grhq per-crossing)
+            elif (cache / prod).exists():
+                e["status"] = "partial" if decl == "partial" else "ok"
+            else:
+                e["status"] = "missing"
+                e.setdefault("note", "Declared in coverage but no data landed this run "
+                             "(source error or timed out) — this layer is degraded.")
+        doc["coverage_manifest"] = _man
+    except Exception:
+        doc["region"] = None
+        doc["coverage_manifest"] = []
+
     # Stamp the analysis with the engine revision that produced it, so a saved plan
     # can tell whether the model has moved on since. See version.py.
     try:
