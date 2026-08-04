@@ -70,6 +70,46 @@ def _polygonize(ctx, cache, tif, bands, min_km2=1.5, smooth_m=320, per_class=8, 
     return out
 
 
+def _grhq_crossing_class(lon, lat):
+    """Query GRHQ (Québec hydrographic network) at a crossing point → fordability from
+    STRAHLER ORDER + PERENNIALITY, the real size/regime surrogates. A tiny per-point query
+    (~0.15 s), so crossings — which are sparse, only where a route meets water — get a
+    measured call instead of the OSM waterway-class guess. Returns (kind, why, basis) or
+    None to fall back to the OSM class (service down / no coverage)."""
+    import json
+    import urllib.parse
+    import urllib.request
+    base = ("https://servicescarto.mrnf.gouv.qc.ca/pes/rest/services/Territoire/"
+            "GRHQ_WMS/MapServer/15/query")
+    d = 0.0035
+    q = {"geometry": f"{lon-d},{lat-d},{lon+d},{lat+d}", "geometryType": "esriGeometryEnvelope",
+         "inSR": "4326", "spatialRel": "esriSpatialRelIntersects", "where": "ENABLED=1",
+         "outFields": "O_STRAHLER,PERENNITE,TYPECE", "returnGeometry": "false",
+         "resultRecordCount": "20", "f": "json"}
+    try:
+        url = base + "?" + urllib.parse.urlencode(q)
+        req = urllib.request.Request(url, headers={"User-Agent": "moose-scout/1.0"})
+        with urllib.request.urlopen(req, timeout=12) as r:
+            feats = json.loads(r.read().decode("utf-8", "replace")).get("features") or []
+    except Exception:
+        return None
+    if not feats:
+        return None
+    types = {int(f["attributes"].get("TYPECE") or 0) for f in feats}
+    if types & {12, 13, 46, 49}:          # rapids / falls / dam
+        return "boat", "GRHQ: rapids, falls or a dam here — do NOT ford; cross at a bridge or by boat", "measured"
+    best = max(feats, key=lambda f: int(f["attributes"].get("O_STRAHLER") or 0))
+    a = best["attributes"]
+    order = int(a.get("O_STRAHLER") or 0)
+    per = (a.get("PERENNITE") or "").upper()
+    peren = "permanent flow" if per == "P" else "intermittent" if per == "I" else "flow unclassed"
+    if order >= 4 or (order >= 3 and per == "P"):
+        return "boat", f"GRHQ: Strahler order {order}, {peren} — a substantial channel; plan a boat or a bridge", "measured"
+    if order <= 1:
+        return "ford", f"GRHQ: Strahler order {order}, {peren} — a small channel, usually wadeable at low water; still scout it", "measured"
+    return "ford", f"GRHQ: Strahler order {order}, {peren} — scout before committing; it can run deep and fast after rain", "measured"
+
+
 def _worldcover_lakes(cache, min_km2=0.06, simp=0.0006):
     """Polygonize the WorldCover water mask (water.tif, satellite — COMPLETE) into lake
     rings for DISPLAY. OSM hydrography is sparse in remote northern QC, so many large
@@ -760,6 +800,8 @@ def build(ctx: Context) -> dict:
         except Exception:
             _water_all = None
 
+        _grhq_cache = {}
+
         def _classify(pt, weak_kind):
             """weak_kind is what the waterway class alone would say."""
             if bridges is not None:
@@ -768,6 +810,16 @@ def build(ctx: Context) -> dict:
                 # a real crossing: a mapped bridge near the point that itself crosses water
                 if not local.is_empty and (_water_all is None or local.intersects(_water_all)):
                     return "bridge", "road bridge mapped across the water here", "measured"
+            # GRHQ gives the real Strahler order + perenniality — a MEASURED size/regime
+            # call — instead of the OSM waterway-class guess. Cache per rounded point so a
+            # route touching the same stream twice hits the network once. (Lake shores
+            # pass weak_kind='river' and are handled after this, so we only GRHQ streams.)
+            if weak_kind in ("stream", "river"):
+                key = (round(pt[0], 4), round(pt[1], 4))
+                if key not in _grhq_cache:
+                    _grhq_cache[key] = _grhq_crossing_class(pt[0], pt[1])
+                if _grhq_cache[key] is not None:
+                    return _grhq_cache[key]
             if weak_kind == "danger":
                 return "boat", ("mapped as rapids / fast water — DO NOT ford; cross at a "
                                 "bridge or well downstream on calm water"), "inferred"
@@ -813,13 +865,13 @@ def build(ctx: Context) -> dict:
         pass
     doc["crossings"] = crossings
     doc["crossings_note"] = (
-        "Crossing calls are graded. 'Measured' means a bridge is mapped at the point. "
-        "'Inferred' means it rests on the OSM waterway class alone — no width, ford or "
-        "riverbank data ships for this area, so treat a boat call as 'assume the worst "
-        "until you see it'. A ford call is a possibility, not a promise — depth and "
-        "current are unmeasured. In the fall hunt window rain and snowmelt can raise "
-        "levels feet per hour and cold water turns a failed ford dangerous fast; cross "
-        "early morning (lowest flow), face upstream, and unbuckle your pack.")
+        "Crossing calls are graded. 'Measured' means a mapped bridge, or a GRHQ call from "
+        "the stream's Strahler order and perenniality (permanent vs intermittent). "
+        "'Inferred' rests on the OSM waterway class alone. Either way a ford call is a "
+        "possibility, not a promise — depth and current still aren't measured. In the fall "
+        "hunt window rain and snowmelt can raise levels feet per hour and cold water turns "
+        "a failed ford dangerous fast; cross early morning (lowest flow), face upstream, "
+        "and unbuckle your pack.")
 
     # Stamp the analysis with the engine revision that produced it, so a saved plan
     # can tell whether the model has moved on since. See version.py.
