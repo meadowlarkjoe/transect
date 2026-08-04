@@ -475,6 +475,10 @@ function init(){
   buildPanel(); buildWeather(); buildLegend(); buildTools();
   setVis(LYR_MAP.roads,true); setVis(LYR_MAP.boundaries,true);   // roads + borders on by default in every view
   renderSetup(); renderBrief(); wireTabs(); initPlans(); initExport(); setTab(startTab());
+  // Deep link from the plans dashboard: /transect/app?plan=<id> restores that plan
+  // (and its cached analysis, when it has one) instead of opening blank.
+  const _pid=new URLSearchParams(location.search).get('plan');
+  if(_pid) openPlanById(_pid);
   if(DOC.blank || !(DOC.areas||[]).length){
     map.jumpTo({center:[DOC.meta.center.lon,DOC.meta.center.lat],zoom:7.5});
   } else {
@@ -1543,12 +1547,17 @@ function setPlanName(n,saved){
 function uuid(){ return (crypto&&crypto.randomUUID)?crypto.randomUUID():'p-'+Date.now()+'-'+Math.random().toString(16).slice(2); }
 function loadPlans(){ try{return JSON.parse(localStorage.getItem('transect_plans')||'[]');}catch(e){return [];} }
 function savePlans(a){ try{localStorage.setItem('transect_plans',JSON.stringify(a));}catch(e){alert('Could not save (storage full).');} }
-function currentPlan(name){
-  return {id:uuid(), name:name||('Plan '+new Date().toLocaleDateString()), savedAt:Date.now(),
+function currentPlan(name, withDoc){
+  const p={id:uuid(), name:name||PLAN_NAME||('Plan '+new Date().toLocaleDateString()), savedAt:Date.now(),
     aoi:(DOC.meta&&DOC.meta.title)||'', units:UNITS,
     setup:{center:draft.center.slice(),radius:draft.radius,walkAccess:draft.walkAccess,walkHunt:draft.walkHunt,
       leaving:draft.leaving,watercraft:SETUP.watercraft,huntStyle:SETUP.huntStyle,dates:draft.dates.slice()},
     area:lastSel, annot:JSON.parse(JSON.stringify(drawSaved||[]))};
+  // The computed analysis is the expensive part (3–5 min). Store it with the plan so
+  // reopening is instant — but only server-side, where there's room for it.
+  if(withDoc && DOC && !DOC.blank) p.doc = DOC;
+  p.cached = !!p.doc;
+  return p;
 }
 function applyPlan(p){
   if(!p) return;
@@ -1562,12 +1571,24 @@ function applyPlan(p){
   drawSaved=JSON.parse(JSON.stringify(p.annot||[])); if(map.getSource('annot')) renderAnnot();
   lastSel=p.area||1;
   renderSetup();
-  map.flyTo({center:draft.center,zoom:9.5}); drawDraft();
-  document.getElementById('plans').classList.add('hidden');
-  alert('Loaded "'+p.name+'". Its Setup + drawings are restored — hit RUN ANALYSIS to recompute this area, or browse the current scout.');
+  const pl=document.getElementById('plans'); if(pl) pl.classList.add('hidden');
+  if(p.doc){                                   // cached analysis → no recompute needed
+    applyDoc(p.doc);
+    setPlanName(p.name||planTitle(), true);
+    setTab('overview');
+  } else {
+    map.flyTo({center:draft.center,zoom:9.5}); drawDraft();
+    setPlanName(p.name||planTitle(), true);
+    setTab('setup');
+    alert('Loaded "'+p.name+'".\n\nYour Setup and drawings are restored, but this plan was '
+      +'saved without a cached analysis (sign in to keep the results with the plan). '
+      +'Hit RUN ANALYSIS to compute it.');
+  }
 }
 /* accounts — token in localStorage; plans sync to the server when signed in */
-const authTok=()=>localStorage.getItem('transect_token')||'';
+// accept either key: the sign-in page writes 'transect_tok', older builds wrote
+// 'transect_token'. Reading both means an existing session keeps working.
+const authTok=()=>{try{return localStorage.getItem('transect_tok')||localStorage.getItem('transect_token')||'';}catch(e){return '';}};
 const authEmail=()=>localStorage.getItem('transect_email')||'';
 const isAuthed=()=>!!authTok();
 function apiF(path,opts){ opts=opts||{}; opts.headers=Object.assign(
@@ -1578,10 +1599,12 @@ async function doAuth(kind,email,pw){
     body:JSON.stringify({email,password:pw})});
   const d=await r.json().catch(()=>({}));
   if(!r.ok) throw new Error(d.detail||'failed');
-  localStorage.setItem('transect_token',d.token); localStorage.setItem('transect_email',d.email); return d;
+  localStorage.setItem('transect_tok',d.token); localStorage.setItem('transect_token',d.token);
+  localStorage.setItem('transect_email',d.email); localStorage.setItem('transect_seen','1'); return d;
 }
 function signOut(){ apiF('/auth/logout',{method:'POST'}).catch(()=>{});
-  localStorage.removeItem('transect_token'); localStorage.removeItem('transect_email'); renderPlans(); }
+  ['transect_token','transect_tok','transect_email'].forEach(k=>{try{localStorage.removeItem(k);}catch(e){}});
+  renderPlans(); }
 async function serverPlans(){
   try{ const r=await apiF('/plans'); if(!r.ok) return null;
     return (await r.json()).plans.map(p=>Object.assign({},p.data,{id:p.id,name:p.name,savedAt:(p.updated||0)*1000})); }
@@ -1598,8 +1621,8 @@ async function renderPlans(){
   if(plans===null) plans=loadPlans();
   el.innerHTML=`<div class="phead"><b>Hunt plans</b><button id="plansClose" class="ghost">✕</button></div>
     ${auth}
-    <div class="prow" style="margin-top:8px"><input id="planName" placeholder="Name this plan…"><button id="planSave">Save current</button></div>
-    <div class="s" style="margin:2px 0 8px">${authed?'Synced to your account — available on any device.':'Saved in this browser. Sign in to sync across devices.'}</div>
+    <div class="prow" style="margin-top:8px"><input id="planNameInput" placeholder="Name this plan…"><button id="planSave">Save current</button></div>
+    <div class="s" style="margin:2px 0 8px">${authed?'Synced to your account, with the computed analysis — reopens on any device without recomputing.':'Saved in this browser, settings only. Sign in to sync across devices and keep the analysis with the plan.'}</div>
     ${plans.length?plans.map(p=>`<div class="plan" data-id="${p.id}">
         <div><b>${p.name||'Plan'}</b><div class="s">${p.savedAt?new Date(p.savedAt).toLocaleString():''} · ${p.aoi||''} · r=${p.setup?p.setup.radius:'?'}km</div></div>
         <div class="pacts"><button data-act="load" data-id="${p.id}">Load</button><button data-act="del" data-id="${p.id}" class="ghost">Delete</button></div>
@@ -1615,7 +1638,8 @@ async function renderPlans(){
     document.getElementById('aSignup').onclick=go('signup');
   }
   document.getElementById('planSave').onclick=async ()=>{
-    const p=currentPlan(document.getElementById('planName').value.trim());
+    const nameEl=document.getElementById('planNameInput');
+    const p=currentPlan(nameEl?nameEl.value.trim():'', isAuthed());
     if(isAuthed()){ await apiF('/plans',{method:'PUT',body:JSON.stringify({id:p.id,name:p.name,data:p})}); }
     else { const arr=loadPlans(); arr.unshift(p); savePlans(arr); }
     renderPlans();
@@ -1630,6 +1654,18 @@ async function renderPlans(){
       applyPlan(src.find(x=>x.id===id));
     }
   });
+}
+async function openPlanById(id){
+  if(!id) return false;
+  try{
+    let src=[];
+    if(isAuthed()){ const r=await apiF('/plans'); if(r.ok){ const d=await r.json();
+      src=(d.plans||[]).map(p=>Object.assign({},p.data,{id:p.id,name:p.name,savedAt:(p.updated||0)*1000})); } }
+    if(!src.length) src=loadPlans();
+    const p=src.find(x=>String(x.id)===String(id));
+    if(p){ applyPlan(p); return true; }
+  }catch(e){}
+  return false;
 }
 function initPlans(){
   const btn=document.getElementById('plansBtn'); if(!btn) return;
