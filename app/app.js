@@ -474,7 +474,8 @@ function init(){
   buildShooters(); buildThermal();
   buildPanel(); buildWeather(); buildLegend(); buildTools();
   setVis(LYR_MAP.roads,true); setVis(LYR_MAP.boundaries,true);   // roads + borders on by default in every view
-  renderSetup(); renderBrief(); wireTabs(); initPlans(); initAccount(); initExport(); setTab(startTab());
+  renderSetup(); renderBrief(); wireTabs(); initPlans(); initAccount(); initLang(); initExport(); setTab(startTab());
+  if(window.I18N) I18N.apply(document);
   // Deep link from the plans dashboard: /transect/app?plan=<id> restores that plan
   // (and its cached analysis, when it has one) instead of opening blank.
   const _pid=new URLSearchParams(location.search).get('plan');
@@ -498,7 +499,8 @@ function chromeFallback(){
   try{ buildPanel(); }catch(e){}
   try{ buildTools(); }catch(e){}
   try{ buildWeather(); }catch(e){}
-  try{ renderSetup(); renderBrief(); wireTabs(); initPlans(); initAccount(); initExport(); setTab(startTab()); }catch(e){}
+  try{ renderSetup(); renderBrief(); wireTabs(); initPlans(); initAccount(); initLang(); initExport(); setTab(startTab());
+  if(window.I18N) I18N.apply(document); }catch(e){}
   try{ setPlanName(planTitle(),false);
     document.getElementById('subtitle').textContent=
       `${DOC.meta.species} · ${DOC.meta.target_dates.join(' – ')} · r${DOC.meta.radius_km} km`; }catch(e){}
@@ -556,7 +558,7 @@ function buildPanel(){
   const g=DOC.legal, cf=DOC.confidence||null;
   document.getElementById('gate').innerHTML=
     `<div class="row" style="justify-content:space-between">
-       <span class="t-micro" style="color:${g.diy_possible?'var(--good)':'var(--danger)'}">${g.diy_possible?'DIY POSSIBLE':'RESTRICTED'}</span>
+       <span class="t-micro" style="color:${g.diy_possible?'var(--good)':'var(--danger)'}">${g.diy_possible?t('ov.diy'):t('ov.restricted')}</span>
        ${cf?`<span class="row" style="gap:7px"><span class="t-micro">CONF ${Math.round(cf.score*100)}%</span>${confGauge(cf.score)}</span>`:''}
      </div>
      <div class="t-data" style="margin-top:6px;color:var(--text-2)">${g.zone?('ZONE '+g.zone):'ZONE NOT RESOLVED'} · ${g.north_of_52?'N':'S'} OF 52°N · ${(g.huntable_tenures||[]).join(', ')||'—'}</div>`
@@ -605,8 +607,8 @@ function areaCard(a){
     <div class="metaline">${a.conf?confGauge(a.conf.score)+`<span>conf ${Math.round(a.conf.score*100)}%</span>`:''}
       <span>${km(dr/1000)} to road</span></div>
     ${a.habitat_score!=null?`<div class="axes">
-      <div class="ax"><span class="k">habitat</span><span class="bar"><i style="width:${Math.round(a.habitat_score*100)}%"></i></span><span class="v">${a.habitat_score}</span></div>
-      <div class="ax"><span class="k">pack-out</span><span class="bar"><i class="ret" style="width:${Math.round((a.retrieval_score||0)*100)}%"></i></span><span class="v">${a.retrieval_score}</span></div>
+      <div class="ax"><span class="k">${t('ov.habitat')}</span><span class="bar"><i style="width:${Math.round(a.habitat_score*100)}%"></i></span><span class="v">${a.habitat_score}</span></div>
+      <div class="ax"><span class="k">${t('ov.packout')}</span><span class="bar"><i class="ret" style="width:${Math.round((a.retrieval_score||0)*100)}%"></i></span><span class="v">${a.retrieval_score}</span></div>
     </div>`:`<div class="metaline"><span>score ${a.huntability}</span></div>`}
     ${a.access_flag?`<div class="callout" data-kind="${boat?'danger':'warn'}"><span class="mark">${boat?'✕':'!'}</span><div class="body">${a.access_flag}</div></div>`:''}
     <div class="why">${(a.why||'').slice(0,190)}</div>
@@ -631,7 +633,7 @@ function selectArea(rank){
   const stat=(lbl,val)=>`<div class="stat"><span class="k">${lbl}</span><span class="v">${val}</span></div>`;
   const evRow=(k,t)=>`<div class="ev" data-kind="${k}"><span class="op">${k==='pro'?'+':'!'}</span><span class="txt">${t}</span></div>`;
   d.innerHTML=`<div class="sec" style="padding-bottom:0">
-    <button class="btn btn--ghost btn--sm back" style="padding-left:0">← all areas</button>
+    <button class="btn btn--ghost btn--sm back" style="padding-left:0">${t('ov.allareas')}</button>
     <div class="top" style="display:flex;align-items:center;gap:10px;margin-top:6px">
       <div class="badge ${rank<=2?'top':''}">${rank}</div>
       <div class="ttl" style="font:600 18px/1.2 var(--sans)">Area ${rank}</div>
@@ -643,7 +645,7 @@ function selectArea(rank){
     <p class="why">${a.why||''}</p>
   </div>
   <div class="sec">
-    <div class="t-micro" style="margin-bottom:9px">Why it scored</div>
+    <div class="t-micro" style="margin-bottom:9px">${t('ov.why')}</div>
     <div class="statgrid">
       ${st.dist_water_m!=null?stat('water',metres(st.dist_water_m)):''}
       ${st.dist_road_m!=null?stat('to road',km(st.dist_road_m/1000)):''}
@@ -767,7 +769,7 @@ const LYR_MAP={areas:['areas-fill','areas-line','area-badges'],sites:['sites','s
   tenure:['tenureBlocked','tenureZones-line']};
 
 const LAYERS=[
- {group:'Model zones', rows:[
+ {group:t('lay.g.zones'), rows:[
    {k:'hz-high', kind:'zone', c:'var(--z-high)', name:'High likelihood', note:'Model score in the top band',
     on:true, hz:'high', count:()=>(DOC.hunt_zones||[]).filter(z=>z.cls==='high').length},
    {k:'hz-medium', kind:'zone', c:'var(--z-med)', name:'Medium', note:'Scored, second band',
@@ -786,7 +788,7 @@ const LAYERS=[
     note:'Terrain pinch points — inferred from the DEM, weakly evidenced', on:false, lyr:'funnel',
     count:()=>(DOC.funnel_zones||[]).length},
  ]},
- {group:'Sites & features', rows:[
+ {group:t('lay.g.sites'), rows:[
    {k:'sites', kind:'point', c:'var(--z-high)', glyph:'g-circle', name:'Hunt sites',
     note:'Calling, feeding, glassing, ground-truth', on:true, lyr:'sites',
     count:()=>(DOC.waypoints||[]).filter(w=>SITE_TYPES.includes(w.type)).length},
@@ -800,7 +802,7 @@ const LAYERS=[
    {k:'thermal', kind:'line', c:'var(--text-3)', dash:'dashed', name:'Thermal drift',
     note:'Modelled slope airflow — an inference, not a measurement', on:false, lyr:'thermal'},
  ]},
- {group:'Access & hydro', rows:[
+ {group:t('lay.g.access'), rows:[
    {k:'routes', kind:'line', c:'var(--z-high)', name:'Routes', note:'Access in, and the best line to hunt',
     on:true, lyr:'routes', count:()=>(DOC.routes||[]).length},
    {k:'roads', kind:'line', c:'var(--ref-outline)', name:'Roads & rail',
@@ -833,8 +835,8 @@ let showMeaning=true;
 let layersDismissed=false;   // set when YOU close it, so auto-open doesn't override you
 function buildLayersDock(){
   const d=document.getElementById('layersDock');
-  let h=`<div class="dhead"><h4>Hunting layers</h4><button class="dclose" title="Close">✕</button></div>
-    <div class="drow"><span class="t-micro">What each colour means</span>
+  let h=`<div class="dhead"><h4>${t('lay.title')}</h4><button class="dclose" title="Close">✕</button></div>
+    <div class="drow"><span class="t-micro">${t('lay.meaning')}</span>
       <label class="sw"><input type="checkbox" id="meaningOn" ${showMeaning?'checked':''}><i></i></label></div>
     <div class="dbody">`;
   LAYERS.forEach(g=>{
@@ -847,7 +849,7 @@ function buildLayersDock(){
         <input type="checkbox" ${r.on?'checked':''} ${nodata?'disabled':''}>
         ${lpHTML(r)}
         <span><span class="name">${r.name}</span>${showMeaning&&r.note?`<span class="note">${r.note}</span>`:''}</span>
-        <span class="count">${nodata?'NO DATA':(n!=null?n:'')}</span></label>`;
+        <span class="count">${nodata?t('lay.nodata'):(n!=null?n:'')}</span></label>`;
     });
   });
   d.innerHTML=h+`</div>`;
@@ -886,8 +888,8 @@ const BASE_ADDS=[
 let baseOpacity=1, terrOn=false, terrExag=1.4;
 function buildBaseDock(){
   const d=document.getElementById('baseDock');
-  let h=`<div class="dhead"><h4>Basemap</h4><button class="dclose" title="Close">✕</button></div><div class="dbody">`;
-  h+=`<div class="grouplabel">Basemap</div>`;
+  let h=`<div class="dhead"><h4>${t('base.title')}</h4><button class="dclose" title="Close">✕</button></div><div class="dbody">`;
+  h+=`<div class="grouplabel">${t('base.title')}</div>`;
   BASEMAPS.forEach(b=>{
     const on=curBase===b;
     h+=`<div class="baserow ${on?'on':''}" data-base="${b}">
@@ -896,14 +898,14 @@ function buildBaseDock(){
         <span class="bspec">${BASE_SPEC[b]||''}</span></span>
       ${on?'<span class="btag">ACTIVE</span>':''}</div>`;
   });
-  h+=`<div class="drow"><span class="t-micro">Opacity</span>
+  h+=`<div class="drow"><span class="t-micro">${t('base.opacity')}</span>
         <input id="baseOpacity" type="range" min="20" max="100" step="5" value="${Math.round(baseOpacity*100)}" style="width:120px"></div>`;
-  h+=`<div class="grouplabel">Terrain</div>
-      <div class="drow"><span class="t-micro">3D terrain</span>
+  h+=`<div class="grouplabel">${t('base.terrain')}</div>
+      <div class="drow"><span class="t-micro">${t('base.3d')}</span>
         <label class="sw"><input type="checkbox" id="terr3d" ${terrOn?'checked':''}><i></i></label></div>
       <div class="drow"><span class="t-micro">Exaggeration <b class="mono" id="exagVal">${terrExag.toFixed(1)}×</b></span>
         <input id="terrExag" type="range" min="1" max="3" step="0.1" value="${terrExag}" style="width:120px"></div>`;
-  h+=`<div class="grouplabel">Additional imagery</div>`;
+  h+=`<div class="grouplabel">${t('base.more')}</div>`;
   BASE_ADDS.forEach(a=>{
     h+=`<div class="layer-row" data-state="${a.ok?'off':'nodata'}">
       <input type="checkbox" ${a.ok?'':'disabled'}>
@@ -1109,12 +1111,12 @@ function renderSetup(){
   const el=document.getElementById('setup');
   el.innerHTML=`
     <div class="sec">
-      <h2 class="t-h1" style="margin:0 0 6px">Scout setup</h2>
-      <p class="lede">Define the box and the hunter. Both filter every recommendation downstream.</p>
+      <h2 class="t-h1" style="margin:0 0 6px">${t('setup.title')}</h2>
+      <p class="lede">${t('setup.lede')}</p>
     </div>
 
     <div class="sec">
-      <div class="sechead"><span class="num">01</span><h3>Where &amp; when</h3></div>
+      <div class="sechead"><span class="num">01</span><h3>${t('setup.s1')}</h3></div>
       <label class="fld">Search a place</label>
       <div class="row"><input id="placeSearch" placeholder="Search a place, lake, mine…">
         <button id="searchBtn" class="btn btn--secondary btn--sm">Search</button></div>
@@ -1122,14 +1124,14 @@ function renderSetup(){
       <button id="dragBox" class="btn btn--secondary btn--block" style="margin-top:8px">▛ Drag a box on the map</button>
       <label class="fld">Or paste coordinates</label>
       <input id="coord" placeholder="lat, lon" value="${draft.center[1].toFixed(4)}, ${draft.center[0].toFixed(4)}">
-      <label class="fld">Hunt dates</label>
+      <label class="fld">${t('setup.dates')}</label>
       <div class="numrow"><input id="dateStart" type="date" required value="${draft.dates[0]||''}">
         <span>→</span><input id="dateEnd" type="date" required value="${draft.dates[1]||''}"></div>
       <div class="s" style="margin-top:6px">Drives rut timing, weather and behaviour. Peak breeding ≈ Oct 2 at this latitude — but bulls are most <i>callable</i> in the two weeks before it.</div>
     </div>
 
     <div class="sec">
-      <div class="sechead"><span class="num">02</span><h3>Quarry &amp; extent</h3></div>
+      <div class="sechead"><span class="num">02</span><h3>${t('setup.s2')}</h3></div>
       <label class="fld">Species</label>
       <div class="seg"><button aria-pressed="true">Moose</button></div>
       <label class="fld">Search radius — <b class="mono" id="radVal">${Math.round(toU(draft.radius))} ${unitBig()}</b></label>
@@ -1139,16 +1141,16 @@ function renderSetup(){
     </div>
 
     <div class="sec">
-      <div class="sechead"><span class="num">03</span><h3>Hunter profile</h3></div>
+      <div class="sechead"><span class="num">03</span><h3>${t('setup.s3')}</h3></div>
       <label class="fld">How you'll hunt</label>
-      <div class="seg"><button id="hsSpike" ${SETUP.huntStyle==='spike'?'aria-pressed="true"':''}>Spike camp</button>
-        <button id="hsVeh" ${SETUP.huntStyle==='vehicle'?'aria-pressed="true"':''}>Return to vehicle</button></div>
+      <div class="seg"><button id="hsSpike" ${SETUP.huntStyle==='spike'?'aria-pressed="true"':''}>${t('setup.spike')}</button>
+        <button id="hsVeh" ${SETUP.huntStyle==='vehicle'?'aria-pressed="true"':''}>${t('setup.vehicle')}</button></div>
       <div class="s" id="hsNote" style="margin-top:6px"></div>
 
-      <label class="fld">Watercraft</label>
-      <div class="seg"><button id="wcNone" ${SETUP.watercraft==='none'?'aria-pressed="true"':''}>No boat</button>
-        <button id="wcCanoe" ${SETUP.watercraft==='canoe'?'aria-pressed="true"':''}>Canoe</button>
-        <button id="wcMotor" ${SETUP.watercraft==='motor'?'aria-pressed="true"':''}>Motorboat</button></div>
+      <label class="fld">${t('setup.watercraft')}</label>
+      <div class="seg"><button id="wcNone" ${SETUP.watercraft==='none'?'aria-pressed="true"':''}>${t('setup.noboat')}</button>
+        <button id="wcCanoe" ${SETUP.watercraft==='canoe'?'aria-pressed="true"':''}>${t('setup.canoe')}</button>
+        <button id="wcMotor" ${SETUP.watercraft==='motor'?'aria-pressed="true"':''}>${t('setup.motor')}</button></div>
       <div class="s" style="margin-top:6px">With no boat, rivers become foot barriers — ground across one from the road drops out of the ranking.</div>
 
       <label class="fld">Walk: access → base camp (max)</label>
@@ -1156,22 +1158,22 @@ function renderSetup(){
       <label class="fld">Walk: base camp → hunting (max)</label>
       <div class="numrow"><input id="walkHunt" type="number" step="0.1" placeholder="e.g. 4" value="${draft.walkHunt!=null?toU(draft.walkHunt).toFixed(1):''}"><span id="uHunt">${unitBig()}</span></div>
 
-      <label class="fld">Leaving from</label>
+      <label class="fld">${t('setup.leaving')}</label>
       <div class="row"><input id="leaveSearch" placeholder="Search departure town…" value="${draft.leaving||''}">
         <button id="leaveBtn" class="btn btn--secondary btn--sm">Search</button></div>
       <div id="leaveRes" class="results"></div>
 
-      <label class="fld">Units</label>
-      <div class="seg"><button id="uMetric" ${UNITS==='metric'?'aria-pressed="true"':''}>Metric</button>
-        <button id="uImperial" ${UNITS==='imperial'?'aria-pressed="true"':''}>Imperial</button></div>
+      <label class="fld">${t('setup.units')}</label>
+      <div class="seg"><button id="uMetric" ${UNITS==='metric'?'aria-pressed="true"':''}>${t('setup.metric')}</button>
+        <button id="uImperial" ${UNITS==='imperial'?'aria-pressed="true"':''}>${t('setup.imperial')}</button></div>
 
-      <label class="fld">Basemap</label>
+      <label class="fld">${t('setup.basemap')}</label>
       <div class="seg">${BASEMAPS.map(b=>`<button data-base="${b}" ${curBase===b?'aria-pressed="true"':''}>${BASE_LABEL[b]}</button>`).join('')}</div>
     </div>
 
     <div class="sec">
       <div id="setupErr"></div>
-      <button id="runBtn" class="btn btn--primary btn--lg btn--block">${hasResult()?'RUN NEW ANALYSIS →':'RUN ANALYSIS →'}</button>
+      <button id="runBtn" class="btn btn--primary btn--lg btn--block">${hasResult()?t('setup.runnew'):t('setup.run')}</button>
       ${hasResult()?`<div class="callout" data-kind="warn" style="margin-top:10px"><span class="mark">!</span><div class="body">
         <b>This replaces your current analysis</b>
         The areas, zones and brief on screen now are for a different box. Running again
@@ -1435,21 +1437,21 @@ function renderBrief(){
     <div class="dataline">${a.area_km2} KM² · CAMP ${a.camp} · ${a.centroid[1].toFixed(4)}, ${a.centroid[0].toFixed(4)}`
     +`${a.conf?` · CONF ${Math.round(a.conf.score*100)}%`:''}</div>
     ${a.habitat_score!=null?`<div class="axes" style="margin:0 0 14px">
-      <div class="ax"><span class="k">habitat</span><span class="bar"><i style="width:${Math.round(a.habitat_score*100)}%"></i></span><span class="v">${a.habitat_score}</span></div>
-      <div class="ax"><span class="k">pack-out</span><span class="bar"><i class="ret" style="width:${Math.round((a.retrieval_score||0)*100)}%"></i></span><span class="v">${a.retrieval_score}</span></div>
+      <div class="ax"><span class="k">${t('ov.habitat')}</span><span class="bar"><i style="width:${Math.round(a.habitat_score*100)}%"></i></span><span class="v">${a.habitat_score}</span></div>
+      <div class="ax"><span class="k">${t('ov.packout')}</span><span class="bar"><i class="ret" style="width:${Math.round((a.retrieval_score||0)*100)}%"></i></span><span class="v">${a.retrieval_score}</span></div>
     </div>`:''}
     <div class="callout" data-kind="info"><span class="mark">i</span><div class="body">
       <i style="font-family:var(--serif)">À valider sur le terrain.</i> Every mark below is a hypothesis
       to ground-truth on foot — the model reads habitat, not animals.</div></div>
     <p class="planline">If you hunt <b>Area ${a.rank}</b> (${a.area_km2} km²)${dates.length?`, <b>${dates.join(' – ')}</b>`:''}, running a <b>${styleTxt}</b> with <b>${wcTxt}</b> — here's how to make the most of it.</p>`;
   // ---- where your dates land + how that shapes the hunt ----
-  if(DOC.rut&&(DOC.rut.hunt_read||rutT.length)){ h+=`<h3>Your dates &amp; the rut</h3>`;
+  if(DOC.rut&&(DOC.rut.hunt_read||rutT.length)){ h+=`<h3>${t('br.dates')}</h3>`;
     if(DOC.rut.hunt_read) h+=`<p class="huntread">${DOC.rut.hunt_read}</p>`;
     if(rutT.length) h+=`<div class="rutdates">`+rutT.map(t=>
       `<span class="pill" style="background:#2a2117;color:#f2b98a">${t.date} · ${t.phase} · ${Math.round(t.responsiveness*100)}%</span>`).join('')+`</div>`;
     if(DOC.rut.trigger_note) h+=`<p class="s" style="color:#e0b985;margin-top:6px">${DOC.rut.trigger_note}</p>`; }
   // ---- how to hunt this ground ----
-  h+=`<h3>How to hunt it</h3>`;
+  h+=`<h3>${t('br.how')}</h3>`;
   if(DOC.strategy){ h+=`<p><b>${DOC.strategy.headline}</b> ${DOC.strategy.approach||''} ${DOC.strategy.calling||''}`
     +`${DOC.strategy.movement?` <span class="s">${DOC.strategy.movement}</span>`:''}</p>`;
     if(DOC.strategy.scent_warning) h+=`<div class="warn">${DOC.strategy.scent_warning}</div>`; }
@@ -1457,7 +1459,7 @@ function renderBrief(){
     <p class="s"><b>Working for you:</b> ${(a.pros||[]).join('; ')||'—'}.</p>
     <p class="s"><b>Watch-outs:</b> ${(a.cons||[]).join('; ')||'—'}.</p>`;
   // ---- getting in & out for your kit ----
-  h+=`<h3>Getting in &amp; out</h3>`;
+  h+=`<h3>${t('br.inout')}</h3>`;
   if(a.access_flag) h+=`<div class="warn">${a.access_flag}</div>`;
   if(camp) h+=`<p>Base at <b>Camp ${a.camp}</b> — in via ${camp.access_type}, pack-in ≤ ${km(camp.max_packin_km)} to the hunt. Running ${styleTxt} with ${wcTxt}.</p>`;
   else h+=`<p>Running ${styleTxt} with ${wcTxt}.</p>`;
@@ -1469,7 +1471,7 @@ function renderBrief(){
   // ---- what the score was built from ----
   const fw=((DOC.methodology||{}).factors_weighted)||[];
   if(fw.length){
-    h+=`<h3>Weighted factors</h3>`;
+    h+=`<h3>${t('br.factors')}</h3>`;
     fw.forEach(f=>{
       const m=f.match(/\((\d+)%\)\s*$/);
       const pct=m?+m[1]:null, label=f.replace(/\s*\(\d+%\)\s*$/,'');
@@ -1479,7 +1481,7 @@ function renderBrief(){
   }
   // ---- how to do better (the leverage) ----
   const recs=(DOC.recommendations||[]);
-  if(recs.length){ h+=`<h3>How to do better</h3><div class="recs">`+
+  if(recs.length){ h+=`<h3>${t('br.better')}</h3><div class="recs">`+
     recs.map(r=>`<div class="rec rec-${r.impact||'low'}"><span class="recicon">${r.icon||'•'}</span><span>${r.text}</span></div>`).join('')+`</div>`; }
   h+=`<p class="s" style="margin-top:12px">${DOC.disclaimer||''}</p>`;
   const el=document.getElementById('brief'); el.innerHTML=h;
@@ -1753,6 +1755,24 @@ async function openPlanById(id){
     if(p){ applyPlan(p); return true; }
   }catch(e){}
   return false;
+}
+function initLang(){
+  const seg=document.getElementById('langSeg'); if(!seg||!window.I18N) return;
+  const paint=()=>seg.querySelectorAll('button').forEach(b=>{
+    if(b.dataset.lang===I18N.lang) b.setAttribute('aria-pressed','true'); else b.removeAttribute('aria-pressed');});
+  paint();
+  seg.querySelectorAll('button').forEach(b=>b.onclick=()=>{ I18N.set(b.dataset.lang); paint(); });
+  // Switching language re-renders every panel rather than reloading, so you keep your
+  // place, your analysis and your map position.
+  I18N.onChange(()=>{
+    try{ I18N.apply(document);
+      buildPanel(); buildWeather(); renderSetup(); renderBrief();
+      buildLayersDock(); paintTabLocks();
+      if(window._acctPaint) window._acctPaint();
+      const d=document.getElementById('layersDock');
+      if(d && !d.classList.contains('hidden')) openDock('layersDock','railLayers');
+    }catch(e){}
+  });
 }
 function initAccount(){
   const btn=document.getElementById('acctBtn'), menu=document.getElementById('acctMenu');

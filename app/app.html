@@ -26,13 +26,13 @@
 <nav id="tabbar">
   <div class="brand">TRANSECT</div>
   <div class="steps">
-    <button data-tab="setup"><span class="n">1</span>Setup</button>
+    <button data-tab="setup"><span class="n">1</span><span data-i18n="tab.setup">Setup</span></button>
     <span class="sep"></span>
-    <button data-tab="overview" class="on"><span class="n">2</span>Overview</button>
+    <button data-tab="overview" class="on"><span class="n">2</span><span data-i18n="tab.overview">Overview</span></button>
     <span class="sep"></span>
-    <button data-tab="field"><span class="n">3</span>Field</button>
+    <button data-tab="field"><span class="n">3</span><span data-i18n="tab.field">Field</span></button>
     <span class="sep"></span>
-    <button data-tab="brief"><span class="n">4</span>Brief</button>
+    <button data-tab="brief"><span class="n">4</span><span data-i18n="tab.brief">Brief</span></button>
   </div>
   <div id="planbar">
     <div class="pname"><span id="planName">—</span><span class="savedot" id="saveDot" data-s="unsaved">UNSAVED</span></div>
@@ -40,6 +40,9 @@
   </div>
   <button id="plansBtn" class="btn btn--secondary btn--sm">Plans</button>
   <button id="exportBtn" class="btn btn--secondary btn--sm">Export</button>
+  <div class="seg langseg" id="langSeg">
+    <button data-lang="en">EN</button><button data-lang="fr">FR</button>
+  </div>
   <button id="acctBtn" class="btn btn--ghost btn--sm" title="Account">Account</button>
   <div id="acctMenu" class="hidden"></div>
 </nav>
@@ -79,6 +82,7 @@
 <div id="legend"></div>
 
 <script src="vendor/maplibre-gl.js"></script>
+<script src="i18n.js?v=1"></script>
 <script src="config.js"></script>
 <script src="data.js?v=48"></script>
 <script src="area_detail.js?v=48"></script>

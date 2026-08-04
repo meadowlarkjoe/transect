@@ -428,3 +428,7 @@ input[type=range]:focus{box-shadow:none;border:0}
 #tabbar button[data-tab].locked{opacity:.38;cursor:not-allowed}
 #tabbar button[data-tab].locked:hover{background:transparent;color:var(--text-2)}
 #tabbar button[data-tab].locked .n{background:var(--line);color:var(--text-4)}
+
+/* language picker in the top bar */
+.langseg{width:auto;flex:0 0 auto;padding:2px;gap:2px}
+.langseg>button{padding:5px 9px;font:600 10.5px/1 var(--mono);letter-spacing:.08em;min-width:32px}
