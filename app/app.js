@@ -2191,6 +2191,21 @@ function geocode(q){
     {headers:{'Accept':'application/json'}}).then(r=>r.json()).catch(()=>[]);
 }
 
+// #67: render a structured field-plan section (DOC.field_plan.*) — calling sequence,
+// day plan, ground-truth checklist — that the engine emits as data. Converts the
+// **bold**/*italic* the engine writes into HTML. Empty/absent section → nothing.
+function briefMD(s){ return (s||'').replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/\*(.+?)\*/g,'<i>$1</i>'); }
+function briefSection(sec, numbered){
+  if(!sec||!(sec.items||[]).length) return '';
+  let h=`<h3>${sec.title}</h3>`;
+  if(sec.intro) h+=`<p class="s">${briefMD(sec.intro)}</p>`;
+  if(sec.headline) h+=`<p><b>${briefMD(sec.headline)}</b></p>`;
+  const tag=numbered?'ol':'ul';
+  h+=`<${tag} class="s" style="margin:6px 0 8px 18px;padding:0">`
+    +sec.items.map(it=>`<li style="margin:3px 0">${briefMD(it)}</li>`).join('')+`</${tag}>`;
+  if(sec.note) h+=`<p class="s" style="opacity:.82"><i>${briefMD(sec.note)}</i></p>`;
+  return h;
+}
 /* ---------------- brief — scoped to the CHOSEN area ---------------- */
 function renderBrief(){
   const a=(DOC.areas||[]).find(x=>x.rank===lastSel)||(DOC.areas||[])[0];
@@ -2233,6 +2248,8 @@ function renderBrief(){
   if(DOC.strategy){ h+=`<p><b>${DOC.strategy.headline}</b> ${DOC.strategy.approach||''} ${DOC.strategy.calling||''}`
     +`${DOC.strategy.movement?` <span class="s">${DOC.strategy.movement}</span>`:''}</p>`;
     if(DOC.strategy.scent_warning) h+=`<div class="warn">${DOC.strategy.scent_warning}</div>`; }
+  // #67: the concrete phase-keyed calling script, right where you decide how to hunt.
+  if(DOC.field_plan) h+=briefSection(DOC.field_plan.calling_sequence, true);
   h+=`<p class="why">${a.why||''}</p>
     <p class="s"><b>Working for you:</b> ${(a.pros||[]).join('; ')||'—'}.</p>
     <p class="s"><b>Watch-outs:</b> ${(a.cons||[]).join('; ')||'—'}.</p>`;
@@ -2269,6 +2286,9 @@ function renderBrief(){
   const recs=(DOC.recommendations||[]);
   if(recs.length){ h+=`<h3>${t('br.better')}</h3><div class="recs">`+
     recs.map(r=>`<div class="rec rec-${r.impact||'low'}"><span class="recicon">${r.icon||'•'}</span><span>${r.text}</span></div>`).join('')+`</div>`; }
+  // #67: the trip-level close — ordered day-by-day plan + boots-on-ground checklist.
+  if(DOC.field_plan){ h+=briefSection(DOC.field_plan.day_plan, false)
+    +briefSection(DOC.field_plan.ground_truth, false); }
   h+=`<p class="s" style="margin-top:12px">${DOC.disclaimer||''}</p>`;
   const el=document.getElementById('brief'); el.innerHTML=h;
   el.querySelectorAll('.briefpick').forEach(b=>b.onclick=()=>{lastSel=+b.dataset.rank; renderBrief();

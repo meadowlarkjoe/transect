@@ -1060,6 +1060,142 @@ def _behavior_section(ctx, cache) -> list:
     return out
 
 
+# --- Field-plan sections (#67) -----------------------------------------------
+# Each is a STRUCTURED producer ({title, intro, items[], note}) so there is ONE
+# source of truth rendered two ways: _brief_section_md() joins it into the markdown
+# brief.md export, and contract.build() emits it verbatim for the app's Brief tab to
+# render. Content is established moose field-craft grounded in the hunt's rut phase and
+# the computed areas — never a 'chance he responds' number (the model has none).
+
+def calling_sequence(ctx) -> dict:
+    """A concrete calling SCRIPT keyed to the hunt's rut phase (#67)."""
+    from .rut_timing import dominant_phase
+
+    phase = dominant_phase(ctx)
+    stand_min = 40
+    try:
+        from .strategy import strategy as _strategy
+        stand_min = int(_strategy(ctx).get("stand_minutes", 40) or 40)
+    except Exception:
+        pass
+    intro = (
+        "Reach the stand in the dark, **downwind** of the cover you expect him in, back to "
+        "something solid. A committing bull works to your downwind before he shows, so keep "
+        f"that flank open to view. Sit each stand **{stand_min} min minimum** — the response "
+        "is slow and the silence does the work.")
+    if phase == "seeking":
+        head = "Pre-rut / seeking — the most callable window of the year; bulls are up and searching."
+        items = [
+            "Open with 2–3 long **cow-in-heat wails**, 30–45 s apart, then sit 10 min dead silent.",
+            "Work in short **bull grunts** on the walk-in and between sequences to sound like a rival moving, and **rake** a shrub or sapling with a scapula/stick for 20–30 s.",
+            "Re-call every 20–30 min; give a working bull 45–60 min before you move. A hung-up bull often circles **silently to your downwind** — watch that flank, not the calling lane."]
+    elif phase == "peak":
+        head = "Peak rut — bulls are tending cows and go quiet; call SPARINGLY."
+        items = [
+            "**Soft cow whines only**, well spaced. Drop the aggressive bull grunting now — it just pushes a paired bull away.",
+            "This is an **ambush week** more than a calling week: hunt where the cows are (feeding edges, cover) and sit long.",
+            "A bull that does answer may come in **silent** — stay put, stay ready, don't call him past you."]
+    elif phase == "post":
+        head = "Post-rut / re-cycle — soft cow calls to bulls still seeking a last estrous cow."
+        items = [
+            "Spare **cow whines**, patient and well spaced; the aggressive calling is done for the year.",
+            "Spent bulls are back on **feed** — cover the food edges and travel between food and cover.",
+            "Expect long silences; a late-season bull is worn down and slow to commit."]
+    else:
+        head = "Outside the rut — calling is unreliable; treat any call as a locator only."
+        items = [
+            "Hunt **feeding edges** at first and last light and the travel lines between food and cover; rely on sign and glassing, not calling."]
+    return {
+        "title": "Calling sequence", "intro": intro, "headline": head, "items": items,
+        "note": ("Always: fewer, patient sequences beat constant noise; let a long silence "
+                 "ride after each; and never call from the open — a bull expects to **see** the "
+                 "moose that called, so set up where he has to step out to look."),
+    }
+
+
+def day_plan(ctx, n_area: int) -> dict:
+    """An ORDERED plan across the target dates (#67): locate, rotate by wind, pack-out
+    buffer. Grounded in the computed area count + phase + hunt style."""
+    from datetime import date as _date
+
+    from .rut_timing import dominant_phase
+
+    if n_area <= 0:
+        return {}
+    ds = sorted(d for d in (ctx.aoi.season.target_dates or []) if d)
+    ndays = 0
+    try:
+        if len(ds) >= 2:
+            ndays = (_date.fromisoformat(ds[-1]) - _date.fromisoformat(ds[0])).days + 1
+    except Exception:
+        ndays = 0
+    phase = dominant_phase(ctx)
+    prime = ("the calling stands" if phase == "seeking" else
+             "the feeding edges and cover where the cows are" if phase in ("peak", "post") else
+             "the feeding edges at first and last light")
+    vehicle = getattr(ctx.aoi.hunter, "hunt_style", "spike") == "vehicle"
+    base = "the truck" if vehicle else "camp"
+    span = f"over {ndays} days" if ndays else "across your hunt window"
+    items = [
+        f"**Day 1 — arrive & locate.** Set {base}{'' if vehicle else ' and staging'}, then "
+        "**glass from the knobs and listen at last light** before you commit — a located bull "
+        "beats a guessed one. Still-hunt the nearest area's edges into dark."]
+    if n_area > 1 or not ndays or ndays > 2:
+        items.append(
+            f"**Middle days — prime rotation.** First and last light at {prime}; midday, glass, "
+            "or on a warm day (>~15 °C) slip into the **thermal refuges** where he beds. Move to "
+            "the next ranked area when the wind turns wrong or an area goes cold after a full "
+            "sit. Work Area 1 first, then down the ranking.")
+    items.append(
+        f"**Final day — pack-out buffer.** Hunt close to {base} / the road so a down animal is "
+        "**out before dark** — a bull is 400–600+ lb, the meat is the law, and a deep kill late "
+        "in the day is a next-morning problem. Don't shoot what you can't retrieve in the time "
+        "and light you have left.")
+    return {
+        "title": "Day-by-day plan",
+        "intro": (f"{n_area} focus area{'s' if n_area != 1 else ''} {span}, **{phase}** phase. "
+                  "**Rotate by wind** — each morning hunt the area whose approach sits downwind, "
+                  "so your scent blows away from the ground you're working."),
+        "items": items, "note": "",
+    }
+
+
+def ground_truth_checklist(ctx, n_gt: int) -> dict:
+    """A field CHECKLIST (#67): what sign to confirm, framed as verifiable fact-finding."""
+    where = (f"the {n_gt} ground-truth point{'s' if n_gt != 1 else ''} and every calling stand"
+             if n_gt else "every stand and along your access lines")
+    return {
+        "title": "Ground-truth checklist",
+        "intro": f"Desk scouting gets you ~90%; the last 10% is boots. At {where}, confirm:",
+        "items": [
+            "**Fresh sign** — tracks and droppings, and *age* them: glistening, soft scat is hours old, not weeks. A pile of pellets plus beds says resident; a lone track says passing through.",
+            "**Browse** — twigs nipped clean at a ~45° angle at moose height (0.5–2.5 m); hedged willow, birch, aspen, red-osier, mountain-ash. Heavy hedging = a feeding area worth a stand.",
+            "**Rubs & thrashing** — barked saplings and torn shrubs where a bull has worked; wet, bright rubs are current.",
+            "**Wallows** — a pawed, urine-soaked pit, sharply pungent in the rut. The desk **cannot** predict these, so **mark any you find** — a fresh wallow is a rut hub worth building a sit around.",
+            "**Trails through the funnels** — a worn path pinched between water or wetland is exactly where an ambush pays; confirm it's used before you sit it.",
+            "**Access reality** — scout the last spur on foot before you trust it: is it actually driveable, and are the crossing markers on your route fordable at the water you're seeing today?",
+        ],
+        "note": ("Log what you find at the ground-truth points so the next plan learns from the "
+                 "boots, not just the pixels."),
+    }
+
+
+def _brief_section_md(sec: dict, numbered: bool = False) -> list:
+    """Render a structured field-plan section into markdown lines for brief.md."""
+    if not sec:
+        return []
+    out = ["", f"## {sec['title']}", ""]
+    if sec.get("intro"):
+        out += [sec["intro"], ""]
+    if sec.get("headline"):
+        out += [f"**{sec['headline']}**"]
+    for i, it in enumerate(sec.get("items", []), 1):
+        out.append(f"{i}. {it}" if numbered else f"- {it}")
+    if sec.get("note"):
+        out += ["", f"*{sec['note']}*"]
+    return out
+
+
 def _write_brief(ctx, features, cache, outdir, routes_msg):
     from .legal import assess
 
@@ -1118,6 +1254,12 @@ def _write_brief(ctx, features, cache, outdir, routes_msg):
     except Exception:
         pass
 
+    # Concrete calling script for the hunt's rut phase (#67) — pairs with Strategy.
+    try:
+        lines += _brief_section_md(calling_sequence(ctx), numbered=True)
+    except Exception:
+        pass
+
     # Rut-timing for the AOI (latitude-adjusted phenology).
     try:
         lines += _rut_section(ctx)
@@ -1154,12 +1296,47 @@ def _write_brief(ctx, features, cache, outdir, routes_msg):
             lines.append("**Pros:** " + "; ".join(p["pros"]) + ".")
         if p.get("cons"):
             lines.append("**Watch-outs:** " + "; ".join(p["cons"]) + ".")
+        # Per-area pack-out read (#67). Key it off the DISTANCE TO A MAPPED ROAD —
+        # the real haul — not the retrieval score, which folds in pressure and a
+        # neutral fallback and so reads "easy" for ground that is 30 km from a road.
+        dr = p.get("dist_road_m")
+        reachable = p.get("reachable", True)
+        cross = ("Check the crossing markers on your access leg before you commit to "
+                 "shooting deep in — a river between you and the truck decides whether a "
+                 "bull comes out whole or not at all.")
+        if not reachable:
+            lines.append("**Pack-out:** this ground is flagged **not reachable** "
+                         f"({p.get('unreachable_why') or 'see watch-outs'}) — a 400–600 lb "
+                         "animal cannot come out the way you'd walk in. " + cross)
+        elif dr is None or dr >= 100000:
+            lines.append("**Pack-out:** not modelled — no road network is mapped near this "
+                         "box, so plan the carry or a float conservatively and scout the "
+                         "access in person. " + cross)
+        elif dr < 800:
+            lines.append("**Pack-out:** roadside-easy — a mapped road or spur runs to the "
+                         "edge. " + cross)
+        else:
+            km = dr / 1000.0
+            tag = "workable carry" if km <= 3 else "hard — plan the pack-out"
+            lines.append(f"**Pack-out:** {tag} — ~{km:.0f} km to the nearest mapped road. "
+                         + cross)
         if p.get("conf"):
             c = p["conf"]
             lines.append(f"**Confidence:** {c['band']} ({int(c['score']*100)}%) — "
                          + "; ".join(c.get("drivers", [])) + ".")
         lines.append("")
-    lines += ["## Placed features (Les Cartes Xperts legend)", ""]
+
+    # Ordered day plan + boots-on-ground checklist (#67) — the actionable close.
+    try:
+        lines += _brief_section_md(day_plan(ctx, len(fas)))
+    except Exception:
+        pass
+    try:
+        lines += _brief_section_md(ground_truth_checklist(ctx, counts.get("validate_ground", 0)))
+    except Exception:
+        pass
+
+    lines += ["", "## Placed features (Les Cartes Xperts legend)", ""]
     legend_names = {
         "rut_calling": "Rut / calling stations (≥30 min)", "thermal_refuge": "Thermal refuges",
         "saline_blind": "Feeding edge (dawn/dusk)", "funnel": "Natural funnels / passes",

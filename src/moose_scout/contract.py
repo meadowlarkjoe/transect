@@ -563,6 +563,19 @@ def build(ctx: Context) -> dict:
         doc["recommendations"] = _recommendations(ctx, cache, doc.get("rut"), area_out)
     except Exception:
         doc["recommendations"] = []
+    # Field-plan sections (#67): calling script, ordered day plan, ground-truth checklist.
+    # Structured (same producers that render brief.md) so the app's Brief tab shows them
+    # instead of only the markdown export carrying them. Grounded in phase + area count.
+    try:
+        from . import synth as _synth
+        n_gt = sum(1 for w in wp_out if w.get("type") == "validate_ground")
+        doc["field_plan"] = {
+            "calling_sequence": _synth.calling_sequence(ctx),
+            "day_plan": _synth.day_plan(ctx, len(area_out)),
+            "ground_truth": _synth.ground_truth_checklist(ctx, n_gt),
+        }
+    except Exception:
+        doc["field_plan"] = None
 
     # TENURE / OUTFITTER BOUNDARIES — the legal gate is filter #1, so it has to be
     # visible, not just narrated. Emitted with a huntable flag per polygon so the map
