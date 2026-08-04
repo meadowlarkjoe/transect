@@ -37,7 +37,9 @@ def _osm_bbox(tags, minlon, minlat, maxlon, maxlat):
 # simply times out on a public mirror — which cost us the ENTIRE road network (and,
 # with no watercraft, zeroed the whole huntability surface). Split the AOI into tiles
 # no wider than this and merge; a failed tile costs one tile, not the layer.
-_TILE_DEG = 0.30            # ~33 km N-S; narrower E-W at these latitudes
+_TILE_DEG = 0.60            # ~67 km N-S. Wide, because with a fast mirror the
+                            # per-request overhead dominates; tiling is insurance
+                            # against one huge request timing out, not the main event.
 
 
 def _osm(ctx, tags):

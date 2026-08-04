@@ -11,6 +11,63 @@ from __future__ import annotations
 from ..config import Context, cache_dir
 
 
+_OVERPASS_MIRRORS = [
+    "https://overpass.private.coffee/api",
+    "https://overpass.osm.ch/api",
+    "https://overpass.openstreetmap.ru/api",
+    "https://maps.mail.ru/osm/tools/overpass/api",   # works, but slow — last resort
+    "https://overpass-api.de/api",                   # blocks this host, kept for other deploys
+]
+_PICKED: list = []
+
+
+def _pick_overpass() -> str:
+    """Return the first Overpass mirror that answers a trivial query quickly.
+
+    Cached for the process. `OVERPASS_URL` forces a specific one.
+    """
+    import os
+    import time
+    import urllib.parse
+    import urllib.request
+
+    forced = os.environ.get("OVERPASS_URL")
+    if forced:
+        return forced
+    if _PICKED:
+        return _PICKED[0]
+
+    # The probe must test COVERAGE, not just responsiveness. Several mirrors are
+    # regional extracts — overpass.osm.ch answers a query about Québec in 13 s and
+    # returns nothing at all, because it only holds Switzerland. So probe a tiny box
+    # over downtown Montréal (guaranteed dense in any planet-wide database) and
+    # require actual features back before trusting the mirror with a real fetch.
+    import json as _json
+    probe = ("[out:json][timeout:15];"
+             "way[highway](45.5010,-73.5720,45.5045,-73.5680);out ids 3;")
+    for base in _OVERPASS_MIRRORS:
+        url = base.rstrip("/") + "/interpreter"
+        try:
+            t0 = time.time()
+            req = urllib.request.Request(
+                url, data=urllib.parse.urlencode({"data": probe}).encode(),
+                headers={"User-Agent": "moose-scout/1.0"})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                if r.status != 200:
+                    continue
+                body = _json.loads(r.read().decode("utf-8", "replace"))
+                if not body.get("elements"):
+                    continue                     # regional extract → no planet coverage
+                if (time.time() - t0) > 20:
+                    continue
+                _PICKED.append(base)
+                return base
+        except Exception:
+            continue
+    _PICKED.append(_OVERPASS_MIRRORS[0])
+    return _OVERPASS_MIRRORS[0]
+
+
 def run(ctx: Context) -> dict[str, str]:
     """Acquire all sources needed for the AOI. Idempotent: skips cached layers.
     Tolerant: a source still stubbed (NotImplementedError) is skipped so the
@@ -37,13 +94,13 @@ def run(ctx: Context) -> dict[str, str]:
             ox.settings.max_query_area_size = 5_000_000_000  # m² (5,000 km²)
         except Exception:
             pass
-        # overpass-api.de (osmnx's default) and its kumi mirror BLOCK this droplet's
-        # DigitalOcean IP outright (fast connection-refused) → every OSM fetch came
-        # back empty (roads/water = infra:0). This mirror answers from cloud IPs and
-        # has global coverage. Overridable via env if it ever goes down.
+        # Overpass mirror selection, by measurement rather than hope.
+        # overpass-api.de (osmnx's default) and kumi BLOCK this droplet's DigitalOcean
+        # IP outright, which silently emptied every OSM layer. mail.ru answers but is
+        # catastrophically slow on road-dense boxes — a single 70 km AOI took 2.2 HOURS.
+        # So probe the candidates with a tiny query and take the first fast responder.
         try:
-            ox.settings.overpass_url = os.environ.get(
-                "OVERPASS_URL", "https://maps.mail.ru/osm/tools/overpass/api")
+            ox.settings.overpass_url = _pick_overpass()
         except Exception:
             pass
     except Exception:
