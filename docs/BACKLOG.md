@@ -10,11 +10,15 @@ worked. Each ticket owns a **done when** that is checkable, not a vibe.
 
 ## E0 — Make autonomous work safe *(blocks everything in E8)*
 
-### T0.1 — Put `transect-app` under version control · `ready`
-~150 KB of `app.js` with no history. An agent's bad edit is unrecoverable today, and
-this is the single reason autonomous work is currently limited to proposals.
-**Done when:** `transect-app` is a git repo with a baseline commit, a `.gitignore`
-covering `config.js` (holds the API key) and `data/`, and `git status` is clean.
+### T0.1 — Put the front end under version control · `done` (2026-08-04)
+I had this wrong: the repo always existed — `moose-scout` IS
+github.com/meadowlarkjoe/transect, and `app/` is the tracked front end. What had
+happened is worse and less obvious: I was editing and deploying from a LOOSE COPY
+at `~/transect-app` that was not the repo, so the live site ran a full day ahead of
+git (52 KB of `app.js` existing nowhere but one directory and Cloudflare).
+Resolved: the copy was synced into `app/` and committed, and `deploy.sh` now refuses
+to run outside the repo or with a dirty tree, so live cannot outrun git silently
+again. `~/transect-app` is marked stale.
 
 ### T0.2 — Make the test suite runnable and real · `ready`
 `tests/` has one file and `pytest` is not installed in the local env, so there is no

@@ -83,12 +83,16 @@ not "the code is written."
 
 ### E0 — Make autonomous work safe *(prerequisite, blocks E8)*
 
-Two facts make unattended work reckless today:
+One fact still makes unattended work reckless:
 
-- **`transect-app` is not under version control.** ~150 KB of `app.js` with no
-  history. An agent with a bad edit loses work with no undo.
 - **There is effectively no test suite.** One file (`tests/test_legal.py`), and
-  `pytest` isn't installed in the local env.
+  `pytest` isn't installed in the local env. Nothing gates a change.
+
+*(Resolved 2026-08-04: version control. I had originally recorded this as "the front
+end is untracked", which was wrong — `moose-scout` is the repo and `app/` is the
+tracked front end. The real fault was that deploys were running from a loose copy
+outside it, so the live site ran a day ahead of git. `deploy.sh` now refuses to ship
+from outside the repo or with a dirty tree.)*
 
 **Exit:** `transect-app` is a git repo with a clean baseline commit; `pytest` runs
 green in CI-equivalent form locally; a smoke test asserts the contract loads and
