@@ -546,7 +546,16 @@ def run(ctx: Context, manual_areas=None) -> None:
     # structure they told us they weren't using, and then draws hunt lines from
     # it. For hunt_style=vehicle the staging point IS the camp, and only one pin
     # is emitted.
-    camp_score = np.exp(-access / 600) * np.exp(-dist_water / 500) * np.nan_to_num(hunt)
+    # Camp OFF the haul road (audit #60): exp(-access/600) pulled the camp onto the road
+    # shoulder — the opposite of field practice, which sets camp back from the main road
+    # for quiet and away from other hunters' headlights, but within an easy carry of it.
+    # Use a set-back BAND that peaks ~400 m off the road. A water (canoe) anchor is
+    # different — there you want to be AT the put-in, so keep the near-preference.
+    if anchor_kind == "road":
+        access_pref = np.clip(access / 400.0, 0, 1) * np.exp(-np.clip(access - 400.0, 0, None) / 900.0)
+    else:
+        access_pref = np.exp(-access / 500.0)
+    camp_score = access_pref * np.exp(-dist_water / 500) * np.nan_to_num(hunt)
     vehicle_style = getattr(ctx.aoi.hunter, "hunt_style", "spike") == "vehicle"
     camp_cells = []
     camp_of_area = {}

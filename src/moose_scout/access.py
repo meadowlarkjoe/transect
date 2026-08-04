@@ -62,9 +62,12 @@ def _river_barrier(cache, prof, shape):
         return np.zeros(shape, dtype=bool)
 
 
-def _cost_dist_from_roads(roads_mask, barrier_mask, res):
-    """Geodesic distance (metres) from road cells, treating barrier cells as
-    impassable — so a river between you and the ground makes it 'far' on foot."""
+def _cost_dist_from_roads(roads_mask, barrier_mask, res, friction=None):
+    """Cost-distance (metres) from road cells, treating barrier cells as impassable — so
+    a river between you and the ground makes it 'far' on foot. With `friction` (a per-cell
+    multiplier ≥1) this becomes an EFFORT distance: steep or thick ground is 'farther' to
+    haul a quartered bull across than the same metres of flat cutline. friction=None gives
+    the plain metric distance (for honest 'km to road' reporting)."""
     try:
         from skimage.graph import MCP_Geometric
     except Exception:
@@ -72,7 +75,11 @@ def _cost_dist_from_roads(roads_mask, barrier_mask, res):
     starts = list(zip(*np.where(roads_mask)))
     if not starts:
         return None
-    cost = np.ones(roads_mask.shape, dtype=np.float64)
+    if friction is not None:
+        cost = np.asarray(friction, dtype=np.float64).copy()
+        cost[~np.isfinite(cost) | (cost < 1.0)] = 1.0
+    else:
+        cost = np.ones(roads_mask.shape, dtype=np.float64)
     cost[barrier_mask] = np.inf                     # rivers = impassable on foot
     cost[roads_mask] = 1.0
     try:
@@ -179,11 +186,26 @@ def run(ctx: Context) -> None:
         pass
     has_roads = roads is not None and (roads > 0).any()
 
+    # Loaded-pack-out friction (audit #60): a 400–600 lb quartered bull is hauled at
+    # <1 mph, so steep ground and thick cover cost far more than the same metres of open
+    # flat. Build a per-cell multiplier from slope + land-cover; the EFFORT cost-distance
+    # below rides on it, while the reported dist_road stays TRUE metres (honest km).
+    _slope = _opt(cache / "terrain" / "slope.tif")
+    _lc = _opt(cache / "landcover.tif")
+    friction = np.ones(hsm.shape, dtype="float32")
+    if _slope is not None:
+        friction = friction + np.clip(np.nan_to_num(_slope), 0, 60) / 6.0   # loaded: steep bites
+    if _lc is not None:
+        friction = friction + np.where(_lc == 90, 3.0, 0.0)   # herbaceous wetland slog
+        friction = friction + np.where(_lc == 10, 0.5, 0.0)   # closed forest / blowdown
+
     # --- distance to road: river-aware on foot (no boat), straight-line with a boat ---
+    dist_effort = None
     if has_roads:
         if wc == "none":
             barrier = _river_barrier(cache, prof, hsm.shape)
-            dist_road = _cost_dist_from_roads(roads > 0, barrier, res)
+            dist_road = _cost_dist_from_roads(roads > 0, barrier, res)              # TRUE metres
+            dist_effort = _cost_dist_from_roads(roads > 0, barrier, res, friction)  # pack-out effort
             if dist_road is None:                       # skimage missing / failed → fall back
                 dist_road = _dist(roads > 0, res)
         else:
@@ -193,7 +215,9 @@ def run(ctx: Context) -> None:
     ru.write(cache / "dist_road.tif", dist_road.astype("float32"), prof)
 
     # --- extraction ease: truck always; water ONLY if the hunter has the craft ---
-    truck = np.exp(-dist_road / decay)
+    # Score on the EFFORT distance where we have it (foot pack-out), so huntability
+    # reflects how hard the meat is to move, not just how many metres away the road is.
+    truck = np.exp(-(dist_effort if dist_effort is not None else dist_road) / decay)
     if wc == "none":
         extraction = truck.astype("float32")            # no boat → no water access at all
     else:
