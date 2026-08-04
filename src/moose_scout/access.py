@@ -204,6 +204,13 @@ def run(ctx: Context) -> None:
     if has_roads:
         if wc == "none":
             barrier = _river_barrier(cache, prof, hsm.shape)
+            # LAKES are foot barriers too — you can't walk across open water without a
+            # boat. _river_barrier only rasterizes river/canal LINES, so the cost-distance
+            # "walked across" a lake to an island, making the island score huntable and
+            # win a focus area. Add the WorldCover water mask (lakes + wide rivers).
+            _wmask = _opt(cache / "water.tif")
+            if _wmask is not None and _wmask.shape == hsm.shape:
+                barrier = barrier | (np.nan_to_num(_wmask) > 0)
             dist_road = _cost_dist_from_roads(roads > 0, barrier, res)              # TRUE metres
             dist_effort = _cost_dist_from_roads(roads > 0, barrier, res, friction)  # pack-out effort
             if dist_road is None:                       # skimage missing / failed → fall back
@@ -323,7 +330,13 @@ def run(ctx: Context) -> None:
     # road fetch happened to be. Floor the access term: unreachable good habitat still
     # shows (as lower tiers, with the pack-out cost stated), reachable ground is brightest.
     ACCESS_FLOOR = 0.35
-    hunt = np.clip(hsm_phase * (ACCESS_FLOOR + (1.0 - ACCESS_FLOOR) * retrieval), 0, 1)
+    # The floor DISCOUNTS habitat you can reach but must work for; it does NOT rescue
+    # ground you cannot reach at all — across open water with no boat, or beyond your walk
+    # budget. That stays ~0 so it neither draws nor wins a focus area (e.g. an island in a
+    # lake). With a boat, islands ARE reachable, so retrieval there is > 0 and they show.
+    reachable = retrieval > 0.02
+    access_term = np.where(reachable, ACCESS_FLOOR + (1.0 - ACCESS_FLOOR) * retrieval, 0.0)
+    hunt = np.clip(hsm_phase * access_term.astype("float32"), 0, 1)
     hunt[np.isnan(hsm)] = np.nan
 
     # LEGAL GATE — filter #1, and it must bite on the raster, not just the prose.

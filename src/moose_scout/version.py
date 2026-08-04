@@ -13,11 +13,15 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 7
+ENGINE_REVISION = 8
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    8: "Lakes are now foot barriers (no boat), so the model no longer 'walks across' open "
+       "water — islands in a lake can't score huntable or win a focus area. Ground you "
+       "can't reach at all (across water without a boat, or beyond your stated walk) is "
+       "excluded rather than floored.",
     7: "South of ~52°N the model now reads the MRNF écoforestière map: real stand species, "
        "canopy closure and dated logging cuts. Thermal refuge keys on actual conifer + "
        "closure (not 'any tree'), and browse counts cuts by age — the dominant food source "
