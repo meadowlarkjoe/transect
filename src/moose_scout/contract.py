@@ -546,13 +546,17 @@ def build(ctx: Context) -> dict:
     # --- exact vector hydrography (OSM) — narrow rivers the raster misses, for
     # crisp display + route river-crossing detection. ---
     hydro = {"rivers": [], "lakes": []}
-    big_union = small_union = None      # river/canal (boat) vs stream (fordable)
+    big_union = small_union = danger_union = None   # river/canal (boat) · stream (ford) · rapids (avoid)
     try:
         import geopandas as gpd
         from shapely.geometry import LineString as _LS
         from shapely.ops import unary_union
 
         BIG = {"river", "canal"}        # generally need a boat to cross
+        # Rapids / tidal / waterfalls are the one class you NEVER ford — they were
+        # falling into the "stream => fordable" bucket, a safety inversion (audit #58).
+        DANGER = {"rapids", "tidal_channel", "waterfall"}
+        danger_union = None
         wl = cache / "waterways.gpkg"
         if wl.exists():
             g = gpd.read_file(wl)
@@ -560,21 +564,24 @@ def build(ctx: Context) -> dict:
                 g = g.to_crs(4326)
             g["geometry"] = g.geometry.simplify(0.00018)
             wcol = "waterway" if "waterway" in g.columns else None
-            lines, big_ls, small_ls = [], [], []
+            lines, big_ls, small_ls, danger_ls = [], [], [], []
             for _, row in g.iterrows():
                 geom = row.geometry
                 if geom is None or geom.is_empty:
                     continue
-                cls = "river" if (wcol and str(row[wcol]) in BIG) else "stream"
+                wv = str(row[wcol]) if wcol else ""
+                cls = "danger" if wv in DANGER else "river" if wv in BIG else "stream"
                 for part in (geom.geoms if geom.geom_type == "MultiLineString" else [geom]):
                     coords = list(part.coords)
                     ll = [[round(x, 5), round(y, 5)] for x, y in coords]
                     if len(ll) >= 2:
-                        lines.append({"cls": cls, "ll": ll})
-                        (big_ls if cls == "river" else small_ls).append(_LS(coords))
+                        lines.append({"cls": "river" if cls == "danger" else cls, "ll": ll})
+                        (big_ls if cls == "river" else danger_ls if cls == "danger"
+                         else small_ls).append(_LS(coords))
             hydro["rivers"] = lines
             big_union = unary_union(big_ls) if big_ls else None
             small_union = unary_union(small_ls) if small_ls else None
+            danger_union = unary_union(danger_ls) if danger_ls else None
         wp = cache / "waterbodies.gpkg"
         if wp.exists():
             g = gpd.read_file(wp)
@@ -644,14 +651,29 @@ def build(ctx: Context) -> dict:
                     out.append([round(gg.x, 5), round(gg.y, 5)])
             return out
 
+        # All water lines, so a "bridge" call can require the bridge to actually cross
+        # water near the point (not merely sit within 30 m of a parallel ditch/rail).
+        _water_all = None
+        try:
+            _wparts = [u for u in (big_union, small_union, danger_union) if u is not None]
+            _water_all = _uu(_wparts) if _wparts else None
+        except Exception:
+            _water_all = None
+
         def _classify(pt, weak_kind):
             """weak_kind is what the waterway class alone would say."""
             if bridges is not None:
-                d = _PT(pt).distance(bridges) * m_per_deg
-                if d <= BRIDGE_M:
-                    return "bridge", "road bridge mapped here", "measured"
+                ptb = _PT(pt).buffer(BRIDGE_M / m_per_deg)
+                local = bridges.intersection(ptb)
+                # a real crossing: a mapped bridge near the point that itself crosses water
+                if not local.is_empty and (_water_all is None or local.intersects(_water_all)):
+                    return "bridge", "road bridge mapped across the water here", "measured"
+            if weak_kind == "danger":
+                return "boat", ("mapped as rapids / fast water — DO NOT ford; cross at a "
+                                "bridge or well downstream on calm water"), "inferred"
             if weak_kind == "stream":
-                return "ford", "mapped as a stream, not a river", "inferred"
+                return "ford", ("mapped as a stream — possibly wadeable at LOW water, but "
+                                "depth and current are unmeasured; scout before you commit"), "inferred"
             return "boat", "mapped as a river; no bridge and no width data", "inferred"
 
         # Lakes are POLYGONS. The detector only ever intersected river/stream LINES,
@@ -672,7 +694,8 @@ def build(ctx: Context) -> dict:
             if len(cc) < 2:
                 continue
             leg = r["properties"]["legend"]
-            for union, weak in ((big_union, "river"), (small_union, "stream")):
+            for union, weak in ((danger_union, "danger"), (big_union, "river"),
+                                (small_union, "stream")):
                 if union is None:
                     continue
                 for p in _pts(cc, union):
@@ -693,7 +716,10 @@ def build(ctx: Context) -> dict:
         "Crossing calls are graded. 'Measured' means a bridge is mapped at the point. "
         "'Inferred' means it rests on the OSM waterway class alone — no width, ford or "
         "riverbank data ships for this area, so treat a boat call as 'assume the worst "
-        "until you see it'.")
+        "until you see it'. A ford call is a possibility, not a promise — depth and "
+        "current are unmeasured. In the fall hunt window rain and snowmelt can raise "
+        "levels feet per hour and cold water turns a failed ford dangerous fast; cross "
+        "early morning (lowest flow), face upstream, and unbuckle your pack.")
 
     # Stamp the analysis with the engine revision that produced it, so a saved plan
     # can tell whether the model has moved on since. See version.py.
