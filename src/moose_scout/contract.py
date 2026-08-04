@@ -70,6 +70,44 @@ def _polygonize(ctx, cache, tif, bands, min_km2=1.5, smooth_m=320, per_class=8, 
     return out
 
 
+def _worldcover_lakes(cache, min_km2=0.06, simp=0.0006):
+    """Polygonize the WorldCover water mask (water.tif, satellite — COMPLETE) into lake
+    rings for DISPLAY. OSM hydrography is sparse in remote northern QC, so many large
+    obvious lakes never drew; the satellite mask has them all. Returns rings in the same
+    [[lon,lat],...] shape as the OSM `hydro['lakes']`."""
+    import numpy as np
+    from pyproj import Transformer
+    from rasterio.features import shapes as rio_shapes
+    from scipy.ndimage import binary_closing, binary_opening
+    from shapely.geometry import shape as shp_shape
+    from shapely.ops import transform as shp_transform
+    try:
+        w, prof = ru.read(cache / "water.tif")
+    except Exception:
+        return []
+    mask = np.nan_to_num(w) > 0
+    if not mask.any():
+        return []
+    res = abs(prof["transform"].a)
+    it = max(1, int(round(60 / res)))
+    mask = binary_closing(binary_opening(mask, iterations=it), iterations=it)
+    tr = Transformer.from_crs(prof["crs"], "EPSG:4326", always_xy=True)
+    to_wgs = lambda g: shp_transform(lambda xs, ys: tr.transform(xs, ys), g)  # noqa: E731
+    rings = []
+    for g, v in rio_shapes(mask.astype("uint8"), mask=mask, transform=prof["transform"]):
+        if v != 1:
+            continue
+        gm = shp_shape(g)
+        if gm.area / 1e6 < min_km2:
+            continue
+        gw = to_wgs(gm).simplify(simp)
+        for pp in (gw.geoms if gw.geom_type == "MultiPolygon" else [gw]):
+            ring = [[round(x, 5), round(y, 5)] for x, y in pp.exterior.coords]
+            if len(ring) >= 4:
+                rings.append(ring)
+    return rings
+
+
 def _browse_zones(ctx, cache, min_km2=0.8, smooth_m=280):
     """Browse/feeding zones split BY TYPE (from land cover), each with what it is and
     when moose feed on it. Separate from huntability."""
@@ -597,6 +635,13 @@ def build(ctx: Context) -> dict:
                     if len(ring) >= 4:
                         polys.append(ring)
             hydro["lakes"] = polys
+    except Exception:
+        pass
+    # Fill the gaps OSM leaves in remote country with the complete satellite water mask,
+    # so no large obvious lake is missing (OSM stays for crisp/named edges on top). This
+    # also feeds the crossing detector below, so routes over unmapped lakes get flagged.
+    try:
+        hydro["lakes"] = (hydro.get("lakes") or []) + _worldcover_lakes(cache)
     except Exception:
         pass
     doc["hydro"] = hydro
