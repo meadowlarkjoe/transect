@@ -873,6 +873,19 @@ def build(ctx: Context) -> dict:
         "a failed ford dangerous fast; cross early morning (lowest flow), face upstream, "
         "and unbuckle your pack.")
 
+    # Legend (E1): the map-layer PROSE — name/note/group per layer key — travels in the
+    # contract as DATA so the client renders it instead of hardcoding moose language. Visual
+    # symbology (colour/icon/texture) stays with the client generator; a different species
+    # config supplies different groups + prose with no app change. See config/species/*.yaml.
+    try:
+        from .config import load_species_legend
+        _lg = load_species_legend(ctx.aoi.species)
+        doc["legend"] = _lg["legend"]
+        doc["legend_groups"] = _lg["groups"]
+    except Exception:
+        doc["legend"] = []
+        doc["legend_groups"] = []
+
     # Stamp the analysis with the engine revision that produced it, so a saved plan
     # can tell whether the model has moved on since. See version.py.
     try:

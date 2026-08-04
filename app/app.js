@@ -704,6 +704,7 @@ function init(){
     map.on('mouseleave',l,()=>map.getCanvas().style.cursor='');});
 
   buildShooters(); buildThermal();
+  applyLegend();
   buildPanel(); buildWeather(); buildLegend(); buildTools();
   toggleWeather(false);   // the wind calendar is a rail tool now — off until asked for
   setVis(LYR_MAP.roads,true); setVis(LYR_MAP.boundaries,true);   // roads + borders on by default in every view
@@ -1127,6 +1128,24 @@ const LAYERS=[
 ];
 const LAYER_GROUPS=['MODEL ZONES','SITES & FEATURES','ACCESS & HYDRO'];
 let groupOpacity={'MODEL ZONES':0.55,'SITES & FEATURES':1,'ACCESS & HYDRO':1};
+
+// E1: the PROSE for each layer — its name, its one-line note, its group — now travels in
+// the contract as DOC.legend (contract.build → config/species/*.yaml), so the ENGINE, not
+// this file, decides what a layer is called and how it's described. applyLegend() merges
+// that prose onto LAYERS by key. The hardcoded strings above stay as a fallback for a blank
+// doc or an older contract with no legend, so the app never renders nameless rows. Visual
+// symbology (colour / icon / texture / edge) is NOT species-specific and stays here.
+const _LEGEND_DEFAULTS=LAYERS.map(r=>({name:r.name,note:r.note,group:r.group}));
+function applyLegend(){
+  let rows=[]; try{ if(Array.isArray(DOC.legend)) rows=DOC.legend; }catch(e){}
+  const byKey={}; rows.forEach(e=>{ if(e&&e.key) byKey[e.key]=e; });
+  LAYERS.forEach((r,i)=>{
+    const d=_LEGEND_DEFAULTS[i], e=byKey[r.k];
+    r.name =(e&&e.name)  ? e.name : d.name;
+    r.note =(e&&e.note!=null) ? e.note : d.note;
+    r.group=(e&&e.group) ? e.group : d.group;
+  });
+}
 
 /* The panel swatch and the map tile come from ONE generator, so a hunter can never
    trust a swatch that doesn't match what's drawn. */
@@ -1963,6 +1982,7 @@ function applyDoc(newDoc){        // re-bind the whole map + panels to fresh eng
   // honour the incoming document's own flag: engine results have none (falsy),
   // blankDoc() sets it true — so resetting to blank doesn't need a correction after.
   DOC=newDoc; DOC.blank=!!newDoc.blank; window.TRANSECT_DATA=newDoc;
+  applyLegend();   // rebind layer prose to THIS document's contract legend (falls back if absent)
   if(typeof paintTabLocks==='function') paintTabLocks();
   const S=buildSources();
   const setD=(id,data)=>{const s=map.getSource(id); if(s&&data) s.setData(data);};

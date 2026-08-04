@@ -158,6 +158,17 @@ def load_legend() -> dict[str, Any]:
     return _load_yaml(config_dir() / "output_legend.yaml")
 
 
+def load_species_legend(name: str) -> dict[str, Any]:
+    """The map-layer legend PROSE for a species (E1): name/note/group per layer key,
+    plus the ordered group list. Loaded from the raw species yaml so it stays outside the
+    strict SpeciesCfg model. Empty if the species config carries no legend."""
+    try:
+        y = _load_yaml(config_dir() / "species" / f"{name}.yaml")
+    except Exception:
+        return {"legend": [], "groups": []}
+    return {"legend": y.get("legend", []) or [], "groups": y.get("legend_groups", []) or []}
+
+
 class Context(BaseModel):
     """Everything a stage needs, resolved once per run."""
 
