@@ -166,4 +166,6 @@ legend:
   - {key: tenure-ok, group: "ACCESS & HYDRO", name: "Bookable ground", note: "ZEC or réserve faunique — you may hunt here, but register or reserve first"}
   - {key: boundaries, group: "ACCESS & HYDRO", name: "Borders & places", note: "Reference geography"}
   - {key: water,     group: "ACCESS & HYDRO", name: "Rivers & lakes", note: "Mapped hydrography (OSM)"}
+  - {key: wetland,   group: "ACCESS & HYDRO", name: "Wetlands", note: "GRHQ marsh / bog / fen — a travel barrier that shapes the land-bridge funnels, and slow going on foot."}
+  - {key: beaver,    group: "SITES & FEATURES", name: "Beaver ponds", note: "GRHQ flowages — a rut hub: bulls scent-mark the wet edge and cows follow. A pond beside cover is worth a stand."}
   - {key: crossings, group: "ACCESS & HYDRO", name: "River crossings", note: "On the access legs. Green = a mapped bridge · amber = fordable · red = assume a boat"}

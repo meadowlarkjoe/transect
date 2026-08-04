@@ -70,6 +70,38 @@ def _polygonize(ctx, cache, tif, bands, min_km2=1.5, smooth_m=320, per_class=8, 
     return out
 
 
+def _raster_points(cache, tif, max_pts=120):
+    """Centroids (lon,lat) of the connected blobs in a binary raster — for features too
+    small to polygonize usefully (beaver ponds). Largest blobs first, capped at max_pts."""
+    p = cache / tif
+    if not p.exists():
+        return []
+    try:
+        import numpy as np
+        import rasterio
+        from pyproj import Transformer
+        from scipy import ndimage
+        with rasterio.open(p) as src:
+            a = src.read(1)
+            T, crs = src.transform, src.crs
+        lbl, n = ndimage.label(a > 0)
+        if n == 0:
+            return []
+        sizes = ndimage.sum(np.ones_like(lbl), lbl, index=range(1, n + 1))
+        cents = ndimage.center_of_mass(a > 0, lbl, index=range(1, n + 1))
+        order = np.argsort(sizes)[::-1][:max_pts]
+        to_wgs = Transformer.from_crs(crs, "EPSG:4326", always_xy=True)
+        out = []
+        for i in order:
+            r, c = cents[i]
+            x, y = T * (c + 0.5, r + 0.5)
+            lon, lat = to_wgs.transform(x, y)
+            out.append({"ll": [round(lon, 5), round(lat, 5)]})
+        return out
+    except Exception:
+        return []
+
+
 def _grhq_crossing_class(lon, lat):
     """Query GRHQ (Québec hydrographic network) at a crossing point → fordability from
     STRAHLER ORDER + PERENNIALITY, the real size/regime surrogates. A tiny per-point query
@@ -688,6 +720,19 @@ def build(ctx: Context) -> dict:
                                           [("funnel", 0.15)], min_km2=0.04, smooth_m=90, per_class=18)
     except Exception:
         doc["funnel_zones"] = []
+    # GRHQ wetlands (marsh/bog/fen) as a display layer — the barrier that shapes the
+    # funnels + the travel context (#62). Bigger min area so it reads as complexes, not speckle.
+    try:
+        doc["wetland_zones"] = _polygonize(ctx, cache, "wetland_grhq.tif",
+                                           [("wetland", 0.5)], min_km2=0.5, smooth_m=140, per_class=30)
+    except Exception:
+        doc["wetland_zones"] = []
+    # Beaver ponds (GRHQ Mare) as small points — a rut hub worth a stand. Tiny features, so
+    # emit centroids rather than polygons.
+    try:
+        doc["beaver_ponds"] = _raster_points(cache, "beaver_pond.tif", max_pts=120)
+    except Exception:
+        doc["beaver_ponds"] = []
 
     # --- exact vector hydrography (OSM) — narrow rivers the raster misses, for
     # crisp display + route river-crossing detection. ---
@@ -917,7 +962,7 @@ def build(ctx: Context) -> dict:
         _PRODUCT = {
             "ecoforestiere": "stand_type.tif", "nbac": "burn_year.tif",
             "sentinel2": "ndvi.tif", "worldcover": "landcover.tif",
-            "cdem": "dem.tif", "osm": "roads.gpkg",
+            "cdem": "dem.tif", "osm": "roads.gpkg", "grhq": "wetland_grhq.tif",
         }
         _man = coverage_manifest(ctx, _region)
         for e in _man:

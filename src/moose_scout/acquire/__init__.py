@@ -106,7 +106,7 @@ def run(ctx: Context) -> dict[str, str]:
     except Exception:
         pass
 
-    from . import dem, ecoforestiere, fire, hydro, roads, sentinel, tenure, zones
+    from . import dem, ecoforestiere, fire, grhq, hydro, roads, sentinel, tenure, zones
 
     steps = [
         ("zones", zones.fetch),
@@ -116,6 +116,7 @@ def run(ctx: Context) -> dict[str, str]:
         ("fire", fire.fetch),          # burn history → disturbance-age browse curve
         ("hydro", hydro.fetch),
         ("roads", roads.fetch),
+        ("grhq", grhq.fetch),          # GRHQ beaver ponds (rut hub) + wetlands (barriers)
         ("sentinel", sentinel.fetch),
     ]
     # Hard wall-clock timeout per source: a stalled download (e.g. a slow Overpass

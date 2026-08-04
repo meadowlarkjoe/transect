@@ -299,8 +299,18 @@ def run(ctx: Context) -> None:
     wallow = np.clip(np.nan_to_num(wet), 0.0, 1.0) * cover_adj        # wet depression beside cover
     funnel_abs = np.clip(np.nan_to_num(funnel), 0.0, 1.0)            # already absolute from terrain
     wet_prox = _prox(_dist(wetland_mask | water_mask, res), 200, 1000)
+    # BEAVER PONDS (GRHQ Mare, #62): a fresh flowage is a rut HUB — bulls scent-mark its wet
+    # edge and cows are drawn to it — strongest where it sits BESIDE security cover (the
+    # classic flowage-edge stand). NOT fall aquatic forage (decayed out by the hunt); this is
+    # a rut/wallow attractant, so it rides here with the wallow term, never in the food blend.
+    pond = _opt(cache / "beaver_pond.tif")
+    pond_hub = np.zeros(shape, "float32")
+    if pond is not None and pond.shape == shape:
+        pond_prox = _prox(_dist(np.nan_to_num(pond) > 0, res), 150, 600)
+        pond_hub = np.clip(pond_prox * (0.4 + 0.6 * cover_adj), 0.0, 1.0)
     rut = np.clip(0.55 * rut_edge * (0.5 + 0.5 * wet_prox)
                   + 0.30 * funnel_abs
-                  + 0.35 * wallow, 0.0, 1.0)
+                  + 0.35 * wallow
+                  + 0.30 * pond_hub, 0.0, 1.0)
     rut[water_mask] = np.nan
     ru.write(cache / "hsm_rut.tif", rut.astype("float32"), prof)

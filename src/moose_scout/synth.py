@@ -760,6 +760,9 @@ def _walk_cost(ctx, cache, roads_free=True):
     lc = _opt(cache / "landcover.tif")
     if lc is not None:
         cost = cost + np.where(lc == 90, 3.0, 0.0)   # wetland slow
+    wg = _opt(cache / "wetland_grhq.tif")            # GRHQ wetland: slow going, not impassable (#62)
+    if wg is not None:
+        cost = cost + np.where(np.nan_to_num(wg) > 0, 3.0, 0.0)
 
     # roads: near-free travel. This is what makes a route look like a route.
     if roads_free:

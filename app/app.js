@@ -455,7 +455,9 @@ function buildSources(){
   const tenureZones=fc((DOC.tenure_zones||[]).map(t=>({type:'Feature',geometry:t.geometry,
     properties:{tenure:t.tenure,name:t.name,access:t.access,huntable:!!t.huntable}})));
   const infra=fc((DOC.infra||[]).map(o=>({type:'Feature',geometry:{type:'LineString',coordinates:o.ll},properties:{t:o.t,cls:o.cls||o.t,name:o.name||''}})));
-  return {areas,areaLabels,camps,staging,packin,routes,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones,burnZones,cutZones,tenureZones,infra};
+  const wetlandZones=zFC(DOC.wetland_zones);
+  const beaverPonds=fc((DOC.beaver_ponds||[]).map(p=>({type:'Feature',geometry:{type:'Point',coordinates:p.ll},properties:{}})));
+  return {areas,areaLabels,camps,staging,packin,routes,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones,burnZones,cutZones,wetlandZones,beaverPonds,tenureZones,infra};
 }
 
 function init(){
@@ -531,6 +533,18 @@ function init(){
     layout:{visibility:'none'},paint:{'fill-color':cutCol,'fill-opacity':0.32}});
   map.addLayer({id:'cutZones-line',type:'line',source:'cutZones',
     layout:{visibility:'none'},paint:{'line-color':cutCol,'line-width':1.2,'line-opacity':0.95}});
+  // GRHQ WETLANDS (milieu humide) — the marsh/bog barrier that shapes funnels + travel (#62).
+  // Teal, hatched-feel via a soft fill; off by default. Beaver PONDS ride on top as small dots
+  // (a rut hub worth a stand).
+  map.addSource('wetlandZones',{type:'geojson',data:S.wetlandZones});
+  map.addLayer({id:'wetlandZones',type:'fill',source:'wetlandZones',
+    layout:{visibility:'none'},paint:{'fill-color':'#3E8E7E','fill-opacity':0.22}});
+  map.addLayer({id:'wetlandZones-line',type:'line',source:'wetlandZones',
+    layout:{visibility:'none'},paint:{'line-color':'#3E8E7E','line-width':1.0,'line-opacity':0.8}});
+  map.addSource('beaverPonds',{type:'geojson',data:S.beaverPonds});
+  map.addLayer({id:'beaverPonds',type:'circle',source:'beaverPonds',
+    layout:{visibility:'none'},paint:{'circle-radius':['interpolate',['linear'],['zoom'],8,2.2,13,5],
+      'circle-color':'#2FB5C4','circle-stroke-color':'#0b3b40','circle-stroke-width':1,'circle-opacity':0.9}});
   // thermal refuge + funnel ZONES (areas, not points)
   map.addSource('refugeZones',{type:'geojson',data:S.refugeZones});
   map.addSource('funnelZones',{type:'geojson',data:S.funnelZones});
@@ -1051,6 +1065,7 @@ const LYR_MAP={areas:['areas-fill','areas-line','area-badges'],sites:['sites','s
   browse:['browseZones','browseZones-line'],
   burns:['burnZones','burnZones-line'],
   cuts:['cutZones','cutZones-line'],
+  wetland:['wetlandZones','wetlandZones-line'],beaver:['beaverPonds'],
   tenure:['tenureBlocked','tenureZones-line'],tenureOk:['tenureZones-line-ok']};
 
 /* ============================================================================
@@ -1159,6 +1174,12 @@ const LAYERS=[
  {k:'water', group:'ACCESS & HYDRO', kind:'line', edge:'solid', name:'Rivers & lakes',
   note:'Mapped hydrography (OSM)', hex:'#7FC4E8', icon:'waves', on:true, lyr:'water',
   count:()=>'—'},
+ {k:'wetland', group:'ACCESS & HYDRO', kind:'stipple', edge:'solid', name:'Wetlands',
+  note:'GRHQ marsh / bog / fen — a travel barrier that shapes funnels; slow on foot.',
+  hex:'#3E8E7E', icon:'waves', on:false, lyr:'wetland', count:()=>(DOC.wetland_zones||[]).length},
+ {k:'beaver', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Beaver ponds',
+  note:'GRHQ flowages — a rut hub: bulls scent-mark the wet edge, cows follow. Worth a stand.',
+  hex:'#2FB5C4', icon:'droplets', on:false, lyr:'beaver', count:()=>(DOC.beaver_ponds||[]).length},
  {k:'crossings', group:'ACCESS & HYDRO', kind:'point', edge:'none', name:'River crossings',
   note:'On the access legs. Green = a mapped bridge · amber = fordable · red = assume a boat',
   hex:CROSS_BODY, icon:'waves',
@@ -2028,6 +2049,7 @@ function applyDoc(newDoc){        // re-bind the whole map + panels to fresh eng
   const setD=(id,data)=>{const s=map.getSource(id); if(s&&data) s.setData(data);};
   setD('huntZones',S.huntZones); setD('browseZones',S.browseZones);
   setD('refugeZones',S.refugeZones); setD('funnelZones',S.funnelZones); setD('burnZones',S.burnZones); setD('cutZones',S.cutZones); setD('tenureZones',S.tenureZones);
+  setD('wetlandZones',S.wetlandZones); setD('beaverPonds',S.beaverPonds);
   setD('rivers',S.rivers); setD('lakes',S.lakes); setD('crossings',S.crossings); setD('infra',S.infra);
   setD('areas',S.areas); setD('areaLabels',S.areaLabels); setD('camps',S.camps);
   setD('staging',S.staging); setD('packin',fc(S.packin)); setD('sites',fc(window._sites));
@@ -3114,6 +3136,8 @@ const IDENTIFY = [
   {lyr:'cutZones',     row:'cuts',     title:p=>({fresh:'Recent cut · fresh (<10 yr)',regen:'Recent cut · prime regen (10–25 yr)',closing:'Recent cut · closing in (26–40 yr)'}[p.cls]||'Logging cut'),
                        sub:p=>`${p.area_km2} km² · logged ground, browse by age`},
   {lyr:'funnelZones',  row:'funnel',   title:()=>'Funnel / pass',    sub:p=>`${p.area_km2} km²`},
+  {lyr:'wetlandZones', row:'wetland',  title:()=>'Wetland',          sub:p=>`${p.area_km2} km² · marsh/bog — barrier + slow going`},
+  {lyr:'beaverPonds',  row:'beaver',   title:()=>'Beaver pond',      sub:()=>'GRHQ flowage — a rut hub; hunt the wet edge beside cover'},
   {lyr:'tenureBlocked',row:'tenure',   title:()=>'Closed to you',    sub:p=>p.name||'outfitter / reserve tenure'},
   {lyr:'tenureZones-line-ok', row:'tenure-ok', title:()=>'Bookable — register first',
                        sub:p=>(p.name?p.name+' — ':'')+'you may hunt here, but it is a ZEC or réserve faunique: daily registration or a reservation is required.'},

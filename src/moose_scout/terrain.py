@@ -65,7 +65,9 @@ def run(ctx: Context) -> None:
     # enough for a pass to mean something.
     from scipy.ndimage import distance_transform_edt, maximum_filter
     barrier = np.zeros(dem.shape, bool)
-    for nm in ("water.tif", "wetland.tif"):
+    # wetland_grhq.tif = MRNF GRHQ mapped wetlands (milieu humide) — real marsh/bog/fen a
+    # moose routes AROUND, so it forms land-bridge funnels the soft wetness proxy misses (#62).
+    for nm in ("water.tif", "wetland.tif", "wetland_grhq.tif"):
         try:
             w = ru.read(cache_dir(aoi) / nm)[0]
         except Exception:

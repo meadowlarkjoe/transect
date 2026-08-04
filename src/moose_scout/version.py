@@ -13,11 +13,16 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 12
+ENGINE_REVISION = 13
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    13: "Reads the MRNF GRHQ hydrography. Mapped WETLANDS (marsh/bog/fen) now form the "
+        "land-bridge funnels and slow the walk-in, so funnels appear on lake-and-bog ground "
+        "the terrain proxy missed. BEAVER PONDS (GRHQ flowages) are scored as a RUT HUB — a "
+        "pond beside security cover lifts the calling/ambush value where bulls scent-mark and "
+        "cows follow (not fall forage, which is gone by the hunt). Both are new map layers.",
     12: "Water now agrees across the map, the routes and the funnels. The OSM lakes the map "
         "draws are burned into the walking-cost barrier, so a hunt line goes AROUND a lake "
         "instead of drawing a foot crossing straight across open water when the shore route "
