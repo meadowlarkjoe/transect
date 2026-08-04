@@ -454,7 +454,7 @@ function buildSources(){
     properties:{cls:z.cls,area_km2:z.area_km2}})));
   const tenureZones=fc((DOC.tenure_zones||[]).map(t=>({type:'Feature',geometry:t.geometry,
     properties:{tenure:t.tenure,name:t.name,access:t.access,huntable:!!t.huntable}})));
-  const infra=fc((DOC.infra||[]).map(o=>({type:'Feature',geometry:{type:'LineString',coordinates:o.ll},properties:{t:o.t}})));
+  const infra=fc((DOC.infra||[]).map(o=>({type:'Feature',geometry:{type:'LineString',coordinates:o.ll},properties:{t:o.t,cls:o.cls||o.t,name:o.name||''}})));
   return {areas,areaLabels,camps,staging,packin,routes,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones,burnZones,cutZones,tenureZones,infra};
 }
 
@@ -566,12 +566,26 @@ function init(){
         11,['case',['==',['get','cls'],'river'],2.4,1.1],
         14,['case',['==',['get','cls'],'river'],4.5,2.2]]}});
 
-  // roads + rail (OSM) — access is critical for a hunt map (pack-in, staging, pressure)
+  // roads + rail + trails (OSM) — access is critical for a hunt map (pack-in, staging,
+  // pressure). Roads are DIFFERENTIATED by drivability class (#32): paved arteries read
+  // brightest and widest, resource/logging tracks read as thin dashed gravel, and foot
+  // TRAILS are a separate dotted layer you can't drive. A hunter reads the access the way
+  // they would on OnX — which spur is a highway and which is a two-track you might not get
+  // a truck down. `_PAVED`/`_TRACK` filters split them; width scales off one base by class.
+  const _PAVED=['all',['==',['get','t'],'road'],['match',['get','cls'],['artery','road'],true,false]];
+  const _TRACK=['all',['==',['get','t'],'road'],['==',['get','cls'],'track']];
+  const _rw=['interpolate',['linear'],['zoom'],8,0.9,12,2.1,15,3.6];
   map.addSource('infra',{type:'geojson',data:S.infra});
-  map.addLayer({id:'roads-case',type:'line',source:'infra',filter:['==',['get','t'],'road'],
-    paint:{'line-color':'#20160a','line-width':['interpolate',['linear'],['zoom'],8,1.6,12,3.4,15,5.5],'line-opacity':0.55}});
-  map.addLayer({id:'roads',type:'line',source:'infra',filter:['==',['get','t'],'road'],
-    paint:{'line-color':'#f0dfb0','line-width':['interpolate',['linear'],['zoom'],8,0.8,12,2,15,3.4],'line-opacity':0.95}});
+  map.addLayer({id:'roads-case',type:'line',source:'infra',filter:_PAVED,
+    paint:{'line-color':'#20160a','line-width':['*',_rw,['match',['get','cls'],'artery',2.0,1.5]],'line-opacity':0.5}});
+  map.addLayer({id:'roads',type:'line',source:'infra',filter:_PAVED,
+    paint:{'line-color':['match',['get','cls'],'artery','#f6e7bd','#e4cf94'],
+      'line-width':['*',_rw,['match',['get','cls'],'artery',1.4,1.0]],'line-opacity':0.95}});
+  map.addLayer({id:'roads-track',type:'line',source:'infra',filter:_TRACK,
+    paint:{'line-color':'#c39a5e','line-width':['*',_rw,0.75],'line-dasharray':[3,2.2],'line-opacity':0.9}});
+  map.addLayer({id:'trails',type:'line',source:'infra',filter:['==',['get','t'],'trail'],
+    layout:{visibility:'none'},
+    paint:{'line-color':'#9db36a','line-width':['*',_rw,0.7],'line-dasharray':[1,2.2],'line-opacity':0.9}});
   map.addLayer({id:'rail',type:'line',source:'infra',filter:['==',['get','t'],'rail'],
     paint:{'line-color':'#c7cdc3','line-width':1.5,'line-dasharray':[2,3],'line-opacity':0.9}});
 
@@ -1027,7 +1041,8 @@ function setVis(ids,on){(ids||[]).forEach(id=>map.getLayer(id)&&map.setLayoutPro
 const LYR_MAP={areas:['areas-fill','areas-line','area-badges'],sites:['sites','sites-wind'],
   camps2:['camps'],staging:['staging'],routes:['route-best','route-hot'],access:['route-access'],
   water:['lakes','lakes-line','rivers'],crossings:['crossings'],
-  roads:['roads','roads-case','rail','trans'],
+  roads:['roads','roads-case','roads-track','rail','trans'],
+  trails:['trails'],
   boundaries:['boundaries'],
   shooters:['shooters','shooters-label','shooterLines'],thermal:['thermal'],
   huntZones:['huntZones','huntZones-line'],
@@ -1123,7 +1138,10 @@ const LAYERS=[
   count:()=>(DOC.routes||[]).filter(r=>(r.type||r.t)==='route_access').length},
  {k:'roads', group:'ACCESS & HYDRO', kind:'line', edge:'solid', name:'Roads & rail',
   note:'Reference geography, not a model output', hex:'#CBD5DA', on:true, lyr:'roads',
-  count:()=>(DOC.infra||[]).length},
+  count:()=>(DOC.infra||[]).filter(o=>o.t!=='trail').length},
+ {k:'trails', group:'ACCESS & HYDRO', kind:'line', edge:'dashed', name:'Trails (foot)',
+  note:'OSM foot paths — walk-in access you cannot drive. Dotted olive.', hex:'#9db36a',
+  dash:'dashed', on:false, lyr:'trails', count:()=>(DOC.infra||[]).filter(o=>o.t==='trail').length},
  // These were one row describing only the red hatch, so the amber dashed boundary —
  // ZEC / réserve faunique, ground you CAN hunt but must register or book first —
  // drew on the map with no legend entry and no tooltip, and vanished when you
@@ -3104,7 +3122,12 @@ const IDENTIFY = [
   {lyr:'route-best',   row:'routes',   title:()=>'Hunt line',        sub:()=>'camp → stand, least-cost on foot'},
   {lyr:'route-hot',    row:'routes',   title:()=>'Midday line',      sub:()=>'camp → thermal refuge'},
   {lyr:'route-access', row:'access',   title:()=>'Access leg',       sub:()=>'staging point → this focus area'},
-  {lyr:'roads',        row:'roads',    title:p=>p.name||'Road',      sub:p=>p.highway||''},
+  {lyr:'roads',        row:'roads',    title:p=>p.name||({artery:'Paved road',road:'Local road'}[p.cls]||'Road'),
+                       sub:p=>({artery:'Paved through-road',road:'Secondary drivable road'}[p.cls]||'Road')},
+  {lyr:'roads-track',  row:'roads',    title:p=>p.name||'Resource / logging track',
+                       sub:()=>'Gravel two-track — may be rough or seasonal; scout before you trust it'},
+  {lyr:'trails',       row:'trails',   title:p=>p.name||'Foot trail',
+                       sub:()=>'OSM path — walk-in only, not drivable'},
   {lyr:'rivers',       row:'water',    title:p=>p.name||'Watercourse',sub:()=>'mapped hydrography (OSM)'},
   {lyr:'lakes',        row:'water',    title:p=>p.name||'Waterbody', sub:()=>'mapped hydrography (OSM)'}
 ];

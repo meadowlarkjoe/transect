@@ -75,13 +75,41 @@ def _grid_260x175(ctx, cache, name, GW=260, GH=175):
     return dst  # shape (GH, GW), row 0 = north
 
 
+_ARTERY = {"motorway", "trunk", "primary", "secondary"}
+_SECONDARY = {"tertiary", "unclassified", "residential"}
+_TRACKISH = {"track", "service"}
+
+
+def _road_class(highway, other_tags):
+    """Drivability class from the OSM highway tag, refined by surface/tracktype (#32):
+      artery — paved through-road (Route 389 and the like)
+      road   — secondary/local drivable road
+      track  — resource / logging road: gravel, often rough or seasonal
+    A drivable class is DOWNGRADED to 'track' when its surface reads unpaved. This is a
+    display + honesty aid; the drivable raster (roads.tif) is unchanged."""
+    hw = (highway or "").lower()
+    ot = (other_tags or "").lower()
+    unpaved = any(s in ot for s in ("gravel", "dirt", "ground", "unpaved", "fine_gravel",
+                                    "compacted", "earth", "sand", "\"tracktype\""))
+    if hw in _ARTERY:
+        return "track" if unpaved else "artery"
+    if hw in _SECONDARY:
+        return "track" if unpaved else "road"
+    if hw in _TRACKISH:
+        return "track"
+    return "road"
+
+
 def _infra_lines(cache):
-    """Road + rail as the app's infra format: [{t:'road'|'rail', ll:[[lon,lat],…]}].
-    OSM-sourced, simplified. Empty list if a layer is absent (honest NO DATA)."""
+    """Road + rail + trail as the app's infra format:
+    [{t:'road'|'rail'|'trail', cls, name, ll:[[lon,lat],…]}]. OSM-sourced, simplified.
+    Roads carry a DRIVABILITY class (#32) so the map can tell Route 389 from a logging
+    spur; trails are foot-only and kept distinct. Empty list if a layer is absent."""
     import geopandas as gpd
 
     out = []
-    for name, t in [("roads.gpkg", "road"), ("rail.gpkg", "rail")]:
+    specs = [("roads.gpkg", "road"), ("rail.gpkg", "rail"), ("trails.gpkg", "trail")]
+    for name, t in specs:
         p = cache / name
         if not p.exists():
             continue
@@ -89,15 +117,28 @@ def _infra_lines(cache):
             g = gpd.read_file(p)
             if g.crs and g.crs.to_epsg() != 4326:
                 g = g.to_crs(4326)
+            has_hw = "highway" in g.columns
+            has_ot = "other_tags" in g.columns
+            has_nm = "name" in g.columns
             g["geometry"] = g.geometry.simplify(0.0004)
-            for geom in g.geometry:
+            for i, geom in enumerate(g.geometry):
                 if geom is None or geom.is_empty:
                     continue
+                if t == "road":
+                    cls = _road_class(g["highway"].iloc[i] if has_hw else None,
+                                      g["other_tags"].iloc[i] if has_ot else None)
+                else:
+                    cls = t
+                nm = g["name"].iloc[i] if has_nm else None
+                nm = None if (nm is None or (isinstance(nm, float))) else str(nm)
                 parts = geom.geoms if geom.geom_type == "MultiLineString" else [geom]
                 for part in parts:
                     ll = [[round(x, 5), round(y, 5)] for x, y in part.coords]
                     if len(ll) >= 2:
-                        out.append({"t": t, "ll": ll})
+                        rec = {"t": t, "cls": cls, "ll": ll}
+                        if nm:
+                            rec["name"] = nm
+                        out.append(rec)
         except Exception:
             pass
     return out

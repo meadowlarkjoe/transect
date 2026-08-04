@@ -15,6 +15,9 @@ from ..rasterio_utils import target_grid
 
 DRIVE_TAGS = {"highway": ["motorway", "trunk", "primary", "secondary", "tertiary",
                           "unclassified", "residential", "track", "service"]}
+# Foot access — trails a hunter walks in on but can't drive. Kept SEPARATE from the
+# drivable network so access/pack-out never treats a footpath as a truck road (#32).
+TRAIL_TAGS = {"highway": ["path", "footway", "bridleway", "cycleway"]}
 RAIL_TAGS = {"railway": ["rail", "narrow_gauge", "light_rail"]}
 # Vector hydrography — captures narrow rivers/streams the 10 m WorldCover raster
 # misses, and gives exact geometry for map display + route river-crossing checks.
@@ -103,6 +106,18 @@ def fetch(ctx: Context) -> None:
         r = r[r.geometry.type.isin(["LineString", "MultiLineString"])] if len(r) else r
         if r is not None and len(r):
             r[["geometry"]].reset_index(drop=True).to_file(cache / "rail.gpkg", driver="GPKG")
+    except Exception:
+        pass
+
+    # foot trails (path/footway/bridleway) — walk-in access, NOT drivable (#32). Kept in
+    # its own layer so access never mistakes a footpath for a truck road.
+    try:
+        from . import osm_local as _L
+        tr = _osm(ctx, TRAIL_TAGS, local=_L.trails)
+        tr = tr[tr.geometry.type.isin(["LineString", "MultiLineString"])] if len(tr) else tr
+        if tr is not None and len(tr):
+            cols = [c for c in ("highway", "name") if c in tr.columns] + ["geometry"]
+            tr[cols].reset_index(drop=True).to_file(cache / "trails.gpkg", driver="GPKG")
     except Exception:
         pass
 

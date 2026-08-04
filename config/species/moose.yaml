@@ -160,7 +160,8 @@ legend:
   - {key: thermal,   group: "SITES & FEATURES", name: "Thermal drift", note: "Modelled slope airflow — Field tab, zoom in to read it"}
   - {key: routes,    group: "ACCESS & HYDRO", name: "Hunt lines", note: "The best line to walk in on, from camp to the stand"}
   - {key: access,    group: "ACCESS & HYDRO", name: "Access from staging", note: "Truck to the area — one short leg per focus area, from its own staging point"}
-  - {key: roads,     group: "ACCESS & HYDRO", name: "Roads & rail", note: "Reference geography, not a model output"}
+  - {key: roads,     group: "ACCESS & HYDRO", name: "Roads & rail", note: "Reference geography by drivability — bright = paved through-road, thin dashed gold = gravel/logging track you may not get a truck down."}
+  - {key: trails,    group: "ACCESS & HYDRO", name: "Trails (foot)", note: "OSM foot paths — walk-in access you cannot drive. Dotted olive."}
   - {key: tenure,    group: "ACCESS & HYDRO", name: "Closed to you", note: "Exclusive outfitter tenure — hatched red is masked out of the ranking entirely"}
   - {key: tenure-ok, group: "ACCESS & HYDRO", name: "Bookable ground", note: "ZEC or réserve faunique — you may hunt here, but register or reserve first"}
   - {key: boundaries, group: "ACCESS & HYDRO", name: "Borders & places", note: "Reference geography"}

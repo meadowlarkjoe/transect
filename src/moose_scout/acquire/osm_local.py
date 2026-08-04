@@ -179,8 +179,17 @@ def _get(bbox, name, layer, where):
     return read_bbox(bbox, layer, where)  # raw .pbf: ~60 s
 
 
+TRAIL_WHERE = "highway IN ('path','footway','bridleway','cycleway')"
+
+
 def roads(bbox):
     return _get(bbox, "roads", "lines", DRIVE_WHERE)
+
+
+def trails(bbox):
+    """Foot trails (path/footway/bridleway). Not in the prebuilt index — reads the raw
+    .pbf (~60 s), which is fine: boreal trails are sparse and this runs once per AOI."""
+    return _get(bbox, "trails", "lines", TRAIL_WHERE)
 
 
 def rail(bbox):
