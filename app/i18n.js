@@ -6,6 +6,7 @@
 (function (global) {
   const DICT = {
     en: {
+  'base.overzoom':'Past the sharpest imagery published here — the last real tile is being stretched, not lost.',
   'setup.party':'Hunters in the party',
   'setup.partyU':'hunters',
   'setup.partyNote':'Party size changes the analysis, not just the wording: focus areas are sized to hold the crew, and each area gets a calling stand per hunter plus glassing positions to pair up on.',
@@ -127,6 +128,7 @@
     },
 
     fr: {
+  'base.overzoom':'Au-delà de l’imagerie la plus nette ici — la dernière tuile réelle est étirée, pas perdue.',
   'setup.party':'Chasseurs dans le groupe',
   'setup.partyU':'chasseurs',
   'setup.partyNote':'La taille du groupe modifie l’analyse, pas seulement le texte : les secteurs sont dimensionnés pour accueillir l’équipe, et chacun reçoit un poste d’appel par chasseur plus des postes d’observation à jumeler.',
