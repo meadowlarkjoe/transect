@@ -1171,7 +1171,11 @@ function renderSetup(){
 
     <div class="sec">
       <div id="setupErr"></div>
-      <button id="runBtn" class="btn btn--primary btn--lg btn--block">RUN ANALYSIS →</button>
+      <button id="runBtn" class="btn btn--primary btn--lg btn--block">${hasResult()?'RUN NEW ANALYSIS →':'RUN ANALYSIS →'}</button>
+      ${hasResult()?`<div class="callout" data-kind="warn" style="margin-top:10px"><span class="mark">!</span><div class="body">
+        <b>This replaces your current analysis</b>
+        The areas, zones and brief on screen now are for a different box. Running again
+        discards them — save the current plan first if you want to keep it.</div></div>`:''}
       <div class="callout" data-kind="info" style="margin-top:10px"><span class="mark">i</span><div class="body">
         <b>Live recompute — 3–5 minutes</b>
         Downloads terrain, imagery, land-cover, burn history and hydrography for the box, then
@@ -1238,7 +1242,10 @@ function applyHunt(){
 }
 function setUnits(u){ if(u===UNITS)return; UNITS=u; renderSetup(); buildPanel(); if(!document.getElementById('detail').classList.contains('hidden')){} }
 function applyDoc(newDoc){        // re-bind the whole map + panels to fresh engine data
-  DOC=newDoc; DOC.blank=false; window.TRANSECT_DATA=newDoc;
+  // honour the incoming document's own flag: engine results have none (falsy),
+  // blankDoc() sets it true — so resetting to blank doesn't need a correction after.
+  DOC=newDoc; DOC.blank=!!newDoc.blank; window.TRANSECT_DATA=newDoc;
+  if(typeof paintTabLocks==='function') paintTabLocks();
   const S=buildSources();
   const setD=(id,data)=>{const s=map.getSource(id); if(s&&data) s.setData(data);};
   setD('huntZones',S.huntZones); setD('browseZones',S.browseZones);
@@ -1290,6 +1297,13 @@ function missingSetup(){
   return miss;
 }
 function runAnalysis(){
+  // A completed analysis cost 3–5 minutes; don't let it evaporate on a stray click.
+  if(hasResult()){
+    const keep = PLAN_SAVED ? '' :
+      '\n\nThis plan is UNSAVED — if you want to keep the current results, cancel and save it first.';
+    if(!confirm('Run a new analysis?\n\nThe current areas, zones, sites and brief will be cleared '
+      +'and replaced with results for the box you have set now.'+keep)) return;
+  }
   const miss=missingSetup();
   if(miss.length){
     const box=document.getElementById('setupErr');
@@ -1312,6 +1326,9 @@ function runAnalysis(){
     // Setup constraints now shape the analysis (no-boat river barriers, walk range, rut-phase weighting)
     watercraft:SETUP.watercraft, hunt_style:SETUP.huntStyle,
     walk_access_km:draft.walkAccess, walk_hunt_km:draft.walkHunt};
+  // wipe the previous result up front: leaving it on the map while a new box computes
+  // invites reading old areas as if they belonged to the new one.
+  if(hasResult()){ applyDoc(blankDoc()); paintTabLocks(); }
   setBtn(line('ANALYSING… starting'),true);
   // tick the elapsed clock even between polls so it never looks frozen
   let lastHead='ANALYSING… starting', tick=setInterval(()=>setBtn(line(lastHead),true),1000);
@@ -1549,10 +1566,10 @@ function setTab(name){
    Land on Setup the first time, then remember where you were, and honour ?tab= . */
 function startTab(){
   const q=new URLSearchParams(location.search).get('tab');
-  if(q && TAB_SHOW[q]) return q;
+  if(q && TAB_SHOW[q] && !(RESULT_TABS.includes(q) && !hasResult())) return q;
   try{
     const last=localStorage.getItem('transect_tab');
-    if(last && TAB_SHOW[last]) return last;
+    if(last && TAB_SHOW[last] && !(RESULT_TABS.includes(last) && !hasResult())) return last;
     if(!localStorage.getItem('transect_seen')){ localStorage.setItem('transect_seen','1'); return 'setup'; }
   }catch(e){}
   try{
@@ -1560,7 +1577,35 @@ function startTab(){
   }catch(e){}
   return 'overview';
 }
-function wireTabs(){ document.querySelectorAll('#tabbar button[data-tab]').forEach(b=>b.onclick=()=>setTab(b.dataset.tab)); }
+const RESULT_TABS=['overview','field','brief'];
+function hasResult(){ return !!(DOC && !DOC.blank && (DOC.areas||[]).length); }
+/* Overview / Field / Brief describe an analysis. With nothing computed they'd show
+   empty scaffolding, which reads as broken — so they stay locked until a run lands. */
+function paintTabLocks(){
+  const locked=!hasResult();
+  document.querySelectorAll('#tabbar button[data-tab]').forEach(b=>{
+    const isResult=RESULT_TABS.includes(b.dataset.tab);
+    const off=isResult&&locked;
+    b.classList.toggle('locked',off);
+    b.disabled=off;
+    b.title=off?'Run an analysis first — there is nothing to show yet':'';
+  });
+}
+function wireTabs(){
+  document.querySelectorAll('#tabbar button[data-tab]').forEach(b=>b.onclick=()=>{
+    if(RESULT_TABS.includes(b.dataset.tab) && !hasResult()){
+      setTab('setup');
+      const box=document.getElementById('setupErr');
+      if(box){ box.className='callout'; box.dataset.kind='info';
+        box.innerHTML='<span class="mark">i</span><div class="body"><b>Nothing to show yet</b>'
+          +'Overview, Field and Brief all describe a computed analysis. Set your area and dates, '
+          +'then run it — they unlock as soon as it finishes.</div>'; }
+      return;
+    }
+    setTab(b.dataset.tab);
+  });
+  paintTabLocks();
+}
 /* plan identity in the top bar: auto-named, renamable inline, with a saved state */
 let PLAN_NAME='', PLAN_SAVED=false;
 /* mark exactly one button in a .seg as pressed (the control means "one of these") */

@@ -423,3 +423,8 @@ input[type=range]:focus{box-shadow:none;border:0}
   background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);
   box-shadow:var(--e-pop);padding:var(--s-3)}
 #acctMenu.hidden{display:none}
+
+/* result tabs are locked until an analysis exists */
+#tabbar button[data-tab].locked{opacity:.38;cursor:not-allowed}
+#tabbar button[data-tab].locked:hover{background:transparent;color:var(--text-2)}
+#tabbar button[data-tab].locked .n{background:var(--line);color:var(--text-4)}
