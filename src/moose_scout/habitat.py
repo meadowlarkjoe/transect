@@ -145,6 +145,43 @@ def run(ctx: Context) -> None:
         browse = np.maximum(np.nan_to_num(browse), np.nan_to_num(dist_val))
         ru.write(cache / "burn_browse.tif", dist_val, prof)
 
+    # --- ÉCOFORESTIÈRE OVERRIDE (south of ~52°N) --------------------------------------
+    # Real stand species + canopy closure + dated CUTS beat the 10 m WorldCover guess.
+    # Where a stand is mapped it is authoritative for cover/browse; WorldCover+NDVI fills
+    # the rest (north of the limit, or gaps). This is what finally lets the model see
+    # CONIFER (not "any tree") and count logging cuts as browse by age (#34).
+    stand = _opt(cache / "stand_type.tif")
+    conifer_close = None
+    if stand is not None:
+        st = np.nan_to_num(stand).astype("int16")
+        have = st > 0
+        cl = np.clip(np.nan_to_num(_opt(cache / "stand_closure.tif")), 0.0, 1.0)
+        # species → cover / browse (from config/species/moose.yaml cover_types), 0..1
+        SP_COVER = {1: 0.85, 2: 0.55, 3: 0.25, 4: 0.05, 5: 0.20, 6: 0.10}   # rés·mél·feu·cut·regen·burn
+        SP_BROWSE = {1: 0.05, 2: 0.35, 3: 0.30, 4: 0.55, 5: 0.85, 6: 0.30}
+        eco_cover = np.zeros(shape, "float32")
+        eco_browse = np.zeros(shape, "float32")
+        for k, v in SP_COVER.items():
+            eco_cover[st == k] = v
+        for k, v in SP_BROWSE.items():
+            eco_browse[st == k] = v
+        eco_cover = np.clip(eco_cover * (0.5 + 0.5 * cl), 0.0, 1.0)          # scale cover by closure
+        cover = np.where(have, eco_cover, np.nan_to_num(cover))
+        browse = np.where(have, np.maximum(np.nan_to_num(browse), eco_browse), np.nan_to_num(browse))
+        # conifer canopy closure (résineux/mélangé) — the real thermal-refuge signal
+        conifer_close = np.where(np.isin(st, [1, 2]), cl, 0.0).astype("float32")
+        # dated CUTS through the same disturbance-age browse curve as burns (#34)
+        cut_yr = _opt(cache / "cut_year.tif")
+        if cut_yr is not None and np.any(np.nan_to_num(cut_yr) > 0):
+            cyr = np.nan_to_num(cut_yr)
+            cage = float(ctx.aoi.season.year) - cyr
+            cpts = [(0, 0.05), (4, 0.15), (8, 0.55), (12, 0.95), (18, 1.00),
+                    (25, 0.85), (32, 0.50), (45, 0.30), (80, 0.15)]   # cuts sucker earlier than fire
+            cdist = np.interp(np.clip(cage, 0, 200),
+                              [p[0] for p in cpts], [p[1] for p in cpts]).astype("float32")
+            cdist = np.where(cyr > 0, cdist, 0.0)
+            browse = np.maximum(np.nan_to_num(browse), cdist)
+
     # --- water/forage proximity ---
     water_score = _prox(dist_water, W.get("wetland_optimal_m", 150), W.get("wetland_falloff_m", 800))
 
@@ -220,10 +257,14 @@ def run(ctx: Context) -> None:
     # dominates), so flats are eligible through (a). Absolute scale, NO normalize, so the
     # downstream 0.5 threshold stays portable across AOIs.
     cover0 = np.nan_to_num(cover)
+    # Where écoforestière maps it, `dense` is REAL conifer canopy closure (résineux/
+    # mélangé × density class) — the true thermal-refuge cover. Elsewhere (north of the
+    # limit, or gaps) fall back to the coarse WorldCover "any tree above 0.60" proxy,
+    # which over-counts because it can't see species or closure.
     dense = np.clip((cover0 - 0.60) / 0.25, 0.0, 1.0)
-    # NOTE: without écoforestière/NDVI, `cover` calls every tree pixel dense, so this
-    # pathway is broader than it will be once canopy-closure data (Tier B) sharpens
-    # `dense`. Keep the wet/lowland credit tight (close water, genuine valley bottoms).
+    if conifer_close is not None:
+        cc = np.nan_to_num(conifer_close)
+        dense = np.where(cc > 0, np.clip((cc - 0.45) / 0.35, 0.0, 1.0), dense)
     lowland = np.clip(ru.normalize(-tpi, lo=0.0, hi=15.0), 0.0, 1.0)    # fixed bounds → absolute
     wet_cool = np.maximum(_prox(dist_water, 100, 350), 0.7 * lowland)
     slope_gate = np.clip(np.nan_to_num(slope) / 8.0, 0.0, 1.0)

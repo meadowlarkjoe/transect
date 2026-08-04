@@ -92,6 +92,13 @@ def overall(ctx, cache) -> dict:
         score += 0.04; drivers.append("Sentinel-2 NDVI acquired.")
     else:
         score -= 0.06; drivers.append("No Sentinel-2 NDVI (imagery gap) — browse read weaker.")
+    if has("stand_type.tif"):
+        score += 0.08
+        drivers.append("Écoforestière stand data acquired — real species, canopy closure "
+                       "and dated cuts (not just satellite land cover).")
+    elif has("ecoforestiere_absent.flag"):
+        drivers.append("North of the écoforestière limit (~52°N) — cover/browse rest on "
+                       "WorldCover + Sentinel-2 (coarser, lower confidence).")
     if has("landcover.tif"):
         score += 0.03; drivers.append("ESA WorldCover land-cover acquired.")
     if has("roads.tif"):
