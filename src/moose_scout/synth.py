@@ -475,19 +475,10 @@ def run(ctx: Context) -> None:
         sr, sc = stage_rc[int(np.argmin(d2))]
         return int(sr), int(sc)
 
-    if vehicle_style:
-        # No base_camp features at all: routes will originate from the staging pin.
-        camp_of_area = {rank: st for rank, (st, _c) in area_stage.items()}
-        camp_cells = list(camp_of_area.values())
-    else:
-        for rank, (r, c) in camp_of_area.items():
-            lon, lat = toll((r, c))
-            features.append({"type": "Feature",
-                             "geometry": {"type": "Point", "coordinates": [lon, lat]},
-                             "properties": {"legend": "base_camp", "anchor": anchor_kind,
-                                            "focus_area": rank}})
-
-    # one staging point per focus area, keyed to that area's rank
+    # STAGING FIRST, then camps. The vehicle branch derives its camp FROM staging,
+    # so staging has to exist before either branch runs — reading area_stage above
+    # its own definition was an UnboundLocalError on every vehicle hunt (the spike
+    # path never touched it, so it slipped past a spike-only test).
     area_stage = {}
     for rank, sel in area_masks:
         rc = np.argwhere(sel)
@@ -510,6 +501,18 @@ def run(ctx: Context) -> None:
                                         # say it out loud when the truck is also the bed
                                         "is_camp": bool(vehicle_style),
                                         "walk_km": round(walk_px * res / 1000.0, 2)}})
+
+    if vehicle_style:
+        # No base_camp features at all: routes originate from the staging pin.
+        camp_of_area = {rank: st for rank, (st, _c) in area_stage.items()}
+        camp_cells = list(camp_of_area.values())
+    else:
+        for rank, (r, c) in camp_of_area.items():
+            lon, lat = toll((r, c))
+            features.append({"type": "Feature",
+                             "geometry": {"type": "Point", "coordinates": [lon, lat]},
+                             "properties": {"legend": "base_camp", "anchor": anchor_kind,
+                                            "focus_area": rank}})
 
     # --- least-cost approach routes: access -> top rut sites (best), -> thermal (midday_hot) ---
     try:
