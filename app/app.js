@@ -1481,6 +1481,7 @@ function buildTools(){
   document.getElementById('mcOut').onclick=()=>map.zoomOut();
   document.getElementById('mcSat').onclick=()=>toggleDock('baseDock','mcSat');
   document.getElementById('mcLoc').onclick=()=>fitAOI();
+  const rb=document.getElementById('rescopeBtn'); if(rb) rb.onclick=()=>rescopeWithDrawnAreas();
   const syncCompass=()=>{
     const b=map.getBearing(), p=map.getPitch();
     document.getElementById('mcN').style.display=(Math.abs(b)>0.5||p>0.5)?'grid':'none';
@@ -1619,6 +1620,10 @@ function finishDraw(){
   drawPts=[]; renderAnnot();
 }
 function renderAnnot(){
+  // Offer "Recalculate" once the hunter has drawn a focus area to re-plan inside.
+  const rb=document.getElementById('rescopeBtn');
+  if(rb){ const hasPoly=(drawSaved||[]).some(f=>f.geometry&&f.geometry.type==='Polygon');
+    rb.classList.toggle('hidden', !(hasPoly && hasResult() && LAST_JOB_ID)); }
   // The measurement was being computed correctly and never shown: the readout only
   // refreshed on hovering the rail button, so clicking points on the map produced a
   // running total nobody could see. That is why the tools felt dead.
@@ -2333,7 +2338,33 @@ function savePlans(a){ try{localStorage.setItem('transect_plans',JSON.stringify(
 /* The plan currently on screen, if it came from (or was saved to) the store. Keeps
    a re-run updating that plan instead of spawning a duplicate every time. */
 let CUR_PLAN_ID=null;
+let LAST_JOB_ID=null;   // the AOI whose rasters the server retains for /rescope
 function markDirtySoft(){ try{ setPlanName(PLAN_NAME,false); }catch(e){} }
+
+/* Re-plan inside hand-drawn focus areas WITHOUT a full re-run: the server reuses the
+   already-acquired rasters and only re-places sites/routes. Seconds, not minutes. */
+async function rescopeWithDrawnAreas(){
+  const polys=(drawSaved||[]).filter(f=>f.geometry&&f.geometry.type==='Polygon')
+    .map(f=>f.geometry.coordinates[0]);
+  if(!polys.length){ alert('Draw one or more focus areas first (the ▱ area tool), then Recalculate.'); return; }
+  if(!LAST_JOB_ID){ alert('Run an analysis first — Recalculate re-plans that analysis inside your drawn areas.'); return; }
+  const btn=document.getElementById('rescopeBtn'); if(btn){ btn.disabled=true; btn.textContent='Recalculating…'; }
+  try{
+    const r=await fetch(API_URL+'/rescope',{method:'POST',
+      headers:Object.assign({'Content-Type':'application/json','X-API-Key':API_KEY},
+        authTok()?{'Authorization':'Bearer '+authTok()}:{}),
+      body:JSON.stringify({job_id:LAST_JOB_ID, manual_areas:polys})});
+    if(!r.ok){ const d=await r.json().catch(()=>({})); throw new Error(d.detail||('rescope '+r.status)); }
+    const d=await r.json();
+    // the drawn polygons are now the focus areas — clear them as annotations so they
+    // don't double up with the rendered focus-area outlines.
+    drawSaved=(drawSaved||[]).filter(f=>!(f.geometry&&f.geometry.type==='Polygon')); renderAnnot();
+    applyDoc(d.scout); layersDismissed=false; setTab('overview'); syncDocks('overview'); autosavePlan();
+  }catch(e){
+    alert('Could not recalculate: '+e.message+
+      (/no longer cached/.test(e.message)?'\n\nThe cached analysis has expired — run a fresh one.':''));
+  }finally{ const b=document.getElementById('rescopeBtn'); if(b){ b.disabled=false; b.textContent='↻ Recalculate in my areas'; } }
+}
 function currentPlan(name, withDoc){
   const p={id:uuid(), name:name||PLAN_NAME||('Plan '+new Date().toLocaleDateString()), savedAt:Date.now(),
     aoi:(DOC.meta&&DOC.meta.title)||'', units:UNITS,
@@ -2782,7 +2813,7 @@ function pollJob(jid,headers,STAGE,stop,setBtn,line,onHead){
       .then(s=>{
         failedSince=0;
         if(s.status==='done'){
-          stop(); forgetJob(); setBtn('RUN ANALYSIS →',false); applyDoc(s.scout);
+          stop(); LAST_JOB_ID=jid; forgetJob(); setBtn('RUN ANALYSIS →',false); applyDoc(s.scout);
           // a finished run should present its result: Overview, with the layers card
           // showing what was drawn — even if it was dismissed earlier during Setup.
           layersDismissed=false; setTab('overview'); syncDocks('overview');
@@ -2884,7 +2915,7 @@ function resumeJob(){
   fetch(API_URL+'/jobs/'+jid,{headers:hdr,cache:'no-store'}).then(r=>r.json()).then(s=>{
     if(!s||s.status==='unknown'||s.status==='error'||s.status==='cancelled'){ forgetJob(); return; }
     if(s.status==='done'){
-      forgetJob(); applyDoc(s.scout); layersDismissed=false; setTab('overview'); syncDocks('overview');
+      LAST_JOB_ID=jid; forgetJob(); applyDoc(s.scout); layersDismissed=false; setTab('overview'); syncDocks('overview');
       autosavePlan();
       return;
     }

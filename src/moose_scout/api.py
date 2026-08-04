@@ -175,11 +175,20 @@ def _run(job_id: str, req: ScoutReq) -> None:
         # return the app's data contract (transect.json), same shape the app binds to
         doc = json.loads((outputs_dir(name) / "transect.json").read_text())
         JOBS[job_id].update(status="done", stage="done", progress=1.0, scout=doc)
+        # Persist enough to rebuild this ctx later, and KEEP the cache so /rescope can
+        # re-plan (manual areas, moved camp) against the already-acquired rasters
+        # without a full minutes-long re-fetch. Pruned below to bound disk.
+        try:
+            (cache_dir(name) / "job_meta.json").write_text(json.dumps({
+                "req": req.model_dump(), "uid": JOBS[job_id].get("uid"),
+                "res_m": JOBS[job_id].get("res_m"), "at": time.time()}))
+            _prune_caches()
+        except Exception:
+            pass
     except Exception as e:  # noqa: BLE001
         JOBS[job_id].update(status="error", error=str(e),
                             trace=traceback.format_exc()[-1200:])
-    finally:
-        shutil.rmtree(cache_dir(name), ignore_errors=True)
+        shutil.rmtree(cache_dir(name), ignore_errors=True)   # a failed run keeps nothing
         shutil.rmtree(outputs_dir(name), ignore_errors=True)
 
 
@@ -251,6 +260,90 @@ def _reap_orphans():
 
 
 threading.Thread(target=_reap_orphans, daemon=True).start()
+
+
+RESCOPE_KEEP = 25          # most-recent job caches retained for re-planning
+
+
+def _prune_caches():
+    """Keep the RESCOPE_KEEP newest job_* caches; delete the rest. Disk on the box is
+    ample (a cache is ~40-160 MB, tens of GB free), so this is generous — it just
+    stops unbounded growth."""
+    import os
+    root = Path(os.environ.get("MOOSE_SCOUT_CACHE", "cache"))
+    try:
+        jobs = sorted((p for p in root.glob("job_*") if p.is_dir()),
+                      key=lambda p: p.stat().st_mtime, reverse=True)
+        for old in jobs[RESCOPE_KEEP:]:
+            shutil.rmtree(old, ignore_errors=True)
+            shutil.rmtree(outputs_dir(old.name), ignore_errors=True)
+    except Exception:
+        pass
+
+
+class RescopeReq(BaseModel):
+    job_id: str
+    manual_areas: list | None = None     # [[[lon,lat],...], ...] hand-drawn polygons
+    fixed_camp: list[float] | None = None
+    hunt_radius_km: float | None = None
+
+
+@app.post("/rescope")
+def rescope(rq: RescopeReq, x_api_key: str = Header(default=None),
+            authorization: str = Header(default=None)):
+    """Re-plan against an already-acquired AOI: reuse the cached rasters, apply the
+    hunter's manual areas / moved camp, and re-run ONLY synth + contract. Seconds,
+    not minutes — no re-fetch. This is the on-demand 'Recalculate' path."""
+    _require_key(x_api_key)
+    uid = _uid(authorization)
+    name = f"job_{rq.job_id}"
+    meta_p = cache_dir(name) / "job_meta.json"
+    if not meta_p.exists():
+        raise HTTPException(404, "that analysis is no longer cached — run a fresh one")
+    meta = json.loads(meta_p.read_text())
+    if REQUIRE_ACCOUNT and meta.get("uid") is not None and uid != meta.get("uid"):
+        raise HTTPException(403, "not your analysis")
+    r = ScoutReq(**meta["req"])
+    # apply overrides from the rescope request (moved/added camp, new radius)
+    if rq.fixed_camp is not None:
+        r.fixed_camp = rq.fixed_camp
+    if rq.hunt_radius_km is not None:
+        r.hunt_radius_km = rq.hunt_radius_km
+    try:
+        species = r.species if r.species in SPECIES else "moose"
+        model = load_model()
+        if meta.get("res_m"):
+            try:
+                model = model.model_copy(update={"raster_resolution_m": meta["res_m"]})
+            except Exception:
+                model.raster_resolution_m = meta["res_m"]
+        aoi = AOI(name=name, title=name, species=species,
+                  center=LatLon(lat=r.lat, lon=r.lon),
+                  bbox_halfwidth_km=max(3.0, min(120.0, r.radius_km)),
+                  zone_hint=r.zone_hint,
+                  season=SeasonCfg(year=2026, target_dates=r.target_dates or ["2026-09-25", "2026-10-05"]),
+                  hunter=HunterCfg(
+                      residency=r.residency,
+                      watercraft=r.watercraft if r.watercraft in ("none", "canoe", "motor") else "none",
+                      hunt_style=r.hunt_style if r.hunt_style in ("spike", "vehicle") else "spike",
+                      walk_access_km=max(0.5, min(30.0, float(r.walk_access_km))),
+                      walk_hunt_km=max(0.3, min(20.0, float(r.walk_hunt_km))),
+                      party_size=max(1, min(12, int(r.party_size))),
+                      fixed_camp=(tuple(r.fixed_camp[:2]) if r.fixed_camp and len(r.fixed_camp) >= 2 else None),
+                      hunt_radius_km=(max(1.0, min(30.0, float(r.hunt_radius_km))) if r.hunt_radius_km else None)))
+        ctx = Context(aoi=aoi, species=load_species(species), model=model)
+        from . import synth as _synth, contract as _contract
+        _synth.run(ctx, manual_areas=rq.manual_areas or None)
+        _contract.build(ctx)
+        doc = json.loads((outputs_dir(name) / "transect.json").read_text())
+        # touch the cache so a rescoped plan isn't pruned out from under the user
+        try:
+            meta["at"] = time.time(); meta_p.write_text(json.dumps(meta))
+        except Exception:
+            pass
+        return {"status": "done", "scout": doc}
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"rescope failed: {e}")
 
 
 @app.get("/health")

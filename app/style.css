@@ -626,3 +626,11 @@ body.boxdraw #dragBox,#dragBox.on{background:var(--accent);color:var(--accent-on
 #viewSurface svg{stroke:var(--accent)}
 #viewSurface.on{background:var(--accent);}
 #viewSurface.on svg{stroke:var(--accent-on)}
+
+/* Recalculate: re-plan inside hand-drawn focus areas (server reuses cached rasters). */
+#rescopeBtn{position:absolute;z-index:26;left:420px;bottom:16px;background:var(--accent);
+  color:var(--accent-on);border:0;border-radius:var(--r-md);box-shadow:var(--e-pop);
+  font:600 12px/1 var(--sans);padding:11px 15px;cursor:pointer}
+#rescopeBtn:hover{background:var(--accent-hi)}
+#rescopeBtn[disabled]{opacity:.6;cursor:default}
+#rescopeBtn.hidden{display:none}

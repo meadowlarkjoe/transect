@@ -293,7 +293,46 @@ def _explain_area(sel, L, res, med, hunter=None):
                       "mean_slope_deg": None if slp is None else round(slp, 1)}}
 
 
-def run(ctx: Context) -> None:
+def _manual_focus_areas(manual_areas, hunt, prof, res):
+    """Build (features, area_masks) from hand-drawn polygons, in the SAME shape
+    extract_focus_areas returns — so the rest of synth (explain, site placement,
+    camps, routes) runs unchanged. This is how a hunter says "we're hunting HERE"
+    and the model plans inside their polygon instead of its own."""
+    from rasterio.features import rasterize
+    from shapely.geometry import shape as shp_shape
+    from shapely.ops import transform as shp_transform
+    from pyproj import Transformer
+
+    to_grid = Transformer.from_crs("EPSG:4326", prof["crs"], always_xy=True)
+    px_area = (res * res) / 1e6
+    feats, masks = [], []
+    for i, poly_lonlat in enumerate(manual_areas, 1):
+        ring = poly_lonlat[0] if (poly_lonlat and isinstance(poly_lonlat[0][0], (list, tuple))) else poly_lonlat
+        if len(ring) < 3:
+            continue
+        geom_wgs = {"type": "Polygon", "coordinates": [ring]}
+        geom_grid = shp_transform(lambda xs, ys: to_grid.transform(xs, ys), shp_shape(geom_wgs))
+        sel = rasterize([(geom_grid, 1)], out_shape=hunt.shape, transform=prof["transform"],
+                        fill=0, dtype="uint8").astype(bool)
+        sel &= np.isfinite(hunt)
+        if not sel.any():
+            continue
+        area = int(sel.sum()) * px_area
+        score = float(np.nanmean(hunt[sel]))
+        rp = shp_shape(geom_wgs).representative_point()
+        feats.append({"type": "Feature", "geometry": geom_wgs,
+                      "properties": {"legend": "focus_area", "rank": i,
+                                     "area_km2": round(area, 1),
+                                     "mean_huntability": round(score, 3),
+                                     "centroid": [round(rp.x, 5), round(rp.y, 5)],
+                                     "manual": True,
+                                     "candidates_found": len(manual_areas),
+                                     "candidates_shown": len(manual_areas)}})
+        masks.append((i, sel))
+    return feats, masks
+
+
+def run(ctx: Context, manual_areas=None) -> None:
     cache = cache_dir(ctx.aoi.name)
     res = ctx.model.raster_resolution_m
     hunt, prof = ru.read(cache / "huntability.tif")
@@ -345,7 +384,13 @@ def run(ctx: Context) -> None:
         outside = (Yc - fixed_camp_rc[0]) ** 2 + (Xc - fixed_camp_rc[1]) ** 2 > rad_px ** 2
         hunt[outside] = np.nan          # everything past the camp radius drops out
 
-    features, area_masks = extract_focus_areas(ctx, hunt, prof)
+    # Manual focus areas (hunter drew "we're hunting here") take over from the
+    # model's own extraction; everything downstream — sites, camps, routes, brief —
+    # then plans inside the hunter's polygon.
+    if manual_areas:
+        features, area_masks = _manual_focus_areas(manual_areas, hunt, prof, res)
+    if not manual_areas or not area_masks:
+        features, area_masks = extract_focus_areas(ctx, hunt, prof)
 
     # Data-driven "why this area" + pros/cons for each focus area.
     Lyr = {"dist_water": dist_water, "dist_road": dist_road, "dem": dem,
