@@ -202,13 +202,23 @@ def run(ctx: Context) -> None:
     bull[water_mask] = np.nan
     ru.write(cache / "hsm_bull.tif", ru.normalize(bull).astype("float32"), prof)
 
-    # --- thermal refuge: cool aspect + cover + near water ---
-    thermal = np.nan_to_num(cool) * np.nan_to_num(cover) * _prox(dist_water, 100, 400)
+    # --- thermal refuge: dense COVER is the thing; cool aspect + water ENHANCE it ---
+    # Was a hard product (cool × cover × water-prox), so on any AOI where the good
+    # bedding cover sits >400 m from water — most of a big box — the whole surface
+    # collapsed to ~0 and NO thermal-refuge sites were placed (Rouyn: p90=0). A refuge
+    # is fundamentally security/thermal cover; a cool north aspect and nearby water
+    # make it better but their absence must not zero a good stand of cover.
+    thermal = np.nan_to_num(cover) * (0.40 + 0.30 * np.nan_to_num(cool)
+                                      + 0.30 * _prox(dist_water, 100, 400))
     thermal[water_mask] = np.nan
     ru.write(cache / "hsm_thermal.tif", ru.normalize(thermal).astype("float32"), prof)
 
-    # --- rut/calling sites: cover<->opening edge × funnel × near wetland ---
+    # --- rut/calling sites: cover<->opening EDGE is the thing; funnel + water enhance --
+    # Same brittleness: edge × funnel × wet_prox meant a cruise edge far from water
+    # scored 0, so on a water-sparse AOI zero calling stands got placed. The edge is
+    # the primary signal (bulls cruise and call the cover-opening seam); funnels and
+    # water proximity are bonuses, not gates.
     wet_prox = _prox(_dist(wetland_mask | water_mask, res), 200, 1000)
-    rut = np.nan_to_num(edge) * (0.5 + 0.5 * ru.normalize(funnel)) * wet_prox
+    rut = np.nan_to_num(edge) * (0.40 + 0.30 * ru.normalize(funnel) + 0.30 * wet_prox)
     rut[water_mask] = np.nan
     ru.write(cache / "hsm_rut.tif", ru.normalize(rut).astype("float32"), prof)
