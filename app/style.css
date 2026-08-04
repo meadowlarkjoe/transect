@@ -612,3 +612,11 @@ body.tool-armed[data-tool="waypoint"] .maplibregl-canvas{cursor:copy}
 body.boxdraw .maplibregl-canvas{cursor:crosshair!important}
 body.boxdraw-active .maplibregl-canvas{cursor:grabbing!important}
 body.boxdraw #dragBox,#dragBox.on{background:var(--accent);color:var(--accent-on);border-color:var(--accent)}
+
+/* Coordinate entry on the pin tool. The rail tip is click-through by default; the
+   input re-enables pointer events on itself only. */
+#railTip .tipcoord{display:flex;gap:6px;margin-top:8px}
+#railTip .tipcoord input{flex:1;min-width:0;background:var(--surface-2);border:1px solid var(--line-2);
+  border-radius:var(--r-sm);color:var(--text);font:500 11px/1 var(--mono);padding:6px 7px}
+#railTip .tipcoord button{background:var(--accent);color:var(--accent-on);border:0;border-radius:var(--r-sm);
+  font:600 10px/1 var(--mono);padding:0 10px;cursor:pointer}

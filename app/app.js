@@ -633,18 +633,23 @@ function init(){
     paint:{'icon-opacity':0.95}});
 
   // interactions
-  map.on('click','huntZones',e=>{ const p=e.features[0].properties; const cl=HUNT_CLS[p.cls]||{};
+  // When a draw/measure tool is armed it OWNS the click — feature popups and
+  // selectArea must not fire, or they steal the click (this is why 'drop pin did
+  // nothing': the click selected the focus area instead). onFeat wraps every
+  // feature handler with that guard in one place.
+  const onFeat=(layer,fn)=>map.on('click',layer,e=>{ if(drawTool) return; fn(e); });
+  onFeat('huntZones',e=>{ const p=e.features[0].properties; const cl=HUNT_CLS[p.cls]||{};
     new maplibregl.Popup().setLngLat(e.lngLat)
       .setHTML(`<h4><span style="color:${cl.c}">●</span> ${cl.label||p.cls} · ${p.area_km2} km²</h4><div class="s">${HUNT_WHY[p.cls]||''}</div>`).addTo(map);});
-  map.on('click','browseZones',e=>{ const p=e.features[0].properties;
+  onFeat('browseZones',e=>{ const p=e.features[0].properties;
     new maplibregl.Popup().setLngLat(e.lngLat)
       .setHTML(`<h4>${p.type} · ${p.area_km2} km²</h4><div class="s">${p.what}</div><div class="s" style="margin-top:4px"><b>When:</b> ${p.when}</div>`).addTo(map);});
-  map.on('click','refugeZones',e=>{ new maplibregl.Popup().setLngLat(e.lngLat)
+  onFeat('refugeZones',e=>{ new maplibregl.Popup().setLngLat(e.lngLat)
     .setHTML(`<h4><span style="color:${REFUGE_COL}">▨</span> Thermal refuge · ${e.features[0].properties.area_km2} km²</h4><div class="s">${ZONE_WHY.refuge}</div>`).addTo(map);});
   ['tenureZones-line','tenureZones-line-ok'].forEach(id=>
-    map.on('click',id,e=>{ const p=e.features[0].properties; tenurePopup(e.lngLat,p); }));
-  map.on('click','tenureBlocked',e=>{ const p=e.features[0].properties; tenurePopup(e.lngLat,p); });
-  map.on('click','burnZones',e=>{ const p=e.features[0].properties;
+    onFeat(id,e=>{ const p=e.features[0].properties; tenurePopup(e.lngLat,p); }));
+  onFeat('tenureBlocked',e=>{ const p=e.features[0].properties; tenurePopup(e.lngLat,p); });
+  onFeat('burnZones',e=>{ const p=e.features[0].properties;
     const prime=p.cls==='prime';
     const bm=DOC.burn_meta||{};
     new maplibregl.Popup().setLngLat(e.lngLat).setHTML(
@@ -653,10 +658,10 @@ function init(){
         ? 'Peak browse window (~15–22 yr post-fire): willow, birch and aspen at reachable height with cover alongside. In this black-spruce country the unburned matrix is close to a food desert, so burns of this age are where the animals concentrate.'
         : 'Regenerating burn, either side of the peak. Under ~8 yr the browse is below reachable height with no security cover; past ~30 yr the canopy closes and it grows out of reach.'}</div>`+
       (bm.first_year?`<div class="s" style="margin-top:4px;opacity:.75">Mapped fires ${bm.first_year}–${bm.last_year} (NBAC) · ${bm.pct_of_aoi}% of this area burned.</div>`:'')).addTo(map);});
-  map.on('click','funnelZones',e=>{ new maplibregl.Popup().setLngLat(e.lngLat)
+  onFeat('funnelZones',e=>{ new maplibregl.Popup().setLngLat(e.lngLat)
     .setHTML(`<h4><span style="color:${FUNNEL_COL}">▨</span> Funnel / pass · ${e.features[0].properties.area_km2} km²</h4><div class="s">${ZONE_WHY.funnel}</div>`).addTo(map);});
   ['huntZones','browseZones','refugeZones','funnelZones','burnZones'].forEach(l=>{map.on('mouseenter',l,()=>map.getCanvas().style.cursor='pointer');map.on('mouseleave',l,()=>map.getCanvas().style.cursor='');});
-  map.on('click','crossings',e=>{ const p=e.features[0].properties;
+  onFeat('crossings',e=>{ const p=e.features[0].properties;
     const noBoat=SETUP.watercraft==='none';
     const msg = p.kind==='bridge'
       ? 'A road bridge is mapped here, so this is not an obstacle — you drive or walk over it.'
@@ -671,8 +676,8 @@ function init(){
       : '<div class="s" style="margin-top:6px;opacity:.8">Inferred from the OSM waterway class alone — no width, ford or riverbank data ships for this area. Verify on the ground.</div>';
     new maplibregl.Popup().setLngLat(e.lngLat)
       .setHTML('<h4>'+(CROSS_LABEL[p.kind]||CROSS_LABEL.boat)+'</h4><div class="s">'+msg+'</div>'+basis).addTo(map);});
-  map.on('click','areas-fill',e=>selectArea(e.features[0].properties.rank));
-  map.on('click','sites',e=>{const p=e.features[0].properties;
+  onFeat('areas-fill',e=>selectArea(e.features[0].properties.rank));
+  onFeat('sites',e=>{const p=e.features[0].properties;
     const scent = p.type==='saline_blind'
       ? '<div class="s" style="color:#e0a05a;margin-top:4px">⚠ Mineral/saline &amp; scents are regulated and may be prohibited in this zone — verify Zone '+((DOC.legal||{}).zone||'?')+' rules before using any attractant.</div>' : '';
     new maplibregl.Popup().setLngLat(e.lngLat).setHTML(
@@ -1512,8 +1517,29 @@ function showRailTip(k){
     ? `<div class="tipcap">${t('tip.measuring','MEASURING')}<span>${t('tip.esc','ESC TO EXIT')}</span></div>
        <div class="tiptiles">${live.tiles.map(v=>`<span>${v}</span>`).join('')}</div>
        <div class="tipnote">${live.note}</div>`
-    : `<div class="tipname">${def.name}</div><div class="tipnote">${def.hint}</div>`;
+    : `<div class="tipname">${def.name}</div><div class="tipnote">${def.hint}</div>`
+      + (k==='waypoint'
+        ? `<div class="tipcoord"><input id="wpCoord" placeholder="or type lat, lon" />
+             <button id="wpCoordGo">Drop</button></div>` : '');
   tip.classList.remove('hidden');
+  // Type a coordinate instead of clicking — for a point off a GPS or a report.
+  const ci=document.getElementById('wpCoord');
+  if(ci){
+    tip.style.pointerEvents='auto';           // the tip is normally click-through
+    const go=()=>{
+      const m=ci.value.split(/[, ]+/).map(Number).filter(n=>!isNaN(n));
+      if(m.length!==2){ ci.style.borderColor='var(--danger)'; return; }
+      const [lat,lon]=m;
+      onDrawClick({lngLat:{lng:lon,lat:lat}});
+      map.flyTo({center:[lon,lat],zoom:Math.max(map.getZoom(),11)});
+      ci.value='';
+    };
+    document.getElementById('wpCoordGo').onclick=go;
+    ci.onkeydown=e=>{ if(e.key==='Enter'){ e.preventDefault(); go(); } };
+    ci.onclick=e=>e.stopPropagation();
+  } else {
+    tip.style.pointerEvents='';
+  }
 }
 function hideRailTip(){
   const tip=document.getElementById('railTip'); if(!tip) return;
