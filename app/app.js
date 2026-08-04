@@ -830,6 +830,7 @@ function lpHTML(r){
   return `<span class="lp lp--point" style="${st}"><i class="${r.glyph||'g-circle'}"></i></span>`;
 }
 let showMeaning=true;
+let layersDismissed=false;   // set when YOU close it, so auto-open doesn't override you
 function buildLayersDock(){
   const d=document.getElementById('layersDock');
   let h=`<div class="dhead"><h4>Hunting layers</h4><button class="dclose" title="Close">✕</button></div>
@@ -850,7 +851,7 @@ function buildLayersDock(){
     });
   });
   d.innerHTML=h+`</div>`;
-  d.querySelector('.dclose').onclick=()=>closeDocks();
+  d.querySelector('.dclose').onclick=()=>{layersDismissed=true;closeDocks();};
   d.querySelector('#meaningOn').onchange=e=>{showMeaning=e.target.checked;buildLayersDock();};
   d.querySelectorAll('.layer-row').forEach(row=>{
     const cb=row.querySelector('input'); if(cb.disabled) return;
@@ -944,7 +945,7 @@ function closeDocks(except){
 }
 function toggleDock(id,btnId){
   const d=document.getElementById(id);
-  if(d && !d.classList.contains('hidden')) closeDocks(); else { if(id==='layersDock') buildLayersDock(); else buildBaseDock(); openDock(id,btnId); }
+  if(d && !d.classList.contains('hidden')){ if(id==='layersDock') layersDismissed=true; closeDocks(); } else { if(id==='layersDock'){ layersDismissed=false; buildLayersDock(); } else buildBaseDock(); openDock(id,btnId); }
 }
 
 /* ---------------- right rail: persistent tools, transient cards ------------- */
@@ -975,9 +976,16 @@ function buildTools(){
   document.getElementById('mcSat').onclick=()=>toggleDock('baseDock','railBase');
 
   setupDraw();
-  // Layers is the card you actually keep open while reading a plan — open it by
-  // default (Basemap stays transient).
-  buildLayersDock(); openDock('layersDock','railLayers');
+  buildLayersDock();          // built, but shown/hidden per tab (see syncDocks)
+}
+/* Layers belongs with the analysis, not with the location picker: hidden on Setup and
+   Brief, open on Overview and Field — unless you closed it yourself. */
+function syncDocks(tab){
+  const onMap = (tab==='overview' || tab==='field');
+  if(!onMap){ closeDocks(); return; }
+  if(layersDismissed) return;
+  const d=document.getElementById('layersDock');
+  if(d && d.classList.contains('hidden')){ buildLayersDock(); openDock('layersDock','railLayers'); }
 }
 /* the draw/measure strip is now part of the persistent right rail (buildTools) */
 /* ---- OnX-style field tools: distance / line / area / route / waypoint ---- */
@@ -1323,7 +1331,10 @@ function runAnalysis(){
         synth:'placing areas & sites',contract:'building your plan'};
       const _jh=authTok()?{'Authorization':'Bearer '+authTok()}:{};
       const poll=()=>fetch(API_URL+'/jobs/'+j.job_id,{headers:_jh}).then(r=>r.json()).then(s=>{
-        if(s.status==='done'){ stop(); setBtn('RUN ANALYSIS →',false); applyDoc(s.scout); setTab('overview'); }
+        if(s.status==='done'){ stop(); setBtn('RUN ANALYSIS →',false); applyDoc(s.scout);
+          // a finished run should present its result: Overview, with the layers card
+          // showing what was drawn — even if it was dismissed earlier during Setup.
+          layersDismissed=false; setTab('overview'); syncDocks('overview'); }
         else if(s.status==='error'){ stop(); setBtn('RUN ANALYSIS →',false); alert('Analysis failed: '+(s.error||'unknown')); }
         else if(s.status==='unknown'){ stop(); setBtn('RUN ANALYSIS →',false); alert('The engine restarted — please run again.'); }
         else {
@@ -1529,6 +1540,7 @@ function setTab(name){
     exitDeep();
   }
   if(name==='brief') renderBrief();   // scope the brief to the currently chosen area
+  syncDocks(name);
   try{ localStorage.setItem('transect_tab',name); }catch(e){}
   setTimeout(()=>map.resize(),60);
 }
