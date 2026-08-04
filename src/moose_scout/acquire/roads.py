@@ -42,13 +42,29 @@ _TILE_DEG = 0.60            # ~67 km N-S. Wide, because with a fast mirror the
                             # against one huge request timing out, not the main event.
 
 
-def _osm(ctx, tags):
-    """Fetch OSM features for the AOI, tiling large boxes and tolerating partial
-    failure. Returns a concatenated GeoDataFrame (possibly empty)."""
+def _osm(ctx, tags, local=None):
+    """OSM features for the AOI.
+
+    Prefers a LOCAL Geofabrik extract (fast, offline, no rate limits) and only falls
+    back to live Overpass when the extract isn't present — see acquire/osm_local.py for
+    why: public mirrors variously block this host, return the wrong continent, or take
+    over two hours for a single road-dense box.
+    """
     import geopandas as gpd
     import pandas as pd
 
     minlon, minlat, maxlon, maxlat = ctx.aoi.bbox_wgs84()
+
+    if local is not None:
+        try:
+            from . import osm_local
+            if osm_local.available():
+                g = local((minlon, minlat, maxlon, maxlat))
+                if g is not None:
+                    return g
+        except Exception:
+            pass
+
     nx = max(1, int(math.ceil((maxlon - minlon) / _TILE_DEG)))
     ny = max(1, int(math.ceil((maxlat - minlat) / _TILE_DEG)))
     if nx * ny <= 1:
@@ -82,7 +98,8 @@ def fetch(ctx: Context) -> None:
 
     # rail (best-effort — QNS&L / Fire Lake mine line etc.)
     try:
-        r = _osm(ctx, RAIL_TAGS)
+        from . import osm_local as _L
+        r = _osm(ctx, RAIL_TAGS, local=_L.rail)
         r = r[r.geometry.type.isin(["LineString", "MultiLineString"])] if len(r) else r
         if r is not None and len(r):
             r[["geometry"]].reset_index(drop=True).to_file(cache / "rail.gpkg", driver="GPKG")
@@ -91,7 +108,8 @@ def fetch(ctx: Context) -> None:
 
     # vector waterways (rivers/streams) + waterbodies (lakes) — exact geometry
     try:
-        wl = _osm(ctx, WATER_LINE_TAGS)
+        from . import osm_local as _L
+        wl = _osm(ctx, WATER_LINE_TAGS, local=_L.waterways)
         wl = wl[wl.geometry.type.isin(["LineString", "MultiLineString"])] if len(wl) else wl
         if wl is not None and len(wl):
             cols = [c for c in ("waterway",) if c in wl.columns] + ["geometry"]
@@ -99,7 +117,8 @@ def fetch(ctx: Context) -> None:
     except Exception:
         pass
     try:
-        wp = _osm(ctx, WATER_POLY_TAGS)
+        from . import osm_local as _L
+        wp = _osm(ctx, WATER_POLY_TAGS, local=_L.waterbodies)
         wp = wp[wp.geometry.type.isin(["Polygon", "MultiPolygon"])] if len(wp) else wp
         if wp is not None and len(wp):
             wp[["geometry"]].reset_index(drop=True).to_file(cache / "waterbodies.gpkg", driver="GPKG")
@@ -110,7 +129,8 @@ def fetch(ctx: Context) -> None:
     # doesn't abort the whole fetch (was unguarded → a timeout here left NO roads.gpkg
     # and NO roads.tif, so the contract's infra came back empty).
     try:
-        g = _osm(ctx, DRIVE_TAGS)
+        from . import osm_local as _L
+        g = _osm(ctx, DRIVE_TAGS, local=_L.roads)
         g = g[g.geometry.type.isin(["LineString", "MultiLineString"])] if len(g) else g
     except Exception:
         g = None
