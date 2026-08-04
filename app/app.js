@@ -477,7 +477,7 @@ function init(){
   // muddying the satellite imagery, which is the layer that actually reveals the
   // logging roads and cutblocks the vector data misses. The stroke keeps identity.
   map.addLayer({id:'huntZones',type:'fill',source:'huntZones',
-    paint:{'fill-color':clsColor,'fill-opacity':FILL_ALPHA}});
+    paint:{'fill-color':clsColor,'fill-opacity':surfFillOpacity()}});
   // edge:'none' — a continuous field has no real boundary, so it gets NO stroke.
   // Outlining it would convert a fuzzy probability into a surveyed line.
   const brCol=['match',['get','type'],
@@ -2650,6 +2650,15 @@ function fitAOI(){
    ignorance, and excluded ground must never look like low-scoring ground. */
 let surfMode='banded', surfMin=0, surfOpacity=0.55;
 const RAMP=[['#FFD400','Low','.30'],['#FF8C00','Medium','.55'],['#E2231A','High','.75']];
+// The Model-surface opacity controls the HUNTABILITY bands ONLY (huntZones). It must
+// not touch refuge/browse/burns/funnel — those are separate layers with their own rows.
+// Slider 10–100% maps to a light-wash range so the imagery beneath (the layer that
+// reveals unmapped roads/cutblocks) is never fully buried.
+function surfFillOpacity(){ return +(0.55*surfOpacity).toFixed(3); }
+function applySurfaceOpacity(){
+  if(map.getLayer('huntZones'))
+    try{ map.setPaintProperty('huntZones','fill-opacity',surfFillOpacity()); }catch(e){}
+}
 function buildSurfDock(){
   const d=document.getElementById('surfDock');
   const on=LAYERS.filter(r=>r.hz).some(r=>r.on);
@@ -2688,8 +2697,7 @@ function buildSurfDock(){
     applyHuntZoneFilter();
   };
   d.querySelector('#surfOp').oninput=e=>{
-    surfOpacity=+e.target.value/100; groupOpacity['MODEL ZONES']=surfOpacity;
-    LAYERS.filter(r=>r.group==='MODEL ZONES').forEach(applyLayer);
+    surfOpacity=+e.target.value/100; applySurfaceOpacity();
     e.target.nextElementSibling.textContent=e.target.value+'%';
   };
 }
@@ -2710,9 +2718,14 @@ function buildStatsCard(){
 function hideStats(){ document.getElementById('statsCard')?.classList.add('hidden'); }
 function moveStats(e){
   const el=document.getElementById('statsCard'); if(!el) return;
-  const hit=map.queryRenderedFeatures(e.point,{layers:['huntZones','areas-fill'].filter(l=>map.getLayer(l))});
-  const a=areaUnderPoint(e.lngLat);
-  if(!a && !hit.length){ el.classList.add('hidden'); return; }
+  // Respond anywhere inside the AOI, not only where a huntZones polygon happens to be
+  // rendered: gating on queryRenderedFeatures meant the card vanished the moment you
+  // turned the huntability surface off (hidden layers return no features), so the tool
+  // looked dead. Over a ranked area → full breakdown; elsewhere in the box → the
+  // "outside a ranked area" note. Outside the box → nothing.
+  const ll=e.lngLat, b=DOC.box;
+  if(b && (ll.lng<b.w||ll.lng>b.e||ll.lat<b.s||ll.lat>b.n)){ el.classList.add('hidden'); return; }
+  const a=areaUnderPoint(ll);
   el.innerHTML=statsHTML(a);
   el.classList.remove('hidden');
   const r=el.getBoundingClientRect(), pad=16;
