@@ -2222,6 +2222,9 @@ function setPlanName(n,saved){
 function uuid(){ return (crypto&&crypto.randomUUID)?crypto.randomUUID():'p-'+Date.now()+'-'+Math.random().toString(16).slice(2); }
 function loadPlans(){ try{return JSON.parse(localStorage.getItem('transect_plans')||'[]');}catch(e){return [];} }
 function savePlans(a){ try{localStorage.setItem('transect_plans',JSON.stringify(a));}catch(e){alert('Could not save (storage full).');} }
+/* The plan currently on screen, if it came from (or was saved to) the store. Keeps
+   a re-run updating that plan instead of spawning a duplicate every time. */
+let CUR_PLAN_ID=null;
 function currentPlan(name, withDoc){
   const p={id:uuid(), name:name||PLAN_NAME||('Plan '+new Date().toLocaleDateString()), savedAt:Date.now(),
     aoi:(DOC.meta&&DOC.meta.title)||'', units:UNITS,
@@ -2234,8 +2237,37 @@ function currentPlan(name, withDoc){
   p.cached = !!p.doc;
   return p;
 }
+/* AUTOSAVE ON COMPLETION.
+   A run costs 3–5 minutes of engine time, and nothing saved it. The result was
+   applied to the map and held only in memory: reload, or open "My hunt plans", and
+   it was gone — which is exactly what it looks like when the feature is broken.
+   Saving is not a decision worth asking someone to make after waiting five minutes.
+
+   Signed in, the whole computed analysis goes with it so reopening is instant and
+   costs no engine time. Signed out, we keep the setup locally (there is no room in
+   localStorage for a full contract) and say so. */
+async function autosavePlan(){
+  try{
+    if(!DOC || DOC.blank || !(DOC.areas||[]).length) return;
+    const authed=isAuthed();
+    const p=currentPlan(PLAN_NAME||'', authed);
+    if(CUR_PLAN_ID) p.id=CUR_PLAN_ID;          // re-running replaces, never piles up
+    if(authed){
+      await apiF('/plans',{method:'PUT',body:JSON.stringify({id:p.id,name:p.name,data:p})});
+    }else{
+      const arr=loadPlans().filter(x=>x.id!==p.id); arr.unshift(p); savePlans(arr);
+    }
+    CUR_PLAN_ID=p.id;
+    setPlanName(p.name,true);                   // the dot says SAVED, and means it
+  }catch(e){
+    // never let a save failure eat the analysis the user just waited for
+    console.error('autosave failed',e);
+    setPlanName(PLAN_NAME,false);
+  }
+}
 function applyPlan(p){
   if(!p) return;
+  CUR_PLAN_ID=p.id||null;
   const s=p.setup||{};
   draft.center=(s.center||draft.center).slice(); draft.radius=s.radius||draft.radius;
   draft.walkAccess=s.walkAccess??draft.walkAccess; draft.walkHunt=s.walkHunt??draft.walkHunt;
@@ -2639,6 +2671,7 @@ function pollJob(jid,headers,STAGE,stop,setBtn,line,onHead){
           // a finished run should present its result: Overview, with the layers card
           // showing what was drawn — even if it was dismissed earlier during Setup.
           layersDismissed=false; setTab('overview'); syncDocks('overview');
+          autosavePlan();
         } else if(s.status==='error'){
           stop(); forgetJob(); setBtn('RUN ANALYSIS →',false);
           alert('Analysis failed: '+(s.error||'unknown'));
@@ -2680,6 +2713,7 @@ function resumeJob(){
     if(!s||s.status==='unknown'||s.status==='error'){ forgetJob(); return; }
     if(s.status==='done'){
       forgetJob(); applyDoc(s.scout); layersDismissed=false; setTab('overview'); syncDocks('overview');
+      autosavePlan();
       return;
     }
     setTab('setup');
