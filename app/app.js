@@ -2953,8 +2953,14 @@ function clearIdentify(){
   if(idHover){ emphasiseMapLayer(idHover,false); idHover=null; }
   if(!drawTool) map.getCanvas().style.cursor='';
 }
+/* Reference/basemap layers are context, not findings — hovering a road must not
+   fatten the whole road network, and water is everywhere. The identify card still
+   NAMES them; we just don't light them up. Only model output (zones, sites, our
+   routes) earns a highlight. */
+const NO_EMPHASIS=new Set(['roads','roads-case','rail','trans','rivers','lakes','lakes-line','boundaries']);
 /* lift the hovered layer so the label and the geometry can't disagree */
 function emphasiseMapLayer(id,on){
+  if(NO_EMPHASIS.has(id)) return;
   if(!map.getLayer(id)) return;
   const t=map.getLayer(id).type;
   try{
