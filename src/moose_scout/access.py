@@ -334,9 +334,13 @@ def run(ctx: Context) -> None:
     # ground you cannot reach at all — across open water with no boat, or beyond your walk
     # budget. That stays ~0 so it neither draws nor wins a focus area (e.g. an island in a
     # lake). With a boat, islands ARE reachable, so retrieval there is > 0 and they show.
-    reachable = retrieval > 0.02
-    access_term = np.where(reachable, ACCESS_FLOOR + (1.0 - ACCESS_FLOOR) * retrieval, 0.0)
-    hunt = np.clip(hsm_phase * access_term.astype("float32"), 0, 1)
+    # Soft ramp, not a hard reachable/unreachable step: a `retrieval > 0.02` cliff drew a
+    # ~0.36·hsm contour RING at the edge of the walk budget that read as a real landscape
+    # feature (audit #49). Fade the floor in over retrieval 0→0.05 so cut-off ground still
+    # goes cleanly to 0 (no island / beyond-budget focus areas) without a hard edge.
+    gate = np.clip(retrieval / 0.05, 0.0, 1.0)
+    access_term = (gate * (ACCESS_FLOOR + (1.0 - ACCESS_FLOOR) * retrieval)).astype("float32")
+    hunt = np.clip(hsm_phase * access_term, 0, 1)
     hunt[np.isnan(hsm)] = np.nan
 
     # LEGAL GATE — filter #1, and it must bite on the raster, not just the prose.

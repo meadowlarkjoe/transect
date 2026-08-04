@@ -155,7 +155,7 @@ def run(ctx: Context) -> None:
     br = z(browse)
     feed_raw = br * (0.5 + 0.5 * z(edge)) * water_term
     feed_raw = feed_raw * (1.0 + bull_bonus * br)     # regen over-selection by bulls
-    feed = ru.normalize(feed_raw)
+    feed = np.clip(feed_raw, 0.0, 1.0)                 # ABSOLUTE (audit #49) — not per-AOI rank
     feed[water_nan] = np.nan
 
     # --- THERMAL REFUGE (midday, warm): cool conifer near water. Reuse the HSM
@@ -169,21 +169,21 @@ def run(ctx: Context) -> None:
     refuge[water_nan] = np.nan
 
     # --- RUT CRUISE (bulls): edge/funnel corridors linking cover and forage. ---
-    cruise_raw = z(rut) * (0.55 + 0.45 * ru.normalize(z(funnel)))
-    cruise = ru.normalize(cruise_raw)
+    cruise_raw = z(rut) * (0.55 + 0.45 * np.clip(z(funnel), 0.0, 1.0))   # funnel already absolute
+    cruise = np.clip(cruise_raw, 0.0, 1.0)             # ABSOLUTE — feeds hsm_phase (audit #49)
     cruise[water_nan] = np.nan
 
     # --- Light thermal/slope-position bias: at first light moose feed low (cold
     # air pooled in bottoms), so nudge dawn feeding toward valley bottoms. Small,
     # honest — the surfaces stay driven by forage, not fabricated by terrain.
-    low = ru.normalize(-z(tpi))                       # 1 = valley bottom
-    feed = ru.normalize(z(feed) * (0.85 + 0.15 * z(low, 0.5)))
+    low = np.clip(ru.normalize(-z(tpi), lo=-15.0, hi=5.0), 0.0, 1.0)   # fixed bounds → absolute
+    feed = np.clip(z(feed) * (0.85 + 0.15 * z(low, 0.5)), 0.0, 1.0)
     feed[water_nan] = np.nan
 
     # --- Midday anchors: cool = mostly still feeding/loafing with a little cover
     # pull; warm = refuge-dominant. export/ the brief pick the blend from forecast.
-    midday_cool = ru.normalize(0.65 * z(feed) + 0.35 * z(refuge))
-    midday_warm = ru.normalize(0.15 * z(feed) + 0.85 * z(refuge))
+    midday_cool = np.clip(0.65 * z(feed) + 0.35 * z(refuge), 0.0, 1.0)
+    midday_warm = np.clip(0.15 * z(feed) + 0.85 * z(refuge), 0.0, 1.0)
     for a in (midday_cool, midday_warm):
         a[water_nan] = np.nan
 

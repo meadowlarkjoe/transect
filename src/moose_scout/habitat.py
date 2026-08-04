@@ -238,11 +238,14 @@ def run(ctx: Context) -> None:
     # undisturbed stands (Thomas 2025) — they will not use big open ground.
     cow = br0 * (0.15 + 0.85 * treefrac)
     cow[water_mask] = np.nan
-    ru.write(cache / "hsm_cow.tif", ru.normalize(cow).astype("float32"), prof)
+    # ABSOLUTE (clip, NOT normalize): browse × matrix-cover is already a real 0..1 score.
+    # ru.normalize() here re-ranked it per-AOI, which leaked back into hsm_phase → the
+    # "0.85 = top of whatever box you drew" bug (audit #49). Same for bull below.
+    ru.write(cache / "hsm_cow.tif", np.clip(np.nan_to_num(cow), 0, 1).astype("float32"), prof)
     # bulls (outside the rut): forage-maximizing, select open regen/cutblocks
     bull = br0 * (0.30 + 0.70 * (1.0 - treefrac))
     bull[water_mask] = np.nan
-    ru.write(cache / "hsm_bull.tif", ru.normalize(bull).astype("float32"), prof)
+    ru.write(cache / "hsm_bull.tif", np.clip(np.nan_to_num(bull), 0, 1).astype("float32"), prof)
 
     # --- thermal refuge: dense cover made usable by a cool microsite --------------
     # Dense canopy is NECESSARY (ramp 0.60→0.85 so open/regen ground contributes 0). It

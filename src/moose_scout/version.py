@@ -13,11 +13,16 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 8
+ENGINE_REVISION = 9
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    9: "Huntability is now a true ABSOLUTE score again: the cow/bull and rut-cruise/feed "
+       "sub-surfaces were still being percentile-ranked within your box, which quietly "
+       "made 'huntability 0.85' mean 'top of whatever you drew'. Now every layer is on a "
+       "real 0–1 scale, so scores are comparable between areas. The reachability edge also "
+       "fades in smoothly instead of drawing a faint ring at the limit of your walk.",
     8: "Lakes are now foot barriers (no boat), so the model no longer 'walks across' open "
        "water — islands in a lake can't score huntable or win a focus area. Ground you "
        "can't reach at all (across water without a boat, or beyond your stated walk) is "
