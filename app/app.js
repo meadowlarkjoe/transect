@@ -1696,7 +1696,24 @@ function buildThermal(){
   }
   map.getSource('thermal').setData(fc(pts));
 }
-function thermalRising(h){ return h>=8 && h<=17; }   // warming day = upslope; else drainage
+// Sunrise/sunset (local decimal hours) for the AOI centre and hunt date — the thermal
+// switch is SUN-driven, so an 08:00/17:00 clock was up to ~1.5 h wrong at the dawn window
+// where thermals matter most (audit #59). Compact solar formula; QC moose season is EDT.
+function sunTimes(){
+  const b=DOC.box; if(!b) return {rise:7, set:18};
+  const lat=(b.n+b.s)/2, lon=(b.w+b.e)/2;
+  const ds=(DOC.meta&&DOC.meta.target_dates&&DOC.meta.target_dates[0])||'2026-09-25';
+  const d=new Date(ds+'T12:00:00Z');
+  const doy=Math.floor((d-new Date(Date.UTC(d.getUTCFullYear(),0,0)))/86400000);
+  const latr=lat*Math.PI/180, decl=0.4093*Math.sin(2*Math.PI/365*(doy-81));
+  let cosH=Math.max(-1,Math.min(1,-Math.tan(latr)*Math.tan(decl)));
+  const H=Math.acos(cosH)*180/Math.PI/15;        // half-day length, hours
+  const tz=-4, noon=12-(lon/15-tz);              // local clock hour of solar noon (EDT)
+  return {rise:noon-H, set:noon+H};
+}
+// Upslope (anabatic) once the sun has warmed the slopes (~45 min after sunrise) until it
+// stops (~30 min before sunset); overnight/early it drains downslope (katabatic).
+function thermalRising(h){ const s=sunTimes(); return h>=s.rise+0.75 && h<=s.set-0.5; }
 function updateThermal(h){
   if(!map.getLayer('thermal'))return;
   const off=thermalRising(h)?180:0;   // brg is drainage; +180 = upslope by day

@@ -13,11 +13,18 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 4
+ENGINE_REVISION = 5
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    5: "Accuracy pass across the map datapoints: funnels now flag genuine necks (≤300 m, "
+       "local constriction) instead of km-wide gaps; thermal refuge counts wet/lowland "
+       "cover (cedar/spruce swamp), not just cool slopes; calling sites add wallows and a "
+       "real cover↔opening seam; glassing keys on prominence over openings and can place "
+       "none on flat closed ground; feeding sites are renamed from the misleading "
+       "'saline'; rapids are never called fordable; and pack-out cost now accounts for "
+       "slope and cover, with camp set back from the haul road.",
     4: "Land cover and NDVI now mosaic every tile/scene covering the box with each read "
        "clamped to its source (fixes horizontal banding that appeared on any AOI larger "
        "than one satellite tile and pulled focus areas onto the artefact); thermal refuge "
