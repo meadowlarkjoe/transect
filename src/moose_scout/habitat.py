@@ -91,7 +91,7 @@ def run(ctx: Context) -> None:
             cover_lc[lc == k] = v
         tree = (lc == 10).astype("float32")
         p = uniform_filter(tree, size=max(3, int(round(200 / res)) | 1))
-        edge = ru.normalize(4 * p * (1 - p))              # peaks at 50/50 tree:open
+        edge = np.clip(4 * p * (1 - p), 0.0, 1.0)         # interspersion, ABSOLUTE (peaks 50/50)
     else:
         browse_lc = cover_lc = None
 

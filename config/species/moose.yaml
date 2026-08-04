@@ -119,9 +119,15 @@ forage:
   wallow_is_rut_hub: true           # wallows: calling + ambush + scent placement
 
 # --- HSM top-level weighting (how the sub-scores combine) --------------------
+# Rebalanced toward COVER-FOOD INTERSPERSION per the validated moose HSI (Allen, Jordan &
+# Terrell 1987, USFWS Moose HSI, Lake Superior Region; multi-scale validation Dussault
+# 2006): interspersion/edge is the dominant driver and there is no large standalone
+# distance-to-water term. Raw water proximity is also season-mismatched here — aquatic
+# feeding ends by mid-September, before the hunt — so water is cut to a small riparian /
+# travel-corridor weight rather than a forage magnet. Sum = 1.0.
 hsm_weights:
-  browse: 0.35
-  cover: 0.20
-  water: 0.25
+  browse: 0.30                    # food
+  cover: 0.20                     # security / thermal cover
+  water: 0.10                     # riparian browse + travel (NOT aquatic forage in the fall)
   terrain: 0.10
-  edge_density: 0.10             # cover<->forage interface density
+  edge_density: 0.30             # cover<->forage INTERSPERSION — the dominant term (Allen 1987)

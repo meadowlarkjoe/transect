@@ -13,11 +13,15 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 9
+ENGINE_REVISION = 10
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    10: "Habitat weighting rebalanced to the validated moose HSI (Allen 1987): the food×cover "
+        "INTERSPERSION (edge) is now the dominant driver, and the standalone distance-to-water "
+        "term is cut way down — it was over-weighting open water as forage, which is a summer "
+        "behaviour that's over before the hunt.",
     9: "Huntability is now a true ABSOLUTE score again: the cow/bull and rut-cruise/feed "
        "sub-surfaces were still being percentile-ranked within your box, which quietly "
        "made 'huntability 0.85' mean 'top of whatever you drew'. Now every layer is on a "
