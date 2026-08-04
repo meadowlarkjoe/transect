@@ -13,11 +13,16 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 2
+ENGINE_REVISION = 3
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    3: "NDVI now mosaics multiple Sentinel-2 scenes and masks nodata (fixes horizontal "
+       "coverage-gap banding that suppressed scores); thermal-refuge and calling-site "
+       "surfaces soft-combine instead of a brittle product (no more zero sites on "
+       "water-sparse ground); funnels detect real water/wetland constrictions, not DEM "
+       "noise; and rut PHASE (seeking/peak/post) now drives strategy and the site mix.",
     2: "Per-area staging and camps, hunt lines confined to their own focus area, "
        "roads followed and water treated as impassable, focus areas no longer "
        "capped by a fixed separation, graded water crossings (bridge/ford/boat), "
