@@ -1736,40 +1736,17 @@ function renderSetup(){
       <p class="lede">${t('setup.lede')}</p>
     </div>
 
+    <!-- 01 HUNTING STYLE — who's hunting and how. Moved to the top: it shapes what the
+         "where & when" even means (a fixed camp narrows the whole analysis). -->
     <div class="sec">
-      <div class="sechead"><span class="num">01</span><h3>${t('setup.s1')}</h3></div>
-      <label class="fld">Search a place</label>
-      <div class="row"><input id="placeSearch" placeholder="Search a place, lake, mine…">
-        <button id="searchBtn" class="btn btn--secondary btn--sm">Search</button></div>
-      <div id="searchRes" class="results"></div>
-      <button id="dragBox" class="btn btn--secondary btn--block" style="margin-top:8px">▛ Drag a box on the map</button>
-      <label class="fld">Or paste coordinates</label>
-      <input id="coord" placeholder="lat, lon" value="${draft.center?draft.center[1].toFixed(4)+', '+draft.center[0].toFixed(4):''}">
-      <label class="fld">${t('setup.dates')}</label>
-      <div class="numrow"><input id="dateStart" type="date" required value="${draft.dates[0]||''}">
-        <span>→</span><input id="dateEnd" type="date" required value="${draft.dates[1]||''}"></div>
-      <div class="s" style="margin-top:6px">Drives rut timing, weather and behaviour. Peak breeding ≈ Oct 2 at this latitude — but bulls are most <i>callable</i> in the two weeks before it.</div>
-    </div>
-
-    <div class="sec">
-      <div class="sechead"><span class="num">02</span><h3>${t('setup.s2')}</h3></div>
-      <label class="fld">Species</label>
-      <div class="seg"><button aria-pressed="true">Moose</button></div>
-      <label class="fld">Search radius — <b class="mono" id="radVal">${Math.round(toU(draft.radius))} ${unitBig()}</b></label>
-      <input id="radius" type="range" min="${UNITS==='imperial'?3:5}" max="${UNITS==='imperial'?75:120}" step="1" value="${Math.round(toU(draft.radius))}">
-      <div class="t-micro" style="display:flex;justify-content:space-between;margin-top:4px">
-        <span>${UNITS==='imperial'?3:5}</span><span>~20 km+ resolves focus areas</span></div>
-    </div>
-
-    <div class="sec">
-      <div class="sechead"><span class="num">03</span><h3>${t('setup.s3')}</h3></div>
+      <div class="sechead"><span class="num">01</span><h3>${t('setup.s3','Hunting style')}</h3></div>
 
       <label class="fld">${t('setup.camp','Hunt from a fixed camp?')}</label>
       <div class="seg"><button id="campAuto" ${!draft.fixedCampMode?'aria-pressed="true"':''}>${t('setup.campAuto','Let the model place camp')}</button>
         <button id="campFixed" ${draft.fixedCampMode?'aria-pressed="true"':''}>${t('setup.campFixed','I have a fixed camp')}</button></div>
       <div id="campRow" class="${draft.fixedCampMode?'':'hidden'}">
         <div class="s" style="margin:6px 0">${t('setup.campNote',
-          'The point you set above IS your camp. The analysis narrows to what you can hunt from it — focus areas, sites and routes all fall within your hunt radius of camp.')}</div>
+          'The point you set below IS your camp. The analysis narrows to what you can hunt from it — focus areas, sites and routes all fall within your hunt radius of camp.')}</div>
         <label class="fld">${t('setup.campRadius','Hunt radius from camp (max)')}</label>
         <div class="numrow"><input id="campRadius" type="number" step="0.5" min="1" max="30"
           placeholder="e.g. 5" value="${draft.huntRadius!=null?toU(draft.huntRadius).toFixed(1):''}"><span>${unitBig()}</span></div>
@@ -1781,10 +1758,41 @@ function renderSetup(){
       <div class="s" style="margin-top:6px">${t('setup.partyNote',
         'Party size changes the analysis, not just the wording: focus areas are sized to hold the crew, and each area gets a calling stand per hunter plus glassing positions to pair up on.')}</div>
 
-      <label class="fld">How you'll hunt</label>
-      <div class="seg"><button id="hsSpike" ${SETUP.huntStyle==='spike'?'aria-pressed="true"':''}>${t('setup.spike')}</button>
-        <button id="hsVeh" ${SETUP.huntStyle==='vehicle'?'aria-pressed="true"':''}>${t('setup.vehicle')}</button></div>
-      <div class="s" id="hsNote" style="margin-top:6px"></div>
+      <!-- Hidden when a fixed camp is set: you already told us the camp, so "spike vs
+           return-to-vehicle" is moot — everything is hunted from that camp. -->
+      <div id="hsRow" class="${draft.fixedCampMode?'hidden':''}">
+        <label class="fld">How you'll hunt</label>
+        <div class="seg"><button id="hsSpike" ${SETUP.huntStyle==='spike'?'aria-pressed="true"':''}>${t('setup.spike')}</button>
+          <button id="hsVeh" ${SETUP.huntStyle==='vehicle'?'aria-pressed="true"':''}>${t('setup.vehicle')}</button></div>
+        <div class="s" id="hsNote" style="margin-top:6px"></div>
+      </div>
+    </div>
+
+    <!-- 02 WHERE & WHEN -->
+    <div class="sec">
+      <div class="sechead"><span class="num">02</span><h3>${t('setup.s1','Where & when')}</h3></div>
+      <label class="fld">Search a place</label>
+      <div class="row"><input id="placeSearch" placeholder="Search a place, lake, mine…">
+        <button id="searchBtn" class="btn btn--secondary btn--sm">Search</button></div>
+      <div id="searchRes" class="results"></div>
+      <button id="dragBox" class="btn btn--secondary btn--block" style="margin-top:8px">▛ Drag a box on the map</button>
+      <label class="fld" id="coordLbl">Or paste coordinates</label>
+      <input id="coord" placeholder="lat, lon" value="${draft.center?draft.center[1].toFixed(4)+', '+draft.center[0].toFixed(4):''}">
+      <label class="fld">${t('setup.dates')}</label>
+      <div class="numrow"><input id="dateStart" type="date" required value="${draft.dates[0]||''}">
+        <span>→</span><input id="dateEnd" type="date" required value="${draft.dates[1]||''}"></div>
+      <div class="s" style="margin-top:6px">Drives rut timing, weather and behaviour. Peak breeding ≈ Oct 2 at this latitude — but bulls are most <i>callable</i> in the two weeks before it.</div>
+      <label class="fld">Species</label>
+      <div class="seg"><button aria-pressed="true">Moose</button></div>
+      <label class="fld">Search radius — <b class="mono" id="radVal">${Math.round(toU(draft.radius))} ${unitBig()}</b></label>
+      <input id="radius" type="range" min="${UNITS==='imperial'?3:5}" max="${UNITS==='imperial'?75:120}" step="1" value="${Math.round(toU(draft.radius))}">
+      <div class="t-micro" style="display:flex;justify-content:space-between;margin-top:4px">
+        <span>${UNITS==='imperial'?3:5}</span><span>~20 km+ resolves focus areas</span></div>
+    </div>
+
+    <!-- 03 AVAILABLE EQUIPMENT -->
+    <div class="sec">
+      <div class="sechead"><span class="num">03</span><h3>${t('setup.s2','Available equipment')}</h3></div>
 
       <label class="fld">${t('setup.watercraft')}</label>
       <div class="seg"><button id="wcNone" ${SETUP.watercraft==='none'?'aria-pressed="true"':''}>${t('setup.noboat')}</button>
@@ -1793,8 +1801,8 @@ function renderSetup(){
       <div class="s" style="margin-top:6px">With no boat, rivers become foot barriers — ground across one from the road drops out of the ranking.</div>
 
       <!-- Returning to the vehicle means there IS no base camp, so "access -> base
-           camp" is a question about a thing that does not exist. Hidden in that
-           mode, and the remaining walk is relabelled to say what it now measures. -->
+           camp" is a question about a thing that does not exist. Hidden in that mode and
+           in fixed-camp mode; the remaining walk is relabelled to say what it measures. -->
       <div id="walkAccessRow" class="hidden">
         <label class="fld">Walk: access → base camp (max)</label>
         <div class="numrow"><input id="walkAccess" type="number" step="0.1" placeholder="e.g. 2" value="${draft.walkAccess!=null?toU(draft.walkAccess).toFixed(1):''}"><span id="uAccess">${unitBig()}</span></div>
@@ -1810,9 +1818,6 @@ function renderSetup(){
       <label class="fld">${t('setup.units')}</label>
       <div class="seg"><button id="uMetric" ${UNITS==='metric'?'aria-pressed="true"':''}>${t('setup.metric')}</button>
         <button id="uImperial" ${UNITS==='imperial'?'aria-pressed="true"':''}>${t('setup.imperial')}</button></div>
-
-      <label class="fld">${t('setup.basemap')}</label>
-      <div class="seg">${BASEMAPS.map(b=>`<button data-base="${b}" ${curBase===b?'aria-pressed="true"':''}>${BASE_LABEL[b]}</button>`).join('')}</div>
     </div>
 
     <div class="sec">
@@ -1851,9 +1856,13 @@ function renderSetup(){
     document.getElementById('campAuto').setAttribute('aria-pressed', String(!on));
     document.getElementById('campFixed').setAttribute('aria-pressed', String(on));
     const row=document.getElementById('campRow'); if(row) row.classList.toggle('hidden',!on);
-    // in fixed-camp mode the picked point is the camp; relabel the coordinate field
-    const cl=document.querySelector('label[for="coord"], #coordLbl');
-    markDirtySoft();
+    // A fixed camp IS the base: "spike vs return-to-vehicle" no longer applies, so hide
+    // that choice and force a camp-based style; restore the prior style if they turn it off.
+    const hs=document.getElementById('hsRow'); if(hs) hs.classList.toggle('hidden',on);
+    if(on){ if(SETUP.huntStyle!=='spike') draft._prevHuntStyle=SETUP.huntStyle; SETUP.huntStyle='spike'; }
+    else if(draft._prevHuntStyle){ SETUP.huntStyle=draft._prevHuntStyle; }
+    segPick(SETUP.huntStyle==='spike'?'hsSpike':'hsVeh');
+    syncWalkFields(); updateHsNote(); markDirtySoft();
   };
   document.getElementById('campAuto').onclick=()=>setCampMode(false);
   document.getElementById('campFixed').onclick=()=>setCampMode(true);
@@ -1875,7 +1884,7 @@ function renderSetup(){
   };
   document.getElementById('uMetric').onclick=()=>setUnits('metric');
   document.getElementById('uImperial').onclick=()=>setUnits('imperial');
-  document.querySelectorAll('#setup [data-base]').forEach(b=>b.onclick=()=>switchBase(b.dataset.base));
+  // Basemap picker removed from Setup — it duplicates the map toolbar's Basemap control.
   const setWC=(w)=>{SETUP.watercraft=w;
     segPick({none:'wcNone',canoe:'wcCanoe',motor:'wcMotor'}[w]); applyHunt();};
   document.getElementById('wcNone').onclick=()=>setWC('none');
@@ -1890,12 +1899,15 @@ function renderSetup(){
   updateHsNote(); drawDraft(); applyHunt();
 }
 function syncWalkFields(){
-  const veh=SETUP.huntStyle==='vehicle';
+  const fixed=!!draft.fixedCampMode;
+  const veh=!fixed && SETUP.huntStyle==='vehicle';
+  // No "vehicle → base camp" walk when returning to the vehicle, nor with a fixed camp
+  // (you drive to your camp). The remaining walk is measured FROM the camp/vehicle.
   const row=document.getElementById('walkAccessRow');
-  if(row) row.classList.toggle('hidden',veh);
+  if(row) row.classList.toggle('hidden', veh||fixed);
   const lbl=document.getElementById('walkHuntLbl');
   if(lbl) lbl.textContent = veh ? 'Walk: vehicle → hunting (max)'
-                                : 'Walk: base camp → hunting (max)';
+                                : 'Walk: camp → hunting (max)';
 }
 function updateHsNote(){ const n=document.getElementById('hsNote'); if(!n)return;
   n.textContent=SETUP.huntStyle==='vehicle'

@@ -53,7 +53,7 @@
       // ---- setup ----
       'setup.title': 'Scout setup',
       'setup.lede': 'Define the box and the hunter. Both filter every recommendation downstream.',
-      'setup.s1': 'Where & when', 'setup.s2': 'Quarry & extent', 'setup.s3': 'Hunter profile',
+      'setup.s1': 'Where & when', 'setup.s2': 'Available equipment', 'setup.s3': 'Hunting style',
       'setup.search': 'Search a place', 'setup.searchph': 'Search a place, lake, mine…',
       'setup.searchbtn': 'Search', 'setup.dragbox': '▛ Drag a box on the map',
       'setup.coords': 'Or paste coordinates',
@@ -68,7 +68,6 @@
       'setup.walkhunt': 'Walk: base camp → hunting (max)',
       'setup.leaving': 'Leaving from', 'setup.leavingph': 'Search departure town…',
       'setup.units': 'Units', 'setup.metric': 'Metric', 'setup.imperial': 'Imperial',
-      'setup.basemap': 'Basemap',
       'setup.run': 'RUN ANALYSIS →', 'setup.runnew': 'RUN NEW ANALYSIS →',
       'setup.runnote.title': 'Live recompute — 3–5 minutes',
       'setup.runnote.body': 'Downloads terrain, imagery, land-cover, burn history and hydrography for the box, then re-runs the model. Progress sits at 0% through the download stage; that’s normal.',
@@ -178,7 +177,7 @@
 
       'setup.title': 'Configuration',
       'setup.lede': 'Définissez le secteur et le chasseur. Les deux filtrent toutes les recommandations en aval.',
-      'setup.s1': 'Où et quand', 'setup.s2': 'Gibier et étendue', 'setup.s3': 'Profil du chasseur',
+      'setup.s1': 'Où et quand', 'setup.s2': 'Équipement disponible', 'setup.s3': 'Style de chasse',
       'setup.search': 'Rechercher un lieu', 'setup.searchph': 'Lac, mine, municipalité…',
       'setup.searchbtn': 'Rechercher', 'setup.dragbox': '▛ Tracer un rectangle sur la carte',
       'setup.coords': 'Ou coller des coordonnées',
@@ -193,7 +192,6 @@
       'setup.walkhunt': 'Marche : camp de base → chasse (max)',
       'setup.leaving': 'Départ de', 'setup.leavingph': 'Municipalité de départ…',
       'setup.units': 'Unités', 'setup.metric': 'Métrique', 'setup.imperial': 'Impérial',
-      'setup.basemap': 'Fond de carte',
       'setup.run': 'LANCER L’ANALYSE →', 'setup.runnew': 'NOUVELLE ANALYSE →',
       'setup.runnote.title': 'Calcul en direct — 3 à 5 minutes',
       'setup.runnote.body': 'Télécharge le relief, l’imagerie, la couverture du sol, l’historique des feux et l’hydrographie du secteur, puis relance le modèle. La progression reste à 0 % pendant le téléchargement; c’est normal.',
