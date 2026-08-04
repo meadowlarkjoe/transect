@@ -695,6 +695,14 @@ def build(ctx: Context) -> dict:
         "riverbank data ships for this area, so treat a boat call as 'assume the worst "
         "until you see it'.")
 
+    # Stamp the analysis with the engine revision that produced it, so a saved plan
+    # can tell whether the model has moved on since. See version.py.
+    try:
+        from .version import ENGINE_REVISION
+        doc["engine_revision"] = ENGINE_REVISION
+    except Exception:
+        pass
+
     out = outputs_dir(ctx.aoi.name) / "transect.json"
     out.write_text(json.dumps(doc, indent=2))
     return doc

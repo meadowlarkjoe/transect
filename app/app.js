@@ -2310,6 +2310,7 @@ async function autosavePlan(){
 function applyPlan(p){
   if(!p) return;
   CUR_PLAN_ID=p.id||null;
+  setTimeout(()=>{ if(!DOC._revisionDismissed) checkEngineRevision(); },800);
   const s=p.setup||{};
   draft.center=(s.center||draft.center||null); if(draft.center) draft.center=draft.center.slice();
   draft.radius=s.radius||draft.radius;
@@ -2755,6 +2756,32 @@ function pollJob(jid,headers,STAGE,stop,setBtn,line,onHead){
   };
   tick();
 }
+/* ENGINE REVISION — a saved plan is never broken by an engine update, but it must
+   not quietly pretend to be current either. On opening a plan we compare the
+   revision it was computed under against the live engine and OFFER a re-run,
+   showing what actually changed so the choice is informed. Declining keeps the
+   plan exactly as it is, notes and all. */
+let LIVE_REVISION=null;
+async function checkEngineRevision(){
+  try{
+    if(!DOC || DOC.blank) return;
+    const was=DOC.engine_revision;
+    if(was==null) return;                     // pre-revision plan: nothing to compare
+    if(LIVE_REVISION==null){
+      const h=await (await fetch(API_URL+'/health',{cache:'no-store'})).json();
+      LIVE_REVISION=h.engine_revision??null;
+    }
+    if(LIVE_REVISION==null || LIVE_REVISION<=was) return;
+    const note=(await (await fetch(API_URL+'/health',{cache:'no-store'})).json()).revision_notes||'';
+    const ok=confirm('The analysis engine has been updated since this plan was computed.\n\n'
+      +(note?'What changed:\n'+note+'\n\n':'')
+      +'Your plan is unchanged and still works. Re-analyse now with the current engine?\n\n'
+      +'OK = re-analyse   ·   Cancel = keep this plan as it is');
+    if(ok) runAnalysis();
+    else DOC._revisionDismissed=true;         // don't nag on every tab switch
+  }catch(e){ /* never let a version check break opening a plan */ }
+}
+
 /* Tell the engine when we leave, so a run is never computed for nobody.
    `pagehide` fires on close, navigation and mobile backgrounding; `keepalive` is what
    lets a request outlive the document. The server also reaps unheard-from jobs on its

@@ -249,7 +249,10 @@ threading.Thread(target=_reap_orphans, daemon=True).start()
 
 @app.get("/health")
 def health():
-    return {"ok": True, "species": sorted(SPECIES)}
+    from .version import ENGINE_REVISION, REVISIONS
+    return {"ok": True, "species": sorted(SPECIES),
+            "engine_revision": ENGINE_REVISION,
+            "revision_notes": REVISIONS.get(ENGINE_REVISION, "")}
 
 
 # ---- auth ----
