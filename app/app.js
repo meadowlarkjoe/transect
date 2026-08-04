@@ -698,8 +698,11 @@ function init(){
   // Deep link from the plans dashboard: /transect/app?plan=<id> restores that plan
   // (and its cached analysis, when it has one) instead of opening blank.
   const _pid=new URLSearchParams(location.search).get('plan');
-  if(_pid) openPlanById(_pid);
-  resumeJob();          // rejoin an analysis that outlived the page
+  // Claim the id SYNCHRONOUSLY: openPlanById() fetches, so waiting for it would
+  // leave CUR_PLAN_ID null when resumeJob() checks ownership, and a legitimate
+  // reconnect would be thrown away as "belongs to another plan".
+  if(_pid){ CUR_PLAN_ID=_pid; openPlanById(_pid); }
+  resumeJob();          // rejoin an analysis that outlived the page — this plan's only
   if(DOC.blank || !(DOC.areas||[]).length){
     // neutral starting camera; zoomed out enough to read as "pick somewhere"
     map.jumpTo({center:[DEFAULT_VIEW.lon,DEFAULT_VIEW.lat],zoom:5.5});
@@ -2661,13 +2664,15 @@ function drawReadout(){
 --------------------------------------------------------------------------- */
 const JOB_KEY='transect_job';
 const POLL_MS=2500, POLL_GIVEUP_MS=180000;   // 3 min of consecutive failures
-function rememberJob(id){ try{localStorage.setItem(JOB_KEY,JSON.stringify({id,at:Date.now()}));}catch(e){} }
+function rememberJob(id){
+  try{localStorage.setItem(JOB_KEY,JSON.stringify({id,at:Date.now(),plan:CUR_PLAN_ID||null}));}catch(e){}
+}
 function forgetJob(){ try{localStorage.removeItem(JOB_KEY);}catch(e){} }
 function storedJob(){
   try{
     const j=JSON.parse(localStorage.getItem(JOB_KEY)||'null');
     // a job older than two hours is not worth rejoining; the engine drops it on restart
-    if(j&&j.id&&Date.now()-j.at<7200000) return j.id;
+    if(j&&j.id&&Date.now()-j.at<7200000) return j;
   }catch(e){}
   return null;
 }
@@ -2723,8 +2728,19 @@ function pollJob(jid,headers,STAGE,stop,setBtn,line,onHead){
   tick();
 }
 /* On load, rejoin a run that was still going when the page went away. */
+/* Rejoin a run that outlived the page — but ONLY for the plan that started it.
+   Reattaching unconditionally meant opening "+ New hunt plan" adopted whatever job
+   was last running and showed a blank plan locked at "ANALYSING… 71%", with no way
+   out of a run that had nothing to do with it. */
 function resumeJob(){
-  const jid=storedJob(); if(!jid) return;
+  const q=new URLSearchParams(location.search);
+  const j=storedJob(); if(!j) return;
+  // explicit "new plan" intent: ?tab=setup with no ?plan= — that job is not ours
+  if(q.get('tab')==='setup' && !q.get('plan')){ forgetJob(); return; }
+  // a job belongs to one plan; opening a different one must not inherit it
+  if(j.plan && CUR_PLAN_ID && j.plan!==CUR_PLAN_ID){ return; }
+  if(j.plan && !CUR_PLAN_ID){ forgetJob(); return; }
+  const jid=j.id;
   const hdr=authTok()?{'Authorization':'Bearer '+authTok()}:{};
   fetch(API_URL+'/jobs/'+jid,{headers:hdr,cache:'no-store'}).then(r=>r.json()).then(s=>{
     if(!s||s.status==='unknown'||s.status==='error'){ forgetJob(); return; }
@@ -2734,6 +2750,10 @@ function resumeJob(){
       return;
     }
     setTab('setup');
+    if(!confirm('An analysis for this plan is still running on the engine.\n\n'
+               +'Reconnect and watch it finish?\n\nCancel to abandon it and set up a new one.')){
+      forgetJob(); return;
+    }
     const setBtn=(t,d)=>{const b=document.getElementById('runBtn'); if(b){b.textContent=t;b.disabled=!!d;}};
     const line=t=>t;
     const STAGE={acquire:'fetching terrain, imagery, burns & hydro',terrain:'terrain analysis',
