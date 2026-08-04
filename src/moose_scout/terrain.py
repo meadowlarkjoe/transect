@@ -93,6 +93,26 @@ def run(ctx: Context) -> None:
                 barrier |= rr > 0
     except Exception:
         pass
+    # ...and the OSM LAKE polygons. WorldCover (water.tif) misses lakes in remote areas,
+    # so on a lake-rich AOI whose lakes are OSM-only the barrier saw no water at all and
+    # the constriction detector found no necks → funnels came back empty ("NO DATA") on
+    # exactly the ground richest in land-bridge funnels (user-reported). Same waterbodies
+    # the map and the walk-cost barrier use, so all three agree on where the water is.
+    try:
+        import geopandas as gpd
+        from rasterio.features import rasterize as _rasterize
+        wb = cache_dir(aoi) / "waterbodies.gpkg"
+        if wb.exists():
+            gp = gpd.read_file(wb)
+            if len(gp):
+                if gp.crs and gp.crs.to_epsg() != prof["crs"].to_epsg():
+                    gp = gp.to_crs(prof["crs"])
+                rr = _rasterize(((geom, 1) for geom in gp.geometry if geom is not None and not geom.is_empty),
+                                out_shape=dem.shape, transform=prof["transform"], fill=0,
+                                dtype="uint8", all_touched=True)
+                barrier |= rr > 0
+    except Exception:
+        pass
 
     constriction = np.zeros(dem.shape, "float32")
     if barrier.any():

@@ -13,11 +13,17 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 11
+ENGINE_REVISION = 12
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    12: "Water now agrees across the map, the routes and the funnels. The OSM lakes the map "
+        "draws are burned into the walking-cost barrier, so a hunt line goes AROUND a lake "
+        "instead of drawing a foot crossing straight across open water when the shore route "
+        "is just as easy — a crossing is only drawn where going around genuinely isn't an "
+        "option. The same lakes feed the funnel detector, so land-bridge funnels now form on "
+        "lake-rich ground that previously came back empty ('NO DATA').",
     11: "Focus areas are now admitted by an ABSOLUTE quality bar, not your box's own top "
         "quartile — so a genuinely poor area returns few or zero focus areas and says so, "
         "instead of always dressing up its least-bad ground. Areas are ranked by expected "

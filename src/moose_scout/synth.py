@@ -774,7 +774,42 @@ def _walk_cost(ctx, cache, roads_free=True):
         cost = np.where(np.nan_to_num(wet) > 0, WATER, cost)
     if lc is not None:
         cost = np.where(lc == 80, WATER, cost)
+    # ...AND the OSM lake polygons the MAP draws. WorldCover (water.tif) misses lakes in
+    # remote areas, so a lake plainly visible on the map wasn't in the barrier and the
+    # least-cost path ran straight across it instead of around the shore (user-reported).
+    # Burning the same waterbodies the contract displays keeps route and map in agreement.
+    lake = _lake_barrier(cache, cost.shape)
+    if lake is not None:
+        cost = np.where(lake, WATER, cost)
     return cost.astype("float64")
+
+
+def _lake_barrier(cache, shape):
+    """Rasterize the OSM lake polygons (waterbodies.gpkg) onto the analysis grid as a
+    boolean foot barrier, so the walk-cost surface blocks every lake the map shows — not
+    just the WorldCover raster. None if the layer is absent or unreadable."""
+    p = cache / "waterbodies.gpkg"
+    if not p.exists():
+        return None
+    try:
+        import geopandas as gpd
+        import rasterio
+        from rasterio.features import rasterize
+
+        with rasterio.open(cache / "terrain" / "slope.tif") as src:
+            transform, crs = src.transform, src.crs
+        g = gpd.read_file(p)
+        if g.crs is None:
+            return None
+        g = g.to_crs(crs)
+        shapes = [(geom, 1) for geom in g.geometry if geom is not None and not geom.is_empty]
+        if not shapes:
+            return None
+        m = rasterize(shapes, out_shape=shape, transform=transform, fill=0,
+                      default_value=1, dtype="uint8", all_touched=True)
+        return m > 0
+    except Exception:
+        return None
 
 
 def _water_cost(ctx, cache):
