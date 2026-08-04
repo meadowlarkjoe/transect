@@ -73,15 +73,18 @@ def extract_focus_areas(ctx, hunt, prof):
     # don't hand a six-man party a 3 km2 pocket.
     party = int(getattr(ctx.aoi.hunter, "party_size", 2) or 2)
     crew_scale = min(3.0, max(1.0, party / 2.0))
-    max_km2 = max_km2 * crew_scale
+    # Party size adds MORE focus areas (the count is uncapped, gated on quality), it does
+    # NOT inflate one polygon into a 180 km² blob a party could never work (audit #50).
+    # The floor grows modestly so a big crew isn't handed a 3 km² pocket.
     min_km2 = min_km2 * min(2.0, crew_scale)
+    FLOOR = float(fcfg.get("min_huntability", 0.30))   # ABSOLUTE admission bar
     tr = Transformer.from_crs(prof["crs"], "EPSG:4326", always_xy=True)
     to_wgs = lambda geom: shp_transform(lambda xs, ys: tr.transform(xs, ys), geom)
 
     hfill = np.where(np.isfinite(hunt), hunt, 0)
     # Smooth before region-growing: the raw 40 m surface is speckly, so a bare
     # threshold gives swiss-cheese. Smoothing yields cohesive focus-area blobs.
-    hs = gaussian_filter(hfill, sigma=max(4, int(round(350 / res))))
+    hs = gaussian_filter(hfill, sigma=max(4, int(round(float(fcfg.get("smoothing_m", 350)) / res))))
     radius_px = int(round(np.sqrt(max_km2 / np.pi) * 1000 / res))
     # SEPARATION IS DERIVED, NOT A MAGIC 8 km. Candidates were forced >=8000 m
     # apart regardless of AOI size or area size, and that — not the quality bar —
@@ -99,18 +102,18 @@ def extract_focus_areas(ctx, hunt, prof):
     min_dist_px = max(3, int(round(sep_m / res)))
     Y, X = np.ogrid[:hunt.shape[0], :hunt.shape[1]]
 
-    def _find(thr_pct, thr_rel, gate_f, min_a):
-        thr = np.nanpercentile(hs, thr_pct)
-        # exclude_border=False is critical: the default excludes a border of width
-        # =min_distance (~200 px), which on a smaller AOI falls over the best ground
-        # and returns ZERO peaks. synth already crops its own 2 km border.
-        peaks = peak_local_max(hs, num_peaks=NO_CAP,
-                               min_distance=min_dist_px,
-                               threshold_rel=thr_rel, exclude_border=False)
+    def _find(floor, gate_f, min_a):
+        # ABSOLUTE admission (audit #50): a peak must clear `floor` on the real 0..1 scale,
+        # not a within-AOI percentile — so a mediocre box no longer invents areas from its
+        # local top quartile. exclude_border=False (the default excludes a ~min_distance
+        # border that on a small AOI falls over the best ground); synth crops its own 2 km.
+        peaks = peak_local_max(hs, num_peaks=NO_CAP, min_distance=min_dist_px,
+                               threshold_abs=floor, exclude_border=False)
         out = []
         for (pr, pc) in peaks:
             near = (Y - pr) ** 2 + (X - pc) ** 2 <= radius_px ** 2
-            raw = near & np.isfinite(hunt) & (hs >= max(thr, float(hs[pr, pc]) * gate_f))
+            # grow the lobe down to gate_f·peak, but NEVER below the absolute floor
+            raw = near & np.isfinite(hunt) & (hs >= max(floor, float(hs[pr, pc]) * gate_f))
             # Keep ONLY the connected component containing the peak, then close gaps &
             # fill holes so the ring, its centroid, and its placed sites all agree.
             lbl, _ = ndlabel(raw)
@@ -124,17 +127,17 @@ def extract_focus_areas(ctx, hunt, prof):
             out.append((float(hs[pr, pc]), area, float(np.nanmean(hunt[sel])), sel))
         return out
 
-    # Normal pass, then progressively relax so we NEVER hand back zero areas when
-    # there's any huntable ground. E.g. a no-boat hunt where the best ground is
-    # water-locked still surfaces the least-bad reachable options (the access flags +
-    # 'a boat would unlock…' recommendation explain the trade-off) instead of an empty
-    # screen that reads as a failure.
-    cands = _find(75, 0.3, 0.82, min_km2)
+    # Primary pass at the absolute floor, then ONE mild fallback (still absolute, not a
+    # percentile). If nothing clears even that, return ZERO areas honestly — a poor or
+    # water-locked box should say "thin ground here" (the access flags + recommendations
+    # explain the trade-off), not dress up its least-bad ground as a recommendation.
+    cands = _find(FLOOR, 0.82, min_km2)
     if not cands:
-        cands = _find(60, 0.15, 0.6, max(1.0, min_km2 * 0.4))
-    if not cands:
-        cands = _find(40, 0.05, 0.4, 0.5)
-    cands.sort(key=lambda t: t[2], reverse=True)   # rank by mean huntability
+        cands = _find(FLOOR * 0.8, 0.70, max(1.0, min_km2 * 0.5))
+    # Rank by EXPECTED ENCOUNTER ≈ area × mean huntability (coverage matters for a species
+    # at ~20 km²/moose), not by mean alone, which favoured tiny tight pockets over large
+    # good ground.
+    cands.sort(key=lambda t: t[1] * t[2], reverse=True)
 
     feats = []
     masks = []

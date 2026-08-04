@@ -13,11 +13,16 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 10
+ENGINE_REVISION = 11
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    11: "Focus areas are now admitted by an ABSOLUTE quality bar, not your box's own top "
+        "quartile — so a genuinely poor area returns few or zero focus areas and says so, "
+        "instead of always dressing up its least-bad ground. Areas are ranked by expected "
+        "encounters (size × habitat quality) and capped to a chunk a party can actually work "
+        "in a day, rather than one 180 km² blob.",
     10: "Habitat weighting rebalanced to the validated moose HSI (Allen 1987): the food×cover "
         "INTERSPERSION (edge) is now the dominant driver, and the standalone distance-to-water "
         "term is cut way down — it was over-weighting open water as forage, which is a summer "
