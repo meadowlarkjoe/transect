@@ -122,6 +122,54 @@ GUIDANCE = {
 }
 
 
+# Phase key normalized (classify() returns the pretty label; this is the stable key).
+def phase_key(cls: str) -> str:
+    if cls.startswith("seeking"):
+        return "seeking"
+    if cls.startswith("peak"):
+        return "peak"
+    if cls.startswith("post"):
+        return "post"
+    return "outside"
+
+
+def dominant_phase(ctx) -> str:
+    """The phase the HUNT falls in, from the midpoint of the target dates. Drives
+    tactics AND which sites get emphasised — pre-rut/seeking, peak, and post-rut are
+    genuinely different hunts, not just different dates on the same plan."""
+    ph = phases(ctx)
+    ds = sorted(d for d in (ctx.aoi.season.target_dates or []) if d)
+    if not ds:
+        return "peak"                       # no dates set: assume the money window
+    try:
+        d0, d1 = date.fromisoformat(ds[0]), date.fromisoformat(ds[-1])
+    except Exception:
+        return "peak"
+    mid = d0 + timedelta(days=(d1 - d0).days // 2)
+    return phase_key(classify(mid, ph))
+
+
+# Per-phase emphasis on SITE TYPES (multipliers on the base per-area counts) and on
+# TACTICS (multipliers on calling vs ambush). Grounded in the phase behaviour:
+#   seeking — bulls on their feet, most callable: more calling stands + funnels/travel
+#             corridors, fewer static feeding sits.
+#   peak    — bulls tending cows, quiet: hunt where the COWS are (feeding/cover), fewer
+#             calling stands, longer ambush sits.
+#   post    — spent bulls recovering on food; soft cow calls only; late re-cycle flurry.
+PHASE_SITE_W = {
+    "seeking": {"rut_calling": 1.4, "funnel": 1.4, "glassing": 1.0, "saline_blind": 0.7, "thermal_refuge": 0.8},
+    "peak":    {"rut_calling": 0.7, "funnel": 0.8, "glassing": 1.1, "saline_blind": 1.3, "thermal_refuge": 1.3},
+    "post":    {"rut_calling": 0.5, "funnel": 0.7, "glassing": 1.0, "saline_blind": 1.4, "thermal_refuge": 1.1},
+    "outside": {"rut_calling": 0.4, "funnel": 0.7, "glassing": 1.0, "saline_blind": 1.4, "thermal_refuge": 1.0},
+}
+PHASE_TACTIC = {
+    "seeking": {"calling": 1.35, "ambush": 0.70, "stand_scale": 0.8},
+    "peak":    {"calling": 0.65, "ambush": 1.30, "stand_scale": 1.3},
+    "post":    {"calling": 0.45, "ambush": 1.20, "stand_scale": 1.1},
+    "outside": {"calling": 0.30, "ambush": 1.10, "stand_scale": 1.0},
+}
+
+
 def _temp_factor(day):
     """Weather damping on calling response. Rut response is TRIGGER-driven: warm days
     bed moose down and kill the calling response; a hard frost / cold snap fires it up.

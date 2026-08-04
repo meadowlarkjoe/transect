@@ -378,13 +378,29 @@ def run(ctx: Context) -> None:
     # nothing about where the other four should stand.
     party = int(getattr(ctx.aoi.hunter, "party_size", 2) or 2)
     import math as _m
-    n_call  = max(2, min(8, party))                 # a stand per hunter, capped
-    n_glass = max(1, min(4, _m.ceil(party / 2)))    # glassing is a two-person job
-    n_feed  = max(1, min(3, _m.ceil(party / 3)))
-    n_funnel = max(1, min(3, _m.ceil(party / 2)))
+    from . import rut_timing as _rt
+    # PHASE SHIFTS THE SITE MIX, not just the surface underneath it. A seeking hunt
+    # wants more calling stands and travel funnels; a peak hunt wants fewer calling
+    # stands and more cow/feeding sits; post-rut leans to food. Base counts scale with
+    # the crew, then the phase re-weights each type (min 1 so a type never vanishes —
+    # it's de-emphasised, not deleted; the hunter still sees the option).
+    pw = _rt.PHASE_SITE_W[_rt.dominant_phase(ctx)]
+    def _n(base, key, cap):
+        # Bias the rounding so the emphasis is visible even at party=2 (base 1): a
+        # phase that FAVOURS a type rounds up, one that de-emphasises rounds down
+        # (floor, min 1 — the option never disappears). Plain round() would collapse
+        # every 0.7–1.4 multiplier on a base of 1 back to 1 and hide the whole point.
+        w = pw.get(key, 1.0)
+        n = _m.ceil(base * w) if w > 1.0 else max(1, _m.floor(base * w))
+        return max(1, min(cap, int(n)))
+    n_call   = _n(max(2, min(8, party)), "rut_calling", 8)
+    n_glass  = _n(max(1, _m.ceil(party / 2)), "glassing", 4)
+    n_feed   = _n(max(1, _m.ceil(party / 3)), "saline_blind", 4)
+    n_funnel = _n(max(1, _m.ceil(party / 2)), "funnel", 4)
+    n_refuge = _n(1, "thermal_refuge", 3)
     add_points_per_area(rut_surf, "rut_calling", n_call,
                         {"min_stand_minutes": 30, "when": "dawn & dusk + all rut day (bulls cruise these edges)"})
-    add_points_per_area(refuge_surf, "thermal_refuge", 1,
+    add_points_per_area(refuge_surf, "thermal_refuge", n_refuge,
                         {"when": "midday when it's warm (> ~14 °C) — hunt the cool cover, not the openings"})
     add_points_per_area(feed_surf, "saline_blind", n_feed,
                         {"when": "first & last light — feeding on browse edge / in water (aquatic sodium)"})
@@ -834,12 +850,20 @@ def _rut_section(ctx) -> list:
     # latitude (moose conception is latitude-invariant across the range; see
     # rut_timing.py and lat_note). The old label claimed a shift the model refuses to
     # make, which is exactly the kind of thing a hunter checks and loses trust over.
+    # The phase calendar is shown ALWAYS — it's a property of the LOCATION/year, not
+    # of the chosen dates. A hunter deciding when to go needs to see the windows and
+    # the average conception date even before they've picked dates.
     out = ["", "## Rut timing", "",
-           f"Rut for a {ctx.aoi.center.lat:.1f}°N hunt (peak ~**{r['peak_date']}** — "
-           f"anchored, not shifted for latitude):", "",
-           f"- **Pre-rut:** {w['pre_rut'][0]} → {w['pre_rut'][1]}",
-           f"- **Peak rut:** {w['peak_rut'][0]} → {w['peak_rut'][1]}  *(be here)*",
-           f"- **Post-rut:** {w['post_rut'][0]} → {w['post_rut'][1]}"]
+           f"Average conception (peak breeding) ≈ **{r['peak_date']}** — anchored, "
+           f"not shifted for latitude (moose conception is latitude-invariant; this is "
+           f"a {ctx.aoi.center.lat:.1f}°N hunt).", "",
+           "**Phase calendar (this location, this year):**",
+           f"- **Seeking / pre-rut:** {w['pre_rut'][0]} → {w['pre_rut'][1]}  "
+           f"*(best calling — bulls searching, cows not yet receptive)*",
+           f"- **Peak rut:** {w['peak_rut'][0]} → {w['peak_rut'][1]}  "
+           f"*(bulls tending cows — hunt the cows, call less)*",
+           f"- **Post-rut:** {w['post_rut'][0]} → {w['post_rut'][1]}  "
+           f"*(recovery feeding; watch for a late re-cycle flurry ~24 d after peak)*"]
     if r["targets"]:
         out += ["", "**Your target dates:**"]
         for t in r["targets"]:
@@ -935,10 +959,15 @@ def _write_brief(ctx, features, cache, outdir, routes_msg):
         from .strategy import strategy as _strategy
         st = _strategy(ctx)
         est = " *(estimated — no aerial survey for this zone)*" if st.get("density_is_estimate") else ""
-        lines += ["", "## Strategy", "",
-                  f"**{st['headline']}** (~{st['density_per_10km2']} moose/10 km²{est})", "",
+        # Strategy leads with the PHASE (the bigger lever for how you hunt this week),
+        # then the density profile modulated by it. The calling/stand numbers below are
+        # already phase-adjusted in strategy().
+        lines += ["", "## Strategy", ""]
+        if st.get("phase_headline"):
+            lines += [f"**{st['phase_headline']}**", "", st.get("phase_guidance", ""), ""]
+        lines += [f"Density read: **{st['headline']}** (~{st['density_per_10km2']} moose/10 km²{est})", "",
                   f"- **Approach:** {st['approach']}",
-                  f"- **Calling:** {st['calling']}",
+                  f"- **Calling:** {st['calling']}  *(calling weight {st['calling_weight']} · ambush {st['ambush_weight']}, phase-adjusted)*",
                   f"- **Stands:** ~{st['stand_minutes']} min · **Movement:** {st['movement']}",
                   f"- **Attractants:** {st['attractants']}",
                   f"- *Why:* {st['why']}"]

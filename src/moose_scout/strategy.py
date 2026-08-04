@@ -95,11 +95,33 @@ def classify(per10: float) -> str:
 
 
 def strategy(ctx: Context) -> dict:
+    from . import rut_timing
     d = density_estimate(ctx)
     cls = classify(d["per_10km2"])
     prof = dict(PROFILES[cls])
     prof.update(density_per_10km2=round(d["per_10km2"], 2),
                 density_source=d["source"], density_is_estimate=d["is_estimate"])
+
+    # PHASE SETS THE TACTIC; DENSITY MODULATES IT. The density profile alone told a
+    # seeking-phase hunt and a peak-phase hunt the same thing — but those are opposite
+    # games (advertise-and-call vs sit-on-the-cows-and-shut-up). So overlay the phase:
+    # the phase decides calling philosophy and what to hunt, density decides how hard
+    # you have to work to make contact.
+    phase = rut_timing.dominant_phase(ctx)
+    tw = rut_timing.PHASE_TACTIC[phase]
+    prof["rut_phase"] = phase
+    prof["phase_guidance"] = rut_timing.GUIDANCE.get(
+        {"seeking": "seeking (pre-rut)", "peak": "peak rut",
+         "post": "post-rut", "outside": "outside rut window"}[phase], "")
+    prof["calling_weight"] = round(min(1.0, prof["calling_weight"] * tw["calling"]), 2)
+    prof["ambush_weight"] = round(min(1.0, prof["ambush_weight"] * tw["ambush"]), 2)
+    prof["stand_minutes"] = int(round(prof["stand_minutes"] * tw["stand_scale"]))
+    # Headline leads with the phase, since that's the bigger lever this week.
+    _PH = {"seeking": "Seeking (pre-rut) — call aggressively and cover ground.",
+           "peak": "Peak rut — hunt the cows; call less, sit longer.",
+           "post": "Post-rut — hunt food; soft cow calls, watch for a late flurry.",
+           "outside": "Outside the rut — hunt food and travel; calling is unreliable."}
+    prof["phase_headline"] = _PH[phase]
     # Attractants are baiting-adjacent and REGULATED — never recommend them blind.
     prof["scent_warning"] = (
         "⚠ Scents, lures, mineral/saline sites and bait are regulated and vary by zone — "
