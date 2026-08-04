@@ -1714,9 +1714,14 @@ function renderSetup(){
         <button id="wcMotor" ${SETUP.watercraft==='motor'?'aria-pressed="true"':''}>${t('setup.motor')}</button></div>
       <div class="s" style="margin-top:6px">With no boat, rivers become foot barriers — ground across one from the road drops out of the ranking.</div>
 
-      <label class="fld">Walk: access → base camp (max)</label>
-      <div class="numrow"><input id="walkAccess" type="number" step="0.1" placeholder="e.g. 2" value="${draft.walkAccess!=null?toU(draft.walkAccess).toFixed(1):''}"><span id="uAccess">${unitBig()}</span></div>
-      <label class="fld">Walk: base camp → hunting (max)</label>
+      <!-- Returning to the vehicle means there IS no base camp, so "access -> base
+           camp" is a question about a thing that does not exist. Hidden in that
+           mode, and the remaining walk is relabelled to say what it now measures. -->
+      <div id="walkAccessRow" class="hidden">
+        <label class="fld">Walk: access → base camp (max)</label>
+        <div class="numrow"><input id="walkAccess" type="number" step="0.1" placeholder="e.g. 2" value="${draft.walkAccess!=null?toU(draft.walkAccess).toFixed(1):''}"><span id="uAccess">${unitBig()}</span></div>
+      </div>
+      <label class="fld" id="walkHuntLbl">Walk: base camp → hunting (max)</label>
       <div class="numrow"><input id="walkHunt" type="number" step="0.1" placeholder="e.g. 4" value="${draft.walkHunt!=null?toU(draft.walkHunt).toFixed(1):''}"><span id="uHunt">${unitBig()}</span></div>
 
       <label class="fld">${t('setup.leaving')}</label>
@@ -1782,17 +1787,34 @@ function renderSetup(){
   document.getElementById('wcCanoe').onclick=()=>setWC('canoe');
   document.getElementById('wcMotor').onclick=()=>setWC('motor');
   const setHS=(h)=>{SETUP.huntStyle=h;
-    segPick(h==='spike'?'hsSpike':'hsVeh'); updateHsNote(); applyHunt();};
+    segPick(h==='spike'?'hsSpike':'hsVeh'); syncWalkFields(); updateHsNote(); applyHunt();};
   document.getElementById('hsSpike').onclick=()=>setHS('spike');
   document.getElementById('hsVeh').onclick=()=>setHS('vehicle');
+  syncWalkFields();
   document.getElementById('runBtn').onclick=()=>runAnalysis();
   updateHsNote(); drawDraft(); applyHunt();
+}
+function syncWalkFields(){
+  const veh=SETUP.huntStyle==='vehicle';
+  const row=document.getElementById('walkAccessRow');
+  if(row) row.classList.toggle('hidden',veh);
+  const lbl=document.getElementById('walkHuntLbl');
+  if(lbl) lbl.textContent = veh ? 'Walk: vehicle → hunting (max)'
+                                : 'Walk: base camp → hunting (max)';
 }
 function updateHsNote(){ const n=document.getElementById('hsNote'); if(!n)return;
   n.textContent=SETUP.huntStyle==='vehicle'
     ? 'Analysis favours areas within your access-walk of a road — backcountry spots are dimmed.'
     : 'Backcountry spike camps allowed — remote areas stay in play.'; }
-function reachKm(){ return (draft.walkAccess!=null?draft.walkAccess:6); }  // km; 6 = neutral fallback when unset
+/* How far off a road an area may sit and still count as reachable. With no camp
+   there is only one walk — truck to hunting ground — so the hidden access field
+   must not be the one that governs. Hiding it without this made a vehicle hunt fall
+   back to the neutral 6 km, silently ignoring what the hunter actually said. */
+function reachKm(){
+  const veh=SETUP.huntStyle==='vehicle';
+  const v = veh ? draft.walkHunt : draft.walkAccess;
+  return (v!=null ? v : 6);   // 6 km = neutral fallback when unset
+}
 function applyHunt(){
   if(!map.getLayer('areas-fill'))return;
   const veh=SETUP.huntStyle==='vehicle', rk=reachKm()*1000;
@@ -1897,7 +1919,10 @@ function runAnalysis(){
     residency:'quebec_resident',
     // Setup constraints now shape the analysis (no-boat river barriers, walk range, rut-phase weighting)
     watercraft:SETUP.watercraft, hunt_style:SETUP.huntStyle,
-    walk_access_km:draft.walkAccess, walk_hunt_km:draft.walkHunt,
+    // For a vehicle hunt the staging point IS the camp (see synth.py), so the
+    // access-to-camp leg is zero and the only real limit is the walk from the truck.
+    walk_access_km:(SETUP.huntStyle==='vehicle'?draft.walkHunt:draft.walkAccess),
+    walk_hunt_km:draft.walkHunt,
     party_size:draft.party||2};
   // wipe the previous result up front: leaving it on the map while a new box computes
   // invites reading old areas as if they belonged to the new one.
