@@ -120,6 +120,8 @@ class ScoutReq(BaseModel):
     walk_access_km: float = 6.0
     walk_hunt_km: float = 3.0
     party_size: int = 2
+    fixed_camp: list[float] | None = None   # [lat, lon] — hunt-from-camp mode
+    hunt_radius_km: float | None = None
 
 
 def _run(job_id: str, req: ScoutReq) -> None:
@@ -140,6 +142,10 @@ def _run(job_id: str, req: ScoutReq) -> None:
                 walk_access_km=max(0.5, min(30.0, float(req.walk_access_km))),
                 walk_hunt_km=max(0.3, min(20.0, float(req.walk_hunt_km))),
                 party_size=max(1, min(12, int(req.party_size))),
+                fixed_camp=(tuple(req.fixed_camp[:2]) if req.fixed_camp
+                            and len(req.fixed_camp) >= 2 else None),
+                hunt_radius_km=(max(1.0, min(30.0, float(req.hunt_radius_km)))
+                                if req.hunt_radius_km else None),
             ),
         )
         # Scale analysis resolution with AOI size so a big area doesn't blow past RAM.

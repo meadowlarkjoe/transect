@@ -72,6 +72,11 @@ class HunterCfg(BaseModel):
     hunt_style: HuntStyle = "spike"      # spike = can camp out; vehicle = return to truck nightly
     walk_access_km: float = 6.0          # how far off a road you'll walk in (road → camp/area)
     walk_hunt_km: float = 3.0            # how far from camp you'll hunt (camp → site)
+    # HUNT-FROM-A-FIXED-CAMP. When set, the hunter has already chosen where they're
+    # basing: skip camp-finding, anchor camp/staging THERE, and narrow the whole
+    # analysis to a circle around it (they only hunt what they can walk from camp).
+    fixed_camp: tuple[float, float] | None = None   # (lat, lon), or None for auto
+    hunt_radius_km: float | None = None             # analysis radius from a fixed camp
 
 
 class AOI(BaseModel):

@@ -323,6 +323,28 @@ def run(ctx: Context) -> None:
         a[:, :m] = np.nan
         a[:, -m:] = np.nan
 
+    # HUNT-FROM-A-FIXED-CAMP: narrow the analysis to what you can walk from camp.
+    # The hunter has chosen where they're basing, so the only relevant ground is a
+    # circle around it (radius = hunt_radius_km, or their camp→hunt walk). Masking the
+    # huntability surface here means focus areas, sites and routes all fall within
+    # reach of camp — a tight, usable plan instead of the whole box.
+    fixed_camp = getattr(ctx.aoi.hunter, "fixed_camp", None)
+    fixed_camp_rc = None
+    if fixed_camp:
+        from pyproj import Transformer as _TR
+        _tr = _TR.from_crs("EPSG:4326", prof["crs"], always_xy=True)
+        _inv = ~prof["transform"]
+        _x, _y = _tr.transform(fixed_camp[1], fixed_camp[0])   # (lat,lon)->(x,y)
+        _c, _r = _inv * (_x, _y)
+        H, W = hunt.shape
+        fixed_camp_rc = (max(0, min(H - 1, int(_r))), max(0, min(W - 1, int(_c))))
+        radius_km = (getattr(ctx.aoi.hunter, "hunt_radius_km", None)
+                     or getattr(ctx.aoi.hunter, "walk_hunt_km", 3.0) or 3.0)
+        rad_px = max(3, int(round(radius_km * 1000.0 / res)))
+        Yc, Xc = np.ogrid[:H, :W]
+        outside = (Yc - fixed_camp_rc[0]) ** 2 + (Xc - fixed_camp_rc[1]) ** 2 > rad_px ** 2
+        hunt[outside] = np.nan          # everything past the camp radius drops out
+
     features, area_masks = extract_focus_areas(ctx, hunt, prof)
 
     # Data-driven "why this area" + pros/cons for each focus area.
@@ -445,21 +467,27 @@ def run(ctx: Context) -> None:
     vehicle_style = getattr(ctx.aoi.hunter, "hunt_style", "spike") == "vehicle"
     camp_cells = []
     camp_of_area = {}
-    for rank, sel in area_masks:
-        # allow the camp to sit just OUTSIDE the area (on the access side) but not
-        # far: dilate the mask by ~the hunter's stated camp->hunt walking distance
-        try:
-            from scipy.ndimage import binary_dilation
-            reach_px = max(2, int(round((ctx.aoi.hunter.walk_hunt_km * 1000) / res)))
-            near = binary_dilation(sel, iterations=min(reach_px, 60))
-        except Exception:
-            near = sel
-        cand = np.where(near, camp_score, 0.0)
-        if not np.isfinite(cand).any() or float(np.nanmax(cand)) <= 0:
-            continue
-        rc = np.unravel_index(int(np.nanargmax(cand)), cand.shape)
-        camp_cells.append((int(rc[0]), int(rc[1])))
-        camp_of_area[rank] = (int(rc[0]), int(rc[1]))
+    if fixed_camp_rc is not None:
+        # The hunter fixed the camp — every area is hunted FROM it. No camp-finding.
+        for rank, sel in area_masks:
+            camp_of_area[rank] = fixed_camp_rc
+        camp_cells = [fixed_camp_rc]
+    else:
+        for rank, sel in area_masks:
+            # allow the camp to sit just OUTSIDE the area (on the access side) but not
+            # far: dilate the mask by ~the hunter's stated camp->hunt walking distance
+            try:
+                from scipy.ndimage import binary_dilation
+                reach_px = max(2, int(round((ctx.aoi.hunter.walk_hunt_km * 1000) / res)))
+                near = binary_dilation(sel, iterations=min(reach_px, 60))
+            except Exception:
+                near = sel
+            cand = np.where(near, camp_score, 0.0)
+            if not np.isfinite(cand).any() or float(np.nanmax(cand)) <= 0:
+                continue
+            rc = np.unravel_index(int(np.nanargmax(cand)), cand.shape)
+            camp_cells.append((int(rc[0]), int(rc[1])))
+            camp_of_area[rank] = (int(rc[0]), int(rc[1]))
 
     # Vehicle staging is a SEPARATE thing from camp: where you leave the truck, on
     # the road spine (or the canoe put-in if it's water-access).
@@ -526,7 +554,16 @@ def run(ctx: Context) -> None:
                                         "is_camp": bool(vehicle_style),
                                         "walk_km": round(walk_px * res / 1000.0, 2)}})
 
-    if vehicle_style:
+    if fixed_camp_rc is not None:
+        # The hunter fixed the camp: emit ONE pin there, and every area is hunted from
+        # it. (Overrides the vehicle/auto logic — they told us exactly where.)
+        camp_of_area = {rank: fixed_camp_rc for rank, _sel in area_masks}
+        lon, lat = toll(fixed_camp_rc)
+        features.append({"type": "Feature",
+                         "geometry": {"type": "Point", "coordinates": [lon, lat]},
+                         "properties": {"legend": "base_camp", "anchor": "fixed",
+                                        "fixed": True}})
+    elif vehicle_style:
         # No base_camp features at all: routes originate from the staging pin.
         camp_of_area = {rank: st for rank, (st, _c) in area_stage.items()}
         camp_cells = list(camp_of_area.values())

@@ -6,6 +6,11 @@
 (function (global) {
   const DICT = {
     en: {
+  'setup.camp':'Hunt from a fixed camp?',
+  'setup.campAuto':'Let the model place camp',
+  'setup.campFixed':'I have a fixed camp',
+  'setup.campNote':'The point you set above IS your camp. The analysis narrows to what you can hunt from it — focus areas, sites and routes all fall within your hunt radius of camp.',
+  'setup.campRadius':'Hunt radius from camp (max)',
   'base.overzoom':'Past the sharpest imagery published here — the last real tile is being stretched, not lost.',
   'setup.party':'Hunters in the party',
   'setup.partyU':'hunters',
@@ -128,6 +133,11 @@
     },
 
     fr: {
+  'setup.camp':'Chasser depuis un camp fixe ?',
+  'setup.campAuto':'Laisser le modèle placer le camp',
+  'setup.campFixed':'J’ai un camp fixe',
+  'setup.campNote':'Le point choisi ci-dessus EST votre camp. L’analyse se limite à ce que vous pouvez chasser depuis celui-ci — secteurs, postes et trajets tombent tous dans votre rayon de chasse.',
+  'setup.campRadius':'Rayon de chasse depuis le camp (max)',
   'base.overzoom':'Au-delà de l’imagerie la plus nette ici — la dernière tuile réelle est étirée, pas perdue.',
   'setup.party':'Chasseurs dans le groupe',
   'setup.partyU':'chasseurs',

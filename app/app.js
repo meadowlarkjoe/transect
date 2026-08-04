@@ -1704,7 +1704,7 @@ function hav(a,b){const R=6371,dLat=(b[1]-a[1])*Math.PI/180,dLon=(b[0]-a[0])*Mat
 /* ---------------- Setup (redesigned) ---------------- */
 let draft={center: DOC.blank ? null : [DOC.meta.center.lon,DOC.meta.center.lat],
   radius:DOC.meta.radius_km||50,
-  walkAccess:null, walkHunt:null, leaving:'', party:2,
+  walkAccess:null, walkHunt:null, leaving:'', party:2, fixedCampMode:false, huntRadius:null,
   dates: (USING_EXAMPLE && DOC.meta && DOC.meta.target_dates) ? DOC.meta.target_dates.slice() : []};
 function renderSetup(){
   const el=document.getElementById('setup');
@@ -1741,6 +1741,18 @@ function renderSetup(){
 
     <div class="sec">
       <div class="sechead"><span class="num">03</span><h3>${t('setup.s3')}</h3></div>
+
+      <label class="fld">${t('setup.camp','Hunt from a fixed camp?')}</label>
+      <div class="seg"><button id="campAuto" ${!draft.fixedCampMode?'aria-pressed="true"':''}>${t('setup.campAuto','Let the model place camp')}</button>
+        <button id="campFixed" ${draft.fixedCampMode?'aria-pressed="true"':''}>${t('setup.campFixed','I have a fixed camp')}</button></div>
+      <div id="campRow" class="${draft.fixedCampMode?'':'hidden'}">
+        <div class="s" style="margin:6px 0">${t('setup.campNote',
+          'The point you set above IS your camp. The analysis narrows to what you can hunt from it — focus areas, sites and routes all fall within your hunt radius of camp.')}</div>
+        <label class="fld">${t('setup.campRadius','Hunt radius from camp (max)')}</label>
+        <div class="numrow"><input id="campRadius" type="number" step="0.5" min="1" max="30"
+          placeholder="e.g. 5" value="${draft.huntRadius!=null?toU(draft.huntRadius).toFixed(1):''}"><span>${unitBig()}</span></div>
+      </div>
+
       <label class="fld">${t('setup.party','Hunters in the party')}</label>
       <div class="numrow"><input id="partySize" type="number" min="1" max="12" step="1"
         value="${draft.party||2}"><span>${t('setup.partyU','hunters')}</span></div>
@@ -1813,6 +1825,18 @@ function renderSetup(){
     if(m.length===2&&!isNaN(m[0])&&!isNaN(m[1])){draft.center=[m[1],m[0]];map.flyTo({center:draft.center,zoom:10});drawDraft();}};
   const rad=document.getElementById('radius');
   rad.oninput=()=>{draft.radius=fromU(+rad.value);document.getElementById('radVal').textContent=(+rad.value)+' '+unitBig();drawDraft();};
+  const setCampMode=(on)=>{ draft.fixedCampMode=on;
+    document.getElementById('campAuto').setAttribute('aria-pressed', String(!on));
+    document.getElementById('campFixed').setAttribute('aria-pressed', String(on));
+    const row=document.getElementById('campRow'); if(row) row.classList.toggle('hidden',!on);
+    // in fixed-camp mode the picked point is the camp; relabel the coordinate field
+    const cl=document.querySelector('label[for="coord"], #coordLbl');
+    markDirtySoft();
+  };
+  document.getElementById('campAuto').onclick=()=>setCampMode(false);
+  document.getElementById('campFixed').onclick=()=>setCampMode(true);
+  const cr=document.getElementById('campRadius');
+  if(cr) cr.onchange=e=>{ draft.huntRadius=fromU(+e.target.value)||null; markDirtySoft(); };
   document.getElementById('partySize').onchange=e=>{
     draft.party=Math.max(1,Math.min(12,Math.round(+e.target.value||2)));
     e.target.value=draft.party; setPlanName(PLAN_NAME,false);};   // edited => unsaved
@@ -1976,7 +2000,13 @@ function runAnalysis(){
     // access-to-camp leg is zero and the only real limit is the walk from the truck.
     walk_access_km:(SETUP.huntStyle==='vehicle'?draft.walkHunt:draft.walkAccess),
     walk_hunt_km:draft.walkHunt,
-    party_size:draft.party||2};
+    party_size:draft.party||2,
+    // Hunt-from-camp: the AOI centre IS the camp; the analysis narrows to hunt radius.
+    fixed_camp:(draft.fixedCampMode && draft.center)?[draft.center[1],draft.center[0]]:null,
+    hunt_radius_km:(draft.fixedCampMode?(draft.huntRadius||5):null)};
+  // In fixed-camp mode the box only needs to cover the hunt radius + a data margin,
+  // so a tight radius doesn't force a huge (slow) acquire.
+  if(req.fixed_camp) req.radius_km=Math.max(6,Math.min(120,(req.hunt_radius_km||5)+4));
   // wipe the previous result up front: leaving it on the map while a new box computes
   // invites reading old areas as if they belonged to the new one.
   if(hasResult()){ applyDoc(blankDoc()); paintTabLocks(); }
@@ -2303,11 +2333,13 @@ function savePlans(a){ try{localStorage.setItem('transect_plans',JSON.stringify(
 /* The plan currently on screen, if it came from (or was saved to) the store. Keeps
    a re-run updating that plan instead of spawning a duplicate every time. */
 let CUR_PLAN_ID=null;
+function markDirtySoft(){ try{ setPlanName(PLAN_NAME,false); }catch(e){} }
 function currentPlan(name, withDoc){
   const p={id:uuid(), name:name||PLAN_NAME||('Plan '+new Date().toLocaleDateString()), savedAt:Date.now(),
     aoi:(DOC.meta&&DOC.meta.title)||'', units:UNITS,
     setup:{center:draft.center?draft.center.slice():null,radius:draft.radius,walkAccess:draft.walkAccess,walkHunt:draft.walkHunt,party:draft.party,
-      leaving:draft.leaving,watercraft:SETUP.watercraft,huntStyle:SETUP.huntStyle,dates:draft.dates.slice()},
+      leaving:draft.leaving,watercraft:SETUP.watercraft,huntStyle:SETUP.huntStyle,dates:draft.dates.slice(),
+      fixedCampMode:draft.fixedCampMode,huntRadius:draft.huntRadius},
     area:lastSel, annot:JSON.parse(JSON.stringify(drawSaved||[]))};
   // The computed analysis is the expensive part (3–5 min). Store it with the plan so
   // reopening is instant — but only server-side, where there's room for it.
@@ -2352,6 +2384,7 @@ function applyPlan(p){
   draft.radius=s.radius||draft.radius;
   draft.walkAccess=s.walkAccess??draft.walkAccess; draft.walkHunt=s.walkHunt??draft.walkHunt;
   draft.party=s.party??draft.party;
+  draft.fixedCampMode=s.fixedCampMode??draft.fixedCampMode; draft.huntRadius=s.huntRadius??draft.huntRadius;
   draft.leaving=s.leaving||draft.leaving;
   if(s.dates&&s.dates.length===2) draft.dates=s.dates.slice();
   SETUP.watercraft=s.watercraft||SETUP.watercraft; SETUP.huntStyle=s.huntStyle||SETUP.huntStyle;
