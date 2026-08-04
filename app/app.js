@@ -1,5 +1,34 @@
 /* Transect on MapLibre — binds window.TRANSECT_DATA (engine transect.json). */
-let DOC = window.TRANSECT_DATA;
+
+/* A fresh session must NOT open on somebody else's analysis. data.js ships a baked
+   Fire Lake run as an EXAMPLE, and loading it by default presented a stranger's plan
+   as if it were yours — the exact thing this product claims not to do. So we start
+   BLANK (same document shape, empty arrays) and only load the example when it's asked
+   for explicitly: ?example=1, or the button in the empty state. */
+const EXAMPLE = window.TRANSECT_DATA;
+function blankDoc(){
+  const m = (EXAMPLE && EXAMPLE.meta) || {};
+  return {
+    schema: 'transect/1', blank: true,
+    meta: {aoi:'', title:'No area yet', species:'moose',
+           center: m.center || {lat:52.34, lon:-67.36},
+           radius_km: 35, target_dates: (m.target_dates||['2026-09-25','2026-10-05']),
+           residency:'quebec_resident', extraction_modes:[]},
+    legal: {zone:null, north_of_52:false, diy_possible:false, huntable_tenures:[],
+            flags:[], verify:[], season_summary:''},
+    methodology: {summary:'', factors_weighted:[], then:'', caveats:[]},
+    camps: [], areas: [], waypoints: [], routes: [],
+    weather: {source:'none', days:[]},
+    hydro: {rivers:[], lakes:[]}, crossings: [], infra: [],
+    hunt_zones: [], browse_zones: [], refuge_zones: [], funnel_zones: [],
+    burn_zones: [], burn_meta: {}, tenure_zones: [],
+    rut: null, confidence: null, strategy: null, recommendations: [],
+    disclaimer: (EXAMPLE && EXAMPLE.disclaimer) || ''
+  };
+}
+const _q0 = new URLSearchParams(location.search);
+const USING_EXAMPLE = _q0.get('example') === '1';
+let DOC = USING_EXAMPLE ? EXAMPLE : blankDoc();
 let selectedDay = null;
 // Live engine API (Setup → RUN ANALYSIS recomputes for a new species/area/radius).
 // URL + key come from config.js (deployed, not in the repo); ?api= overrides for tests.
@@ -446,7 +475,11 @@ function init(){
   buildPanel(); buildWeather(); buildLegend(); buildTools();
   setVis(LYR_MAP.roads,true); setVis(LYR_MAP.boundaries,true);   // roads + borders on by default in every view
   renderSetup(); renderBrief(); wireTabs(); initPlans(); initExport(); setTab(startTab());
-  map.fitBounds(bbox(DOC.areas),{padding:{top:80,left:400,right:200,bottom:120}});
+  if(DOC.blank || !(DOC.areas||[]).length){
+    map.jumpTo({center:[DOC.meta.center.lon,DOC.meta.center.lat],zoom:7.5});
+  } else {
+    map.fitBounds(bbox(DOC.areas),{padding:{top:80,left:400,right:200,bottom:120}});
+  }
 }
 
 /* wait for style, then init once */
@@ -497,6 +530,25 @@ function packout(a){
       (boat?' — or one trip if you can float it out.':'.')};
 }
 function buildPanel(){
+  // Nothing analysed yet — say so, and offer the example explicitly rather than
+  // silently pretending someone else's run is yours.
+  if(DOC.blank){
+    document.getElementById('gate').innerHTML=
+      `<div class="t-micro" style="margin-bottom:10px">No analysis yet</div>
+       <h2 class="t-h1" style="margin:0 0 8px;font-size:19px">Nothing on the map yet</h2>
+       <p class="s" style="margin:0 0 14px">Draw a box in <b>Setup</b>, set your hunt dates and
+          who's hunting, then run the analysis. It takes a few minutes and everything you see
+          afterwards is computed for that box — not a sample.</p>
+       <button class="btn btn--primary btn--block" id="goSetup">Set up a hunt →</button>
+       <button class="btn btn--ghost btn--block" id="loadEx" style="margin-top:8px">
+         Or load the Fire Lake example</button>`;
+    document.getElementById('method').innerHTML='';
+    document.getElementById('list').innerHTML='';
+    const gs=document.getElementById('goSetup'); if(gs) gs.onclick=()=>setTab('setup');
+    const lx=document.getElementById('loadEx');
+    if(lx) lx.onclick=()=>{ const u=new URL(location.href); u.searchParams.set('example','1'); location.href=u.toString(); };
+    return;
+  }
   const g=DOC.legal, cf=DOC.confidence||null;
   document.getElementById('gate').innerHTML=
     `<div class="row" style="justify-content:space-between">
@@ -1172,7 +1224,7 @@ function applyHunt(){
 }
 function setUnits(u){ if(u===UNITS)return; UNITS=u; renderSetup(); buildPanel(); if(!document.getElementById('detail').classList.contains('hidden')){} }
 function applyDoc(newDoc){        // re-bind the whole map + panels to fresh engine data
-  DOC=newDoc; window.TRANSECT_DATA=newDoc;
+  DOC=newDoc; DOC.blank=false; window.TRANSECT_DATA=newDoc;
   const S=buildSources();
   const setD=(id,data)=>{const s=map.getSource(id); if(s&&data) s.setData(data);};
   setD('huntZones',S.huntZones); setD('browseZones',S.browseZones);
@@ -1300,7 +1352,13 @@ function geocode(q){
 
 /* ---------------- brief — scoped to the CHOSEN area ---------------- */
 function renderBrief(){
-  const a=DOC.areas.find(x=>x.rank===lastSel)||DOC.areas[0]; if(!a){document.getElementById('brief').innerHTML='';return;}
+  const a=(DOC.areas||[]).find(x=>x.rank===lastSel)||(DOC.areas||[])[0];
+  if(!a){ document.getElementById('brief').innerHTML=
+    `<div class="sec"><div class="t-micro" style="margin-bottom:10px">No brief yet</div>
+      <p class="s">A brief is written for a specific area, so there's nothing to write until
+      you've run an analysis. Set up a hunt and the brief fills itself in.</p>
+      <button class="btn btn--primary btn--block" onclick="setTab('setup')">Set up a hunt →</button></div>`;
+    return; }
   const g=DOC.legal, st=a.stats||{}, rutT=(DOC.rut&&DOC.rut.targets)||[];
   const camp=DOC.camps.find(c=>(c.member_areas||[]).includes(a.rank));
   const wps=DOC.waypoints.filter(w=>w.properties.focus_area===a.rank && SITE_TYPES.includes(w.type));
@@ -1451,6 +1509,9 @@ function startTab(){
     const last=localStorage.getItem('transect_tab');
     if(last && TAB_SHOW[last]) return last;
     if(!localStorage.getItem('transect_seen')){ localStorage.setItem('transect_seen','1'); return 'setup'; }
+  }catch(e){}
+  try{
+    if(DOC && DOC.blank) return 'setup';   // nothing to look at on Overview yet
   }catch(e){}
   return 'overview';
 }
