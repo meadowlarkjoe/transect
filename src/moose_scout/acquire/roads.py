@@ -136,7 +136,11 @@ def fetch(ctx: Context) -> None:
         g = None
     dst_crs, transform, w, h = target_grid(ctx)
     if g is not None and len(g):
-        g[["geometry"]].reset_index(drop=True).to_file(cache / "roads.gpkg", driver="GPKG")
+        # Keep the tag column: contract.py reads bridge=yes off it to tell a real
+        # obstacle from a road bridge you simply drive over. Writing geometry only
+        # threw that away and every bridged river came back as "needs a boat".
+        keep = ["geometry"] + [c for c in ("other_tags", "highway", "name") if c in g.columns]
+        g[keep].reset_index(drop=True).to_file(cache / "roads.gpkg", driver="GPKG")
         shapes = [(geom, 1) for geom in g.to_crs(dst_crs).geometry if geom and not geom.is_empty]
         arr = rasterize(shapes, out_shape=(h, w), transform=transform, fill=0,
                         default_value=1, dtype="uint8", all_touched=True)

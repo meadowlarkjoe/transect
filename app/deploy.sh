@@ -1,10 +1,11 @@
 #!/bin/bash
-# Deploy Transect under the /transect/ path prefix on Cloudflare Pages.
+# Deploy Transect at the ROOT of transect.joejmeadows.com on Cloudflare Pages.
 #
-# Everything here is staged into <tmp>/transect/ so the site mounts at
-# https://transect.joejmeadows.com/transect/ and the domain ROOT stays free for other
-# content. All internal links in the HTML are RELATIVE, so the same source also works
-# if you mount it elsewhere — nothing hard-codes the prefix.
+# It briefly lived under /transect/ to leave the domain root free — but the whole
+# subdomain is Transect's, so the prefix was a level of nesting that bought nothing.
+# All internal links in the HTML are RELATIVE, so the same source works mounted
+# anywhere; only this staging step and the _headers paths know where it lands.
+# /transect/* is 301'd to the root below so existing links and bookmarks survive.
 #
 # CACHING: Cloudflare Pages IGNORES Cache-Control in _headers for static ASSETS — it
 # serves them max-age=14400 and revalidates by etag no matter what you write there.
@@ -14,17 +15,17 @@
 set -e
 SRC="$(cd "$(dirname "$0")" && pwd)"
 D="$(mktemp -d)/tdeploy"
-mkdir -p "$D/transect"
-rsync -a --exclude '_headers' --exclude '.git' --exclude 'deploy.sh' "$SRC/" "$D/transect/"
+mkdir -p "$D"
+rsync -a --exclude '_headers' --exclude '_redirects' --exclude '.git' --exclude 'deploy.sh' "$SRC/" "$D/"
 
 python3 - "$D" <<'PY'
 import hashlib, os, re, sys
 d = sys.argv[1]
-stage = os.path.join(d, 'transect')
+stage = d
 
 # One version stamp per deploy, derived from the content that actually ships.
 h = hashlib.sha1()
-for f in ('app.js', 'style.css', 'data.js', 'area_detail.js', 'public.css'):
+for f in ('app.js', 'style.css', 'data.js', 'area_detail.js', 'public.css', 'i18n.js', 'icons.js'):
     p = os.path.join(stage, f)
     if os.path.exists(p):
         h.update(open(p, 'rb').read())
@@ -44,11 +45,20 @@ for f in sorted(os.listdir(stage)):
 print(f"asset version {ver} -> {', '.join(stamped) or '(no html referenced assets)'}")
 
 # HTML is the only thing Pages lets us mark no-cache; assets rely on the stamp above.
-paths = ['/transect/', '/transect/app', '/transect/app.html', '/transect/plans',
-         '/transect/plans.html', '/transect/signin', '/transect/signin.html',
-         '/transect/index.html']
+paths = ['/', '/app', '/app.html', '/plans', '/plans.html',
+         '/signin', '/signin.html', '/index.html']
 open(os.path.join(d, '_headers'), 'w').write(
     ''.join(f"{p}\n  Cache-Control: no-cache\n" for p in paths))
+
+# Old /transect/* links keep working. Pages evaluates _redirects before serving
+# assets, so this costs nothing on the normal path.
+# The bare /transect/ needs its own rule: a splat rule with an empty splat does
+# not reliably win against a same-path asset lookup, so name it explicitly.
+open(os.path.join(d, '_redirects'), 'w').write(
+    "/transect / 301\n"
+    "/transect/ / 301\n"
+    "/transect/index.html / 301\n"
+    "/transect/* /:splat 301\n")
 PY
 
 export CLOUDFLARE_API_TOKEN=$(cat ~/.cf_token)

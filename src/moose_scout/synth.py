@@ -56,10 +56,25 @@ def extract_focus_areas(ctx, hunt, prof):
 
     res = ctx.model.raster_resolution_m
     fcfg = ctx.model.focus_areas or {}
-    count = fcfg.get("count", 5)
+    # NO COUNT CAP. Ground either clears the quality bar or it doesn't; how many
+    # pieces of it happen to clear is a finding, not a setting. A fixed count meant
+    # a 36 km box and a 240 km box both returned five areas, which reads as "there
+    # are only five spots here" when it actually meant "we stopped looking at five".
+    # The gate is: top quartile of the smoothed surface, >=30% of the AOI maximum,
+    # >=8 km from the next candidate, and >= min_area_km2 of contiguous ground.
+    NO_CAP = 100000
     px_area = (res * res) / 1e6  # km2/pixel
     min_km2 = fcfg.get("min_area_km2", 3)
     max_km2 = fcfg.get("max_area_km2", 60)
+    # PARTY SIZE SHAPES THE GROUND, not just the label. Two callers working the same
+    # 8 km2 lobe are hunting each other's bull: a moose call carries roughly a
+    # kilometre, so each setup needs its own envelope. Grow the focus area with the
+    # crew so there is somewhere to actually put them, and grow the floor too so we
+    # don't hand a six-man party a 3 km2 pocket.
+    party = int(getattr(ctx.aoi.hunter, "party_size", 2) or 2)
+    crew_scale = min(3.0, max(1.0, party / 2.0))
+    max_km2 = max_km2 * crew_scale
+    min_km2 = min_km2 * min(2.0, crew_scale)
     tr = Transformer.from_crs(prof["crs"], "EPSG:4326", always_xy=True)
     to_wgs = lambda geom: shp_transform(lambda xs, ys: tr.transform(xs, ys), geom)
 
@@ -68,6 +83,20 @@ def extract_focus_areas(ctx, hunt, prof):
     # threshold gives swiss-cheese. Smoothing yields cohesive focus-area blobs.
     hs = gaussian_filter(hfill, sigma=max(4, int(round(350 / res))))
     radius_px = int(round(np.sqrt(max_km2 / np.pi) * 1000 / res))
+    # SEPARATION IS DERIVED, NOT A MAGIC 8 km. Candidates were forced >=8000 m
+    # apart regardless of AOI size or area size, and that — not the quality bar —
+    # was what limited the count: measured on the 36 km Fire Lake surface, 8 km
+    # spacing allows only 4 peaks to exist at all (2 survive), while 5 km allows 11
+    # (9 survive) passing the IDENTICAL quality gate. On a 100 km box that reads as
+    # "there is one good spot in 5000 km2", which is a statement about the constant,
+    # not about the ground.
+    #
+    # One area-radius is the principled floor: closer than that and two candidates'
+    # footprints are the same piece of ground. Further apart is thinning for its own
+    # sake. It scales with max_area_km2, so bigger areas do get more spacing.
+    sep_m = max(float(fcfg.get("min_separation_m", 0)) or 0.0,
+                np.sqrt(max_km2 / np.pi) * 1000.0)
+    min_dist_px = max(3, int(round(sep_m / res)))
     Y, X = np.ogrid[:hunt.shape[0], :hunt.shape[1]]
 
     def _find(thr_pct, thr_rel, gate_f, min_a):
@@ -75,8 +104,8 @@ def extract_focus_areas(ctx, hunt, prof):
         # exclude_border=False is critical: the default excludes a border of width
         # =min_distance (~200 px), which on a smaller AOI falls over the best ground
         # and returns ZERO peaks. synth already crops its own 2 km border.
-        peaks = peak_local_max(hs, num_peaks=count,
-                               min_distance=max(3, int(round(8000 / res))),
+        peaks = peak_local_max(hs, num_peaks=NO_CAP,
+                               min_distance=min_dist_px,
                                threshold_rel=thr_rel, exclude_border=False)
         out = []
         for (pr, pc) in peaks:
@@ -109,7 +138,8 @@ def extract_focus_areas(ctx, hunt, prof):
 
     feats = []
     masks = []
-    for rank, (_peak, area, score, sel) in enumerate(cands[:count], 1):
+    n_found = len(cands)
+    for rank, (_peak, area, score, sel) in enumerate(cands, 1):
         selu = sel.astype("uint8")
         geoms = [shp_shape(g) for g, v in rio_shapes(selu, mask=sel, transform=prof["transform"]) if v == 1]
         if not geoms:
@@ -125,7 +155,10 @@ def extract_focus_areas(ctx, hunt, prof):
             "type": "Feature", "geometry": poly_wgs.__geo_interface__,
             "properties": {"legend": "focus_area", "rank": rank,
                            "area_km2": round(area, 1), "mean_huntability": round(score, 3),
-                           "centroid": cen},
+                           "centroid": cen,
+                           # every candidate that cleared the bar is shown; this is a
+                           # count of what qualified, not of what we chose to display
+                           "candidates_found": n_found},
         })
     return feats, masks
 
@@ -270,12 +303,6 @@ def run(ctx: Context) -> None:
     dem = ru.read(cache / "dem.tif")[0]
     dist_water = ru.read(cache / "dist_water.tif")[0]
 
-    def _opt(p):
-        try:
-            return ru.read(p)[0]
-        except Exception:
-            return None
-
     dist_road = _opt(cache / "dist_road.tif")
     # Behavioral occupancy surfaces (behavior stage) — richer signals than the
     # raw HSM sub-scores for placing period-specific sits. Fall back if absent.
@@ -346,19 +373,25 @@ def run(ctx: Context) -> None:
     rut_surf = b_cruise if b_cruise is not None else rut
     refuge_surf = b_refuge if b_refuge is not None else thermal
     feed_surf = b_feed if b_feed is not None else near_water
-    # Enough calling stations that every hunter in the party can work separate
-    # ground until a bull answers — supply party_size candidates per area (min 3,
-    # capped) so the app can spread callers to match the crew.
+    # A focus area has to hold the whole crew, so every setup type scales with it.
+    # One calling stand and one knob is a solo plan; it tells a party of five
+    # nothing about where the other four should stand.
     party = int(getattr(ctx.aoi.hunter, "party_size", 2) or 2)
-    n_call = max(3, min(6, party + 1))
+    import math as _m
+    n_call  = max(2, min(8, party))                 # a stand per hunter, capped
+    n_glass = max(1, min(4, _m.ceil(party / 2)))    # glassing is a two-person job
+    n_feed  = max(1, min(3, _m.ceil(party / 3)))
+    n_funnel = max(1, min(3, _m.ceil(party / 2)))
     add_points_per_area(rut_surf, "rut_calling", n_call,
                         {"min_stand_minutes": 30, "when": "dawn & dusk + all rut day (bulls cruise these edges)"})
     add_points_per_area(refuge_surf, "thermal_refuge", 1,
                         {"when": "midday when it's warm (> ~14 °C) — hunt the cool cover, not the openings"})
-    add_points_per_area(feed_surf, "saline_blind", 1,
+    add_points_per_area(feed_surf, "saline_blind", n_feed,
                         {"when": "first & last light — feeding on browse edge / in water (aquatic sodium)"})
-    add_points_per_area(funnel, "funnel", 1, {"when": "travel corridor — any time, best when animals are moving"})
-    add_points_per_area(glass, "glassing", 1, {"when": "dawn & dusk — glass the openings from high ground"})
+    add_points_per_area(funnel, "funnel", n_funnel, {"when": "travel corridor — any time, best when animals are moving"})
+    add_points_per_area(glass, "glassing", n_glass,
+                        {"when": "dawn & dusk — glass the openings from high ground",
+                         "pair": "glass in pairs where the crew allows — two sets of eyes on one basin beats two basins half-watched"})
     add_points_per_area(hunt, "validate_ground", 1)
 
     # --- access anchors: base camp + parking (need roads) ---
@@ -370,18 +403,62 @@ def run(ctx: Context) -> None:
         access = dist_water  # canoe put-in as the access anchor
         anchor_kind = "water"
         routes_msg = "No mapped roads in AOI window — access anchored on water (canoe)."
-    # base camp: near access AND near water AND central-ish, on huntable ground
+    # base camp: near access AND near water AND central-ish, on huntable ground.
+    #
+    # ONE CAMP PER FOCUS AREA. This used to take the 2 best camp cells AOI-WIDE,
+    # which on a big box put every camp in one corner — and since hunt lines run
+    # camp -> stand, the map drew 40 km "walking routes" from a camp in one
+    # drainage to a stand in another. Staging was already per-area; the camp was
+    # not, so the two disagreed. A focus area has to be a self-contained plan:
+    # park here, sleep here, hunt these stands, all within a day's foot travel.
+    #
+    # AND: a VEHICLE hunter has no base camp at all — they sleep at the truck and
+    # come back to it. Placing a separate "base camp" pin for them invents a
+    # structure they told us they weren't using, and then draws hunt lines from
+    # it. For hunt_style=vehicle the staging point IS the camp, and only one pin
+    # is emitted.
     camp_score = np.exp(-access / 600) * np.exp(-dist_water / 500) * np.nan_to_num(hunt)
-    camp_cells = _peaks(camp_score, 2, md)
+    vehicle_style = getattr(ctx.aoi.hunter, "hunt_style", "spike") == "vehicle"
+    camp_cells = []
+    camp_of_area = {}
+    for rank, sel in area_masks:
+        # allow the camp to sit just OUTSIDE the area (on the access side) but not
+        # far: dilate the mask by ~the hunter's stated camp->hunt walking distance
+        try:
+            from scipy.ndimage import binary_dilation
+            reach_px = max(2, int(round((ctx.aoi.hunter.walk_hunt_km * 1000) / res)))
+            near = binary_dilation(sel, iterations=min(reach_px, 60))
+        except Exception:
+            near = sel
+        cand = np.where(near, camp_score, 0.0)
+        if not np.isfinite(cand).any() or float(np.nanmax(cand)) <= 0:
+            continue
+        rc = np.unravel_index(int(np.nanargmax(cand)), cand.shape)
+        camp_cells.append((int(rc[0]), int(rc[1])))
+        camp_of_area[rank] = (int(rc[0]), int(rc[1]))
 
     # Vehicle staging is a SEPARATE thing from camp: where you leave the truck, on
-    # the road spine (or the canoe put-in if it's water-access). One per camp, at
-    # the nearest road/water pixel — the app draws it with its own icon and the
-    # road→camp leg runs to it.
+    # the road spine (or the canoe put-in if it's water-access).
+    #
+    # ONE STAGING POINT PER FOCUS AREA, at that area's OWN nearest road pixel.
+    # This used to be derived per-camp and, worse, every access route was drawn
+    # from a single global argmin of dist_road — one arbitrary cell for the whole
+    # AOI. The result was a single long path chaining every area together, tens of
+    # kilometres of it, crossing every river on the way. You do not drive to one
+    # spot and then bushwhack across the AOI; you drive to the road nearest the
+    # area you intend to hunt. Minimising that walk is the entire point.
     stage_mask = None
+    stage_kind = "none"
     roads_r = _opt(cache / "roads.tif")
     if roads_r is not None and (np.nan_to_num(roads_r) > 0).any():
         stage_mask = np.nan_to_num(roads_r) > 0
+        stage_kind = "road"
+    elif dist_road is not None and np.isfinite(dist_road).any() and np.nanmin(dist_road) < 5000:
+        # roads.tif is written by acquire, but an older cache may predate it. Falling
+        # straight through to water then declared every area "boat access only" — a
+        # false alarm that made nine road-accessible areas look unreachable. If we
+        # have distance-to-road we still know exactly where the roads are.
+        stage_mask = np.nan_to_num(dist_road, nan=1e9) <= max(res, 60.0)
         stage_kind = "road"
     else:
         wr = _opt(cache / "water.tif")
@@ -390,25 +467,94 @@ def run(ctx: Context) -> None:
             stage_kind = "water"
     stage_rc = np.argwhere(stage_mask) if stage_mask is not None else None
 
-    for (r, c) in camp_cells:
-        lon, lat = toll((r, c))
-        features.append({"type": "Feature",
-                         "geometry": {"type": "Point", "coordinates": [lon, lat]},
-                         "properties": {"legend": "base_camp", "anchor": anchor_kind}})
-        if stage_rc is not None and len(stage_rc):
-            d2 = (stage_rc[:, 0] - r) ** 2 + (stage_rc[:, 1] - c) ** 2
-            sr, sc = stage_rc[int(np.argmin(d2))]
-            slon, slat = toll((int(sr), int(sc)))
+    def _nearest_stage(r, c):
+        """Nearest staging pixel to (r, c), or None if nothing is mapped."""
+        if stage_rc is None or not len(stage_rc):
+            return None
+        d2 = (stage_rc[:, 0] - r) ** 2 + (stage_rc[:, 1] - c) ** 2
+        sr, sc = stage_rc[int(np.argmin(d2))]
+        return int(sr), int(sc)
+
+    if vehicle_style:
+        # No base_camp features at all: routes will originate from the staging pin.
+        camp_of_area = {rank: st for rank, (st, _c) in area_stage.items()}
+        camp_cells = list(camp_of_area.values())
+    else:
+        for rank, (r, c) in camp_of_area.items():
+            lon, lat = toll((r, c))
             features.append({"type": "Feature",
-                             "geometry": {"type": "Point", "coordinates": [slon, slat]},
-                             "properties": {"legend": "parking", "anchor": stage_kind,
-                                            "serves_camp": [round(lon, 5), round(lat, 5)]}})
+                             "geometry": {"type": "Point", "coordinates": [lon, lat]},
+                             "properties": {"legend": "base_camp", "anchor": anchor_kind,
+                                            "focus_area": rank}})
+
+    # one staging point per focus area, keyed to that area's rank
+    area_stage = {}
+    for rank, sel in area_masks:
+        rc = np.argwhere(sel)
+        if not len(rc):
+            continue
+        ar, ac = rc.mean(axis=0)                      # area centre in pixel space
+        # snap the centre to a cell actually inside the area, then find its road
+        d2 = (rc[:, 0] - ar) ** 2 + (rc[:, 1] - ac) ** 2
+        ar, ac = rc[int(np.argmin(d2))]
+        st = _nearest_stage(int(ar), int(ac))
+        if st is None:
+            continue
+        area_stage[rank] = (st, (int(ar), int(ac)))
+        slon, slat = toll(st)
+        walk_px = float(np.hypot(st[0] - ar, st[1] - ac))
+        features.append({"type": "Feature",
+                         "geometry": {"type": "Point", "coordinates": [slon, slat]},
+                         "properties": {"legend": "parking", "anchor": stage_kind,
+                                        "focus_area": rank,
+                                        # say it out loud when the truck is also the bed
+                                        "is_camp": bool(vehicle_style),
+                                        "walk_km": round(walk_px * res / 1000.0, 2)}})
 
     # --- least-cost approach routes: access -> top rut sites (best), -> thermal (midday_hot) ---
     try:
         _add_routes(ctx, features, cache, prof, access, toll)
     except Exception as e:  # routing is best-effort
         routes_msg += f" (routes skipped: {e})"
+
+    # --- REACHABILITY GATE ---------------------------------------------------
+    # Focus areas are isolated by the hunter's SETUP, not by quietly scoring
+    # unreachable ground down. An area that is prime habitat but needs a boat you
+    # do not have, or sits further off a road than you said you would walk, stays
+    # on the map — flagged, dimmed, with the reason stated. Hiding it would be the
+    # trust violation: a recommendation you cannot see the existence of.
+    reach_km = float(getattr(ctx.aoi.hunter, "walk_access_km", 6.0) or 6.0)
+    has_boat = getattr(ctx.aoi.hunter, "watercraft", "none") != "none"
+    for f in features:
+        if f["properties"].get("legend") != "focus_area":
+            continue
+        rank = f["properties"].get("rank")
+        st = area_stage.get(rank)
+        reasons = []
+        if st is None:
+            reasons.append("no mapped road or put-in within the analysis window")
+            walk_km = None
+        else:
+            (sr, sc), (ar, ac) = st
+            walk_km = round(float(np.hypot(sr - ar, sc - ac)) * res / 1000.0, 2)
+            if stage_kind == "water" and not has_boat:
+                reasons.append("only reachable from the water and you have no boat")
+            elif walk_km > reach_km:
+                reasons.append(f"{walk_km} km from the nearest road — further than the "
+                               f"{reach_km} km you said you would walk in")
+        f["properties"]["walk_in_km"] = walk_km
+        f["properties"]["reachable"] = not reasons
+        f["properties"]["unreachable_why"] = reasons[0] if reasons else None
+
+    # crew plan per focus area, from the sites that were actually placed in it
+    for f in features:
+        if f["properties"].get("legend") != "focus_area":
+            continue
+        rank = f["properties"].get("rank")
+        inside = [g for g in features
+                  if g["properties"].get("focus_area") == rank
+                  and g["geometry"]["type"] == "Point"]
+        f["properties"]["crew"] = _crew_plan(f["properties"], inside, party)
 
     fc = {"type": "FeatureCollection", "features": features}
     (cache / "features.geojson").write_text(json.dumps(fc))
@@ -420,18 +566,55 @@ def run(ctx: Context) -> None:
     _write_brief(ctx, features, cache, outputs_dir(ctx.aoi.name), routes_msg)
 
 
-def _walk_cost(ctx, cache):
-    """Walking friction: base + slope + landcover penalties (water impassable)."""
-    slope = ru.read(cache / "terrain/slope.tif")[0]
-    lc = None
+def _opt(p):
+    """Read a raster if it exists, else None. Module-level because _walk_cost needs
+    it too — it used to be nested inside synth(), so calling it from here raised
+    NameError straight into the routing try/except and silently dropped every route."""
     try:
-        lc = ru.read(cache / "landcover.tif")[0]
+        return ru.read(p)[0]
     except Exception:
-        pass
+        return None
+
+
+def _walk_cost(ctx, cache, roads_free=True):
+    """Walking friction: base + slope + landcover, roads cheap, water impassable.
+
+    Three defects this replaces, all visible on one Rouyn-Noranda run:
+
+    1. WATER WAS ONLY BLOCKED VIA landcover==80. If landcover was missing the
+       except swallowed it and every lake became walkable, so least-cost paths
+       ran straight across open water with no crossing marker. Water now blocks
+       from water.tif AND wetland/landcover, whichever exist — belt and braces,
+       because being wrong here draws a line telling someone to walk onto a lake.
+
+    2. ROADS WERE NOT IN THE SURFACE AT ALL, so a path had no reason to follow
+       one. A hunter walks the road until it stops being useful; the model
+       bushwhacked from the first metre.
+
+    3. The water penalty (1e4) was finite, so on a long path the router would
+       still happily cross a lake rather than take a 40 km detour. It is now
+       large enough that crossing is never the cheap option.
+    """
+    slope = ru.read(cache / "terrain/slope.tif")[0]
     cost = 1.0 + np.nan_to_num(slope) / 10.0
+
+    lc = _opt(cache / "landcover.tif")
     if lc is not None:
         cost = cost + np.where(lc == 90, 3.0, 0.0)   # wetland slow
-        cost = np.where(lc == 80, 1e4, cost)          # open water ~impassable on foot
+
+    # roads: near-free travel. This is what makes a route look like a route.
+    if roads_free:
+        rd = _opt(cache / "roads.tif")
+        if rd is not None:
+            cost = np.where(np.nan_to_num(rd) > 0, 0.05, cost)
+
+    # water: impassable on foot, from every source that says "water"
+    WATER = 1e7
+    wet = _opt(cache / "water.tif")
+    if wet is not None:
+        cost = np.where(np.nan_to_num(wet) > 0, WATER, cost)
+    if lc is not None:
+        cost = np.where(lc == 80, WATER, cost)
     return cost.astype("float64")
 
 
@@ -450,6 +633,82 @@ def _water_cost(ctx, cache):
         if w is not None:
             cost[np.nan_to_num(w) > 0] = 1.0                  # on-water = cheap
     return cost
+
+
+def _area_dest(features, rank, lonlat_to_rc):
+    """Where an access leg should END for a focus area: a point guaranteed inside
+    it. representative_point() is already computed upstream and is inside even for
+    a crescent-shaped lobe, so the leg never terminates outside its own area."""
+    if rank is None:
+        return None
+    for f in features:
+        p = f["properties"]
+        if p.get("legend") == "focus_area" and p.get("rank") == rank:
+            cen = p.get("centroid")
+            if cen:
+                return lonlat_to_rc(cen[0], cen[1])
+    return None
+
+
+# --- crew plan -----------------------------------------------------------------
+# "If I had N hunters, where would I put them?" answered from the geometry that was
+# actually placed — never invented. Capacity comes from calling separation, which is
+# a real constraint: a moose call carries roughly a kilometre, so two callers inside
+# that envelope are competing for the same bull rather than covering more ground.
+KM2_PER_SETUP = 1.8          # ~750 m working radius per calling setup
+def _crew_plan(area_props, sites, party):
+    """sites = the features already placed inside THIS area."""
+    a = float(area_props.get("area_km2") or 0)
+    by = {}
+    for f in sites:
+        by.setdefault(f["properties"]["legend"], []).append(f)
+    n_call  = len(by.get("rut_calling", []))
+    n_glass = len(by.get("glassing", []))
+    n_feed  = len(by.get("saline_blind", [])) + len(by.get("funnel", []))
+    # what the ground can hold, and what we actually found room to place
+    by_area  = max(1, int(a // KM2_PER_SETUP))
+    capacity = max(1, min(by_area, n_call + n_glass + n_feed))
+    seats = []
+    for i, f in enumerate(by.get("rut_calling", []), 1):
+        seats.append({"role": "caller", "n": i,
+                      "at": [round(v, 5) for v in f["geometry"]["coordinates"]]})
+    for i, f in enumerate(by.get("glassing", []), 1):
+        seats.append({"role": "glasser", "n": i,
+                      "at": [round(v, 5) for v in f["geometry"]["coordinates"]]})
+    for i, f in enumerate(by.get("saline_blind", []) + by.get("funnel", []), 1):
+        seats.append({"role": "sitter", "n": i,
+                      "at": [round(v, 5) for v in f["geometry"]["coordinates"]]})
+
+    notes = []
+    fits = capacity >= party
+    if not fits:
+        notes.append(
+            f"This area realistically holds about {capacity} hunter"
+            f"{'s' if capacity != 1 else ''} at once — {a:.1f} km² at roughly "
+            f"{KM2_PER_SETUP} km² per calling setup. With {party} in the party, split "
+            f"across the ranked areas rather than stacking; two callers inside a "
+            f"kilometre of each other are working the same bull.")
+    if party >= 3 and n_glass:
+        notes.append(
+            "Glass in pairs. One on glass and one on the call beats two hunters "
+            "half-watching two basins, and it gives you a spotter for the shot.")
+    if party >= 2:
+        notes.append(
+            "Caller and shooter split up: shooter ~70 m downwind of the caller, on "
+            "the side the bull is most likely to circle to. The caller is bait, not "
+            "the gun.")
+    if party == 1:
+        notes.append(
+            "Solo: work one calling stand per sit and stay put — 30 minutes minimum. "
+            "Solo callers get busted circling downwind, so pick a stand with the wind "
+            "in your face and cover behind you.")
+    if party > 4:
+        notes.append(
+            f"A party of {party} is a lot of scent and noise for one drainage. "
+            "Consider hunting two areas simultaneously and meeting at camp.")
+    return {"party": party, "capacity": capacity, "fits": fits,
+            "seats": seats[:max(party, 1) * 2], "notes": notes,
+            "counts": {"calling": n_call, "glassing": n_glass, "sits": n_feed}}
 
 
 def _add_routes(ctx, features, cache, prof, access, toll):
@@ -472,30 +731,60 @@ def _add_routes(ctx, features, cache, prof, access, toll):
     camps = [f["geometry"]["coordinates"] for f in features
              if f["properties"]["legend"] == "base_camp"]
     camp_rc = [lonlat_to_rc(lo, la) for lo, la in camps]
-    road_start = np.unravel_index(np.argmin(access + 1e-6), access.shape)  # road staging
+    # Per-area staging, emitted upstream. The old code used a single
+    # np.argmin(access) for the whole AOI, so every access leg started from the
+    # same arbitrary cell and the map showed one path threading all the areas.
+    stages = [(f["properties"].get("focus_area"),
+               lonlat_to_rc(*f["geometry"]["coordinates"]))
+              for f in features if f["properties"]["legend"] == "parking"]
+    # last-resort anchor only if no staging point was mapped at all
+    road_start = (stages[0][1] if stages
+                  else np.unravel_index(np.argmin(access + 1e-6), access.shape))
 
-    def nearest_camp_rc(end):
-        if not camp_rc:
-            return road_start
-        return min(camp_rc, key=lambda s: (s[0] - end[0]) ** 2 + (s[1] - end[1]) ** 2)
+    # A hunt line belongs to ONE focus area: it runs from that area's own camp to a
+    # stand in that same area. Picking the "nearest" camp across the whole AOI is
+    # what drew cross-country lines between unrelated drainages.
+    # For a spike hunt this is the base camp; for a vehicle hunt there is no camp and
+    # the truck (the staging pin) is where every day starts and ends. Either way the
+    # hunt lines must originate INSIDE the area they serve.
+    camp_by_area = {f["properties"].get("focus_area"): lonlat_to_rc(*f["geometry"]["coordinates"])
+                    for f in features if f["properties"]["legend"] == "base_camp"}
+    if not camp_by_area:
+        camp_by_area = {f["properties"].get("focus_area"): lonlat_to_rc(*f["geometry"]["coordinates"])
+                        for f in features if f["properties"]["legend"] == "parking"}
 
-    rut_sites = [f for f in features if f["properties"]["legend"] == "rut_calling"][:2]
-    thermal_sites = [f for f in features if f["properties"]["legend"] == "thermal_refuge"][:1]
+    def sites_of(legend, per_area):
+        out = []
+        seen = {}
+        for f in features:
+            p = f["properties"]
+            if p.get("legend") != legend:
+                continue
+            rank = p.get("focus_area")
+            if rank not in camp_by_area:      # no camp for that area -> no line to draw
+                continue
+            if seen.get(rank, 0) >= per_area:
+                continue
+            seen[rank] = seen.get(rank, 0) + 1
+            out.append((rank, f))
+        return out
 
-    def add_route(dest_feat, legend):
+    def add_route(rank, dest_feat, legend):
         lon, lat = dest_feat["geometry"]["coordinates"]
         end = lonlat_to_rc(lon, lat)
-        start = nearest_camp_rc(end)          # <-- from CAMP, not the road
+        start = camp_by_area.get(rank)
+        if start is None or start == end:
+            return
         path, _ = route_through_array(cost, start, end, fully_connected=True, geometric=True)
         coords = [list(toll((r, c))) for r, c in path]
         features.append({"type": "Feature",
                          "geometry": {"type": "LineString", "coordinates": coords},
-                         "properties": {"legend": legend}})
+                         "properties": {"legend": legend, "focus_area": rank}})
 
-    for f in rut_sites:
-        add_route(f, "route_best")
-    for f in thermal_sites:
-        add_route(f, "route_midday_hot")
+    for rank, f in sites_of("rut_calling", 2):
+        add_route(rank, f, "route_best")
+    for rank, f in sites_of("thermal_refuge", 1):
+        add_route(rank, f, "route_midday_hot")
 
     # Access leg: road staging → camp. If there's no drivable road near camp it's
     # a canoe-in, so route it along water (hugs the waterway, short land portages)
@@ -503,20 +792,32 @@ def _add_routes(ctx, features, cache, prof, access, toll):
     try:
         wcost = _water_cost(ctx, cache)
         no_road = not (np.isfinite(access).any() and float(np.nanmin(access)) < 5000)
-        for s in camp_rc:
+        # One SHORT leg per focus area: that area's own staging point -> the area.
+        # Not staging -> camp, and never one shared origin: the walk from the truck
+        # is the thing being minimised, so each leg has to be measured on its own.
+        # staging -> that area's camp (falling back to the area centroid if a camp
+        # could not be placed). The truck-to-bed leg, per area, and nothing longer.
+        legs = [(rank, st, dest) for rank, st in stages
+                for dest in [camp_by_area.get(rank) or _area_dest(features, rank, lonlat_to_rc)]
+                if dest]
+        if not legs and camp_rc:
+            legs = [(None, road_start, s) for s in camp_rc]
+        for rank, start, dest in legs:
+            if start == dest:
+                continue
             if no_road:
-                path, _ = route_through_array(wcost, road_start, s,
+                path, _ = route_through_array(wcost, start, dest,
                                               fully_connected=True, geometric=True)
                 legend = "route_paddle"
             else:
-                path, _ = route_through_array(cost, road_start, s,
+                path, _ = route_through_array(cost, start, dest,
                                               fully_connected=True, geometric=True)
                 legend = "route_access"
             coords = [list(toll((r, c))) for r, c in path]
             if len(coords) >= 2:
                 features.append({"type": "Feature",
                                  "geometry": {"type": "LineString", "coordinates": coords},
-                                 "properties": {"legend": legend}})
+                                 "properties": {"legend": legend, "focus_area": rank}})
     except Exception:
         pass
 

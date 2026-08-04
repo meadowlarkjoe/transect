@@ -146,3 +146,9 @@ input::placeholder{color:var(--text-4)}
   header.nav,section,.hero,.plans-head,.toolbar,.grid{padding-left:22px;padding-right:22px}
   h1.display{font-size:38px}
 }
+
+/* landing nav: show "Sign in" to strangers, "My plans" to holders of a session.
+   Cosmetic only — the app/plans pages enforce auth themselves. */
+.only-authed{display:none}
+[data-authed] .only-authed{display:inline-flex}
+[data-authed] .only-anon{display:none}

@@ -11,11 +11,13 @@
 <link rel="stylesheet" href="public.css?v=1">
 <script src="i18n.js?v=1"></script>
 <script>
-  /* Returning users go straight to the tool — the landing is for first contact.
-     ?stay=1 keeps you here on purpose. */
+  /* The root is ALWAYS the marketing site — no auto-redirect. An earlier build
+     bounced returning visitors straight into the app, which made this page
+     unreachable for anyone who had ever opened the tool. The only smartness here
+     is cosmetic: signed-in visitors see "Open the app" instead of "Sign in". */
   try{
-    var q=new URLSearchParams(location.search);
-    if(!q.has('stay') && localStorage.getItem('transect_seen')) location.replace('app');
+    var _tok = localStorage.getItem('transect_tok') || localStorage.getItem('transect_token');
+    if(_tok) document.documentElement.setAttribute('data-authed','1');
   }catch(e){}
 </script>
 </head>
@@ -29,7 +31,8 @@
   <a class="lnk" href="#honesty">What it won't do</a>
   <a class="lnk" href="https://github.com/meadowlarkjoe/transect">Source</a>
   <div class="divider"></div>
-  <a class="lnk" href="signin">Sign in</a>
+  <a class="lnk only-anon" href="signin">Sign in</a>
+  <a class="lnk only-authed" href="plans">My plans</a>
   <a class="btn btn--primary" href="app">Start scouting</a>
 </header>
 

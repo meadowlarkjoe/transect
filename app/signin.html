@@ -61,37 +61,54 @@ function paint(){
   $('go').textContent    = create ? 'Create account' : 'Sign in';
   $('ghBtn').textContent = create ? 'Sign up with GitHub' : 'Continue with GitHub';
   $('pw').setAttribute('autocomplete', create ? 'new-password' : 'current-password');
-  $('msg').className='msg';
 }
-document.querySelectorAll('#modeSeg button').forEach(b=>b.onclick=()=>{mode=b.dataset.mode;paint();});
+/* Switching Sign in <-> Create is the ONLY thing that should clear a message. */
+function clearMsg(){ const m=$('msg'); m.className='msg'; m.textContent=''; }
+function showMsg(kind,text){ const m=$('msg'); m.className='msg '+kind; m.textContent=text; }
+document.querySelectorAll('#modeSeg button').forEach(b=>b.onclick=()=>{mode=b.dataset.mode;clearMsg();paint();});
 paint();
 
 /* GitHub OAuth isn't wired on the API yet — say so plainly rather than fail silently. */
 $('ghBtn').onclick=e=>{
   e.preventDefault();
-  const m=$('msg'); m.className='msg err';
-  m.textContent='GitHub sign-in isn’t wired up yet — use email for now.';
+  showMsg('err','GitHub sign-in isn’t wired up yet — use email for now.');
 };
 
 $('f').onsubmit=async e=>{
   e.preventDefault();
-  const m=$('msg'); m.className='msg';
+  clearMsg();
   const email=$('email').value.trim(), password=$('pw').value;
-  if(!API){ m.className='msg err'; m.textContent='The engine API isn’t configured for this build.'; return; }
+  if(!API){ showMsg('err','The engine API isn’t configured for this build.'); return; }
+  if(!email || !password){ showMsg('err','Enter an email and a password.'); return; }
+  if(mode==='create' && password.length<6){
+    showMsg('err','Pick a password of at least 6 characters.'); return; }
   $('go').disabled=true; $('go').textContent = mode==='create' ? 'Creating…' : 'Signing in…';
   try{
     const r=await fetch(API+'/auth/'+(mode==='create'?'signup':'login'),
       {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
     const d=await r.json().catch(()=>({}));
-    if(!r.ok) throw new Error(d.detail||('Sign-in failed ('+r.status+')'));
+    if(!r.ok) throw new Error(d.detail||('That didn’t work ('+r.status+').'));
+    if(!d.token) throw new Error('The server didn’t return a session — try again.');
     localStorage.setItem('transect_tok', d.token);
+    localStorage.setItem('transect_token', d.token);   // both keys: older builds read this one
     localStorage.setItem('transect_email', d.email||email);
     localStorage.setItem('transect_seen','1');
     const nx=new URLSearchParams(location.search).get('next');
     location.href = (nx && /^[a-z0-9?=&_.-]+$/i.test(nx)) ? nx : 'plans';
   }catch(err){
-    m.className='msg err'; m.textContent=err.message||'Something went wrong.';
+    // A network/CORS failure surfaces as TypeError with an unhelpful message; say
+    // something a person can act on rather than echoing "Load failed".
+    const net = (err && err.name==='TypeError');
+    showMsg('err', net ? 'Could not reach the engine. Check your connection and try again.'
+                       : (err.message||'Something went wrong.'));
     $('go').disabled=false; paint();
+    // If the address is taken, the fix is to switch to Sign in — offer it inline.
+    if(/already registered/i.test(err.message||'')){
+      const m=$('msg');
+      m.insertAdjacentHTML('beforeend',
+        ' <a href="#" id="toLogin" style="color:inherit;text-decoration:underline">Sign in instead →</a>');
+      $('toLogin').onclick=ev=>{ev.preventDefault();mode='login';clearMsg();paint();$('pw').focus();};
+    }
   }
 };
 </script>

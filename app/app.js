@@ -79,6 +79,44 @@ function hatchImage(hex,back){
   const d=c.getImageData(0,0,S,S);
   return {width:S,height:S,data:new Uint8Array(d.data)};
 }
+/* Map fill patterns are generated at runtime from the layer hex, by the same data
+   that drives the panel swatch — never authored separately, or panel and map drift.
+   Line weight stays 1.1–1.5px at every zoom: scaling texture with zoom turns it
+   into a solid at distance. */
+function patternTile(kind,hex){
+  const S=16,cv=document.createElement('canvas');cv.width=cv.height=S;
+  const c=cv.getContext('2d');c.clearRect(0,0,S,S);
+  const rgb=(h)=>{const n=parseInt(h.slice(1),16);return [(n>>16)&255,(n>>8)&255,n&255];};
+  const [R,G,B]=rgb(hex);
+  const col=(a)=>`rgba(${R},${G},${B},${a})`;
+  if(kind==='stipple'){
+    c.fillStyle=col(.67);
+    [[3.5,3.5],[10.5,3.5],[3.5,10.5],[10.5,10.5]].forEach(([x,y])=>{c.beginPath();c.arc(x,y,1.4,0,7);c.fill();});
+  } else if(kind==='cross'){
+    c.strokeStyle=col(.53);c.lineWidth=1.4;
+    for(let o=-S;o<S*2;o+=6){c.beginPath();c.moveTo(o,0);c.lineTo(o+S,S);c.stroke();
+                             c.beginPath();c.moveTo(o+S,0);c.lineTo(o,S);c.stroke();}
+  } else if(kind==='hatch'){
+    c.strokeStyle=col(.67);c.lineWidth=1.4;
+    for(let o=-S;o<S*2;o+=7){c.beginPath();c.moveTo(o,S);c.lineTo(o+S,0);c.stroke();}
+  } else if(kind==='exclude'){
+    c.strokeStyle=col(.87);c.lineWidth=1.5;
+    for(let o=-S;o<S*2;o+=6){c.beginPath();c.moveTo(o,0);c.lineTo(o+S,S);c.stroke();}
+  } else if(kind==='soft'){
+    const g=c.createRadialGradient(S/2,S/2,0,S/2,S/2,S/2);
+    g.addColorStop(0,col(.30));g.addColorStop(.55,col(.10));g.addColorStop(1,col(0));
+    c.fillStyle=g;c.fillRect(0,0,S,S);
+  }
+  const d=c.getImageData(0,0,S,S);
+  return {width:S,height:S,data:new Uint8Array(d.data)};
+}
+function registerPatterns(){
+  LAYERS.forEach(r=>{
+    if(!['stipple','cross','hatch','exclude','soft'].includes(r.kind)) return;
+    const id='pat-'+r.k;
+    if(!map.hasImage(id)) map.addImage(id, patternTile(r.kind,r.hex), {pixelRatio:2});
+  });
+}
 function stippleImage(){
   const S=16,cv=document.createElement('canvas');cv.width=cv.height=S;
   const c=cv.getContext('2d');
@@ -114,15 +152,122 @@ let showBrowse = false;
 
 /* ---------------- basemap ---------------- */
 const ESRI = k => `https://server.arcgisonline.com/ArcGIS/rest/services/${k}/MapServer/tile/{z}/{y}/{x}`;
+/* ---------------------------------------------------------------------------
+   IMAGERY RESOLUTION LIMIT — keep the sharpest tile we have, never a blank.
+
+   Esri does not 404 past its coverage; it serves a grey "Map data not yet
+   available" placeholder. So zooming in over remote ground made the map appear
+   to LOSE its imagery, which reads as "there is nothing here" when it means "we
+   have run out of resolution". Over Fire Lake, real imagery stops at z16, topo
+   at z17 and hillshade at z14 — but those limits are REGIONAL (southern Québec
+   goes to z19), so hardcoding them would blur every other area.
+
+   A source that declares its true maxzoom makes MapLibre OVERZOOM: it keeps
+   stretching the deepest real tile instead of fetching the placeholder. So probe
+   the actual AOI once, then declare what we found.
+--------------------------------------------------------------------------- */
+const BASE_MAXZ={satellite:19,topo:19,relief:16,trans:19,boundaries:19};
+// Only the IMAGERY sources get probed. trans/boundaries are line overlays whose
+// tiles are legitimately near-empty over wilderness — an empty roads tile there is
+// correct, not missing data, and probing them by content would cap them at z10.
+const ESRI_SVC={satellite:'World_Imagery',topo:'World_Topo_Map'};
+// Hillshade is NOT probed by contrast, because shaded relief over flat boreal
+// ground is legitimately low-contrast at every zoom (measured sd 1.7–5.2 over Fire
+// Lake, versus 29.1 for real imagery). A variance test capped it at z10 and would
+// have blurred terrain that was rendering fine. Its ceiling instead comes from the
+// data underneath it: the terrarium DEM this app already declares maxes at z14, so
+// hillshade cannot carry honest detail past that either.
+const RELIEF_MAXZ=14;
+function tileXY(lon,lat,z){
+  const n=2**z, x=Math.floor((lon+180)/360*n);
+  const r=lat*Math.PI/180;
+  const y=Math.floor((1-Math.log(Math.tan(r)+1/Math.cos(r))/Math.PI)/2*n);
+  return [x,y];
+}
+/* Esri's "Map data not yet available" tile is a flat grey card. Real imagery is
+   never flat. Byte size was the obvious test and the wrong one — a genuinely
+   uniform tile (snowfield, open water) is small too, and a sparse overlay tile is
+   tiny by design. Luminance variance separates "no data" from "not much to see". */
+async function tileVariance(url){
+  const r=await fetch(url,{cache:'force-cache'});
+  if(!r.ok) return null;
+  const bmp=await createImageBitmap(await r.blob());
+  const N=24, cv=document.createElement('canvas'); cv.width=cv.height=N;
+  const c=cv.getContext('2d',{willReadFrequently:true});
+  c.drawImage(bmp,0,0,N,N); bmp.close&&bmp.close();
+  const d=c.getImageData(0,0,N,N).data;
+  let s=0,s2=0,n=0;
+  for(let i=0;i<d.length;i+=4){
+    const L=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+    s+=L; s2+=L*L; n++;
+  }
+  const mean=s/n;
+  return Math.sqrt(Math.max(0,s2/n-mean*mean));
+}
+const FLAT_SD=7;                 // below this the tile carries no detail at all
+async function probeMaxZoom(svc,lon,lat,hi,lo){
+  for(let z=hi; z>=lo; z--){
+    const [x,y]=tileXY(lon,lat,z);
+    try{
+      const sd=await tileVariance(`https://server.arcgisonline.com/ArcGIS/rest/services/${svc}/MapServer/tile/${z}/${y}/${x}`);
+      if(sd!=null && sd>FLAT_SD) return z;   // real detail at this level
+    }catch(e){ /* CORS or network: fall through and try shallower */ }
+  }
+  return lo;
+}
+/* Re-declare a base source with its measured limit. MapLibre fixes maxzoom at
+   add time, so the source and its layer are rebuilt and re-inserted underneath
+   whatever is currently on top of them. */
+function setBaseMaxZoom(id,mz){
+  if(!map.getSource(id) || BASE_MAXZ[id]===mz) return;
+  BASE_MAXZ[id]=mz;
+  const layers=map.getStyle().layers, i=layers.findIndex(l=>l.id===id);
+  if(i<0) return;
+  const before=layers[i+1] ? layers[i+1].id : undefined;
+  const vis=map.getLayoutProperty(id,'visibility')||'visible';
+  const src=map.getStyle().sources[id];
+  map.removeLayer(id); map.removeSource(id);
+  map.addSource(id,{...src,maxzoom:mz});
+  map.addLayer({id,type:'raster',source:id,layout:{visibility:vis}},before);
+}
+let imageryLimit=null;
+async function calibrateImagery(){
+  const c=DOC.meta&&DOC.meta.center; if(!c) return;
+  setBaseMaxZoom('relief',RELIEF_MAXZ);
+  const jobs=Object.keys(ESRI_SVC).map(async k=>{
+    const z=await probeMaxZoom(ESRI_SVC[k],c.lon,c.lat,17,10);
+    setBaseMaxZoom(k,z);
+    return [k,z];
+  });
+  const got=await Promise.all(jobs);
+  imageryLimit=Object.fromEntries(got);
+  // the Basemap card states the limit, so "blurry" is never mistaken for "broken"
+  const d=document.getElementById('baseDock');
+  if(d && !d.classList.contains('hidden')) buildBaseDock();
+}
+function imageryNote(){
+  if(!imageryLimit) return '';
+  const z=imageryLimit[curBase]; if(z==null) return '';
+  return map.getZoom()>z+0.2
+    ? t('base.overzoom','Past the sharpest imagery published here — the last real tile is being stretched, not lost.')
+    : '';
+}
+
 function baseStyle(){
   return {
     version:8, glyphs:'https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf',
     sources:{
-      satellite:{type:'raster',tiles:[ESRI('World_Imagery')],tileSize:256,attribution:'Esri'},
-      topo:{type:'raster',tiles:[ESRI('World_Topo_Map')],tileSize:256,attribution:'Esri'},
-      relief:{type:'raster',tiles:[ESRI('Elevation/World_Hillshade')],tileSize:256,attribution:'Esri — Hillshade'},
-      trans:{type:'raster',tiles:[ESRI('Reference/World_Transportation')],tileSize:256},
-      boundaries:{type:'raster',tiles:[ESRI('Reference/World_Boundaries_and_Places')],tileSize:256},
+      // maxzoom = the deepest zoom the PROVIDER actually publishes here. Declaring it
+      // makes MapLibre OVERZOOM — keep stretching the last real tile — instead of
+      // requesting a tile that doesn't exist and painting nothing. Zooming past the
+      // data used to blank the map, which reads as "there's nothing here" when it
+      // means "we've run out of resolution". Northern Québec imagery thins out well
+      // before z19, so this bites early on exactly the ground this tool is for.
+      satellite:{type:'raster',tiles:[ESRI('World_Imagery')],tileSize:256,maxzoom:BASE_MAXZ.satellite,attribution:'Esri'},
+      topo:{type:'raster',tiles:[ESRI('World_Topo_Map')],tileSize:256,maxzoom:BASE_MAXZ.topo,attribution:'Esri'},
+      relief:{type:'raster',tiles:[ESRI('Elevation/World_Hillshade')],tileSize:256,maxzoom:BASE_MAXZ.relief,attribution:'Esri — Hillshade'},
+      trans:{type:'raster',tiles:[ESRI('Reference/World_Transportation')],tileSize:256,maxzoom:BASE_MAXZ.trans},
+      boundaries:{type:'raster',tiles:[ESRI('Reference/World_Boundaries_and_Places')],tileSize:256,maxzoom:BASE_MAXZ.boundaries},
       dem:{type:'raster-dem',tiles:['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
            encoding:'terrarium',tileSize:256,maxzoom:14}
     },
@@ -156,44 +301,83 @@ function switchBase(base){
     if(b.closest('.seg')){ if(b.dataset.base===base) b.setAttribute('aria-pressed','true');
       else b.removeAttribute('aria-pressed'); }});
 }
+/* Zoom is clamped 3–17: past 17 the map would be drawn finer than the model's own
+   inputs (10–30 m rasters), which invites reading precision that isn't there. */
 const map = new maplibregl.Map({container:'map',style:baseStyle(),
   center:[DOC.meta.center.lon,DOC.meta.center.lat],zoom:9.4,pitch:0,maxPitch:80,
+  minZoom:3,maxZoom:17,
   attributionControl:{compact:true}});
-map.addControl(new maplibregl.NavigationControl({visualizePitch:true}),'bottom-right');
-map.addControl(new maplibregl.ScaleControl({unit:'metric'}),'bottom-right');
+// NavigationControl is replaced by the #mapctl stack (§4 anchoring table) — two
+// zoom stacks in the same corner is exactly the "floats without a parent" problem.
+map.addControl(new maplibregl.ScaleControl({unit:UNITS==='imperial'?'imperial':'metric'}),'bottom-left');
 
 /* The raster heat pipeline was removed with the switch to classified zones — the
    contract no longer ships behaviour grids, so it was ~60 lines targeting a source
    that is never added. Zones (huntZones/browse/refuge/funnel) carry that job now. */
 
-/* ---------------- distinct site icons (canvas -> addImage) ---------------- */
-function iconData(shape,color){
-  const S=36,cv=document.createElement('canvas');cv.width=cv.height=S;const c=cv.getContext('2d');
-  c.translate(S/2,S/2); c.lineJoin='round';
-  const R=11; c.lineWidth=3; c.strokeStyle='#0b0f0d';
-  c.fillStyle=color;
-  const path=()=>{
-    c.beginPath();
-    if(shape==='circle'){c.arc(0,0,R,0,7);}
-    else if(shape==='ring'){c.arc(0,0,R,0,7);}
-    else if(shape==='square'){c.rect(-R*0.85,-R*0.85,R*1.7,R*1.7);}
-    else if(shape==='diamond'){c.moveTo(0,-R);c.lineTo(R,0);c.lineTo(0,R);c.lineTo(-R,0);c.closePath();}
-    else if(shape==='triangle'){c.moveTo(0,-R*1.1);c.lineTo(R,R*0.8);c.lineTo(-R,R*0.8);c.closePath();}
-    else if(shape==='bowtie'){c.moveTo(-R,-R);c.lineTo(-R*0.2,0);c.lineTo(-R,R);c.closePath();c.moveTo(R,-R);c.lineTo(R*0.2,0);c.lineTo(R,R);c.closePath();}
-    else if(shape==='tent'){c.moveTo(-R,R*0.85);c.lineTo(0,-R);c.lineTo(R,R*0.85);c.closePath();}
-    else if(shape==='flag'){c.moveTo(-R*0.7,R);c.lineTo(-R*0.7,-R);c.lineTo(R*0.8,-R*0.4);c.lineTo(-R*0.7,R*0.1);}
-    else {c.arc(0,0,R,0,7);}
-  };
-  path();
-  if(shape==='ring'){c.stroke();c.lineWidth=1.6;c.strokeStyle=color;c.stroke();}
-  else if(shape==='flag'){c.stroke();c.fill();}
-  else {c.stroke();c.fill();}
-  if(shape==='tent'){c.beginPath();c.moveTo(0,-R);c.lineTo(0,R*0.85);c.lineWidth=1.4;c.strokeStyle='#0b0f0d';c.stroke();}
-  const d=c.getImageData(0,0,S,S);
-  return {width:S,height:S,data:d.data};
+/* --------------- waypoint icon badges (SYMBOLOGY §2, canvas -> addImage) ------
+   The map marker and the panel swatch are the same object drawn twice: a rounded
+   square in the layer's own colour, a dark halo so it survives satellite imagery,
+   and a Lucide glyph whose stroke colour is COMPUTED from the badge luminance so
+   it never has to be hand-maintained. Abstract shapes (circle / diamond / bowtie)
+   were legible only against the legend; a glyph is legible on its own. */
+const ICON_FOR = {
+  rut_calling:'megaphone', thermal_refuge:'trees', saline_blind:'droplets',
+  funnel:'fork', glassing:'binoculars', validate_ground:'eye',
+  base_camp:'tent', parking:'truck', focus_area:'milestone',
+  // these used to be bare circles, so the map disagreed with its own legend
+  shooter:'target',
+  // A crossing is a crossing: ONE glyph so the mark always reads "water in the way",
+  // and a corner chip for WHICH KIND. Two different glyphs (sailboat vs footprints)
+  // meant the legend could only ever show one of them, which is the same
+  // map-disagrees-with-legend bug in a quieter form.
+  crossing_boat:'waves', crossing_ford:'waves', crossing_bridge:'waves'
+};
+// blue is water, and only water — the badge body says "hydro", the chip says "how"
+const CROSS_BODY='#7FC4E8';
+// three states now, because "river => needs a boat" was asserting something we had
+// no evidence for. A mapped road bridge is MEASURED; the rest is INFERRED from the
+// OSM waterway class alone, and the card says which.
+const CROSS_CHIP={bridge:'#3FBF6E', ford:'#E0A62E', boat:'#C9564A'};
+const CROSS_LABEL={bridge:'Bridged — not an obstacle', ford:'Fordable on foot',
+                   boat:'Assume you need a boat'};
+function iconData(type,color,chip){
+  const S=44, cv=document.createElement('canvas');
+  cv.width=cv.height=S; const c=cv.getContext('2d');
+  c.translate(S/2,S/2);
+  const half=13;                                   // badge is 26x26 inside a 44 canvas
+  const round=(x,y,w,h,r)=>{c.beginPath();
+    c.moveTo(x+r,y); c.arcTo(x+w,y,x+w,y+h,r); c.arcTo(x+w,y+h,x,y+h,r);
+    c.arcTo(x,y+h,x,y,r); c.arcTo(x,y,x+w,y,r); c.closePath();};
+  round(-half,-half,half*2,half*2,7);
+  c.lineWidth=3; c.strokeStyle='#0B0F0D'; c.stroke();   // halo first, badge over it
+  c.fillStyle=color; c.fill();
+  const d=(window.TRANSECT_ICONS||{})[ICON_FOR[type]];
+  if(d && window.Path2D){
+    const g=15/24;                                  // 24px viewBox -> 15px glyph
+    c.save(); c.translate(-12*g,-12*g); c.scale(g,g);
+    c.lineWidth=2.4/g; c.lineCap='round'; c.lineJoin='round';
+    c.strokeStyle=glyphOn(color); c.stroke(new Path2D(d));
+    c.restore();
+  }
+  // state chip, top-right: small enough to stay subordinate to the glyph, ringed in
+  // the same halo colour so it reads as attached rather than as a second marker
+  if(chip){
+    c.beginPath(); c.arc(half-1, -half+1, 6, 0, 7);
+    c.fillStyle='#0B0F0D'; c.fill();
+    c.beginPath(); c.arc(half-1, -half+1, 4.2, 0, 7);
+    c.fillStyle=chip; c.fill();
+  }
+  return {width:S,height:S,data:c.getImageData(0,0,S,S).data};
 }
 function addIcons(){
-  Object.keys(SHAPE).forEach(t=>{ if(!map.hasImage(t)) map.addImage(t,iconData(SHAPE[t],COLORS[t]||'#ccc'),{pixelRatio:2}); });
+  Object.keys(SHAPE).forEach(t=>{ if(!map.hasImage(t)) map.addImage(t,iconData(t,COLORS[t]||'#ccc'),{pixelRatio:2}); });
+  if(!map.hasImage('shooter')) map.addImage('shooter',iconData('shooter','#FFD400'),{pixelRatio:2});
+  // same glyph and same body for both crossings; only the corner chip differs
+  ['bridge','ford','boat'].forEach(k=>{
+    const id='crossing_'+k;
+    if(!map.hasImage(id)) map.addImage(id,iconData(id,CROSS_BODY,CROSS_CHIP[k]),{pixelRatio:2});
+  });
 }
 
 /* ---------------- data → GeoJSON ---------------- */
@@ -272,6 +456,7 @@ function init(){
   setPlanName(planTitle(), false);
   if(!document.getElementById('deepBadge')){const b=document.createElement('div');b.id='deepBadge';b.style.display='none';document.body.appendChild(b);}
   addIcons();
+  registerPatterns();
   const S=buildSources();
   window._aoi={huntZones:S.huntZones,browseZones:S.browseZones,rivers:S.rivers,lakes:S.lakes,
     refugeZones:S.refugeZones,funnelZones:S.funnelZones};
@@ -285,8 +470,8 @@ function init(){
   // logging roads and cutblocks the vector data misses. The stroke keeps identity.
   map.addLayer({id:'huntZones',type:'fill',source:'huntZones',
     paint:{'fill-color':clsColor,'fill-opacity':FILL_ALPHA}});
-  map.addLayer({id:'huntZones-line',type:'line',source:'huntZones',
-    paint:{'line-color':clsColor,'line-width':1.5,'line-opacity':1}});
+  // edge:'none' — a continuous field has no real boundary, so it gets NO stroke.
+  // Outlining it would convert a fuzzy probability into a surveyed line.
   const brCol=['match',['get','type'],
     'Shrub / regen browse',BROWSE_COL['Shrub / regen browse'],
     'Riparian / wetland browse',BROWSE_COL['Riparian / wetland browse'],
@@ -294,52 +479,53 @@ function init(){
     'Forest-edge browse',BROWSE_COL['Forest-edge browse'],'#7ad151'];
   // Browse draws as a STIPPLE, not a fifth flat wash: it frequently sits *under*
   // the likelihood bands, and texture survives overlap where another fill can't.
-  map.addImage('stipple', stippleImage(), {pixelRatio:2});
   map.addLayer({id:'browseZones',type:'fill',source:'browseZones',
-    layout:{visibility:'none'},paint:{'fill-pattern':'stipple','fill-opacity':0.9}});
-  map.addLayer({id:'browseZones-line',type:'line',source:'browseZones',
-    layout:{visibility:'none'},paint:{'line-color':brCol,'line-width':1.5,'line-opacity':1,'line-dasharray':[2,1]}});
+    layout:{visibility:'none'},paint:{'fill-pattern':'pat-browse','fill-opacity':0.9}});
+  // edge:'none' — stipple carries the identity; satellite-derived browse has no surveyed edge
   // TENURE — closed ground gets a hatched red wash + hard outline; bookable ground a
   // dashed amber outline only. This is the legal gate made visible.
-  map.addImage('nogo', hatchImage('#C9564A'), {pixelRatio:2});
   map.addSource('tenureZones',{type:'geojson',data:S.tenureZones});
+  // edge:'solid' 2px — a legal exclusion is the heaviest mark on the map, and it
+  // also feeds the ranking mask: if it draws as excluded it IS excluded.
   map.addLayer({id:'tenureBlocked',type:'fill',source:'tenureZones',
     filter:['==',['get','huntable'],false],
-    paint:{'fill-pattern':'nogo','fill-opacity':0.85}});
+    paint:{'fill-pattern':'pat-tenure','fill-opacity':0.9}});
+  // line-dasharray is one of the few paint properties MapLibre will NOT evaluate as a
+  // data expression, so the solid/dashed split has to be two layers with filters
+  // rather than one ['case',…]. Closed ground: solid 2px red. Bookable: dashed amber.
   map.addLayer({id:'tenureZones-line',type:'line',source:'tenureZones',
-    paint:{'line-color':['case',['==',['get','huntable'],false],'#C9564A','#E0A62E'],
-      'line-width':['case',['==',['get','huntable'],false],2,1.4],
-      'line-opacity':0.95,
-      'line-dasharray':['case',['==',['get','huntable'],false],['literal',[1,0]],['literal',[4,2]]]}});
+    filter:['==',['get','huntable'],false],
+    paint:{'line-color':'#C9564A','line-width':2,'line-opacity':0.95}});
+  map.addLayer({id:'tenureZones-line-ok',type:'line',source:'tenureZones',
+    filter:['!=',['get','huntable'],false],
+    paint:{'line-color':'#E0A62E','line-width':1.5,'line-opacity':0.95,
+      'line-dasharray':[4,2]}});
 
   // burn regeneration — prime (15–22 yr) reads hotter than the wider regen band
   // Burns also sat in the orange family and read as a third copy of MEDIUM. They get
   // a charcoal-ember hatch (backslash, so it can't be confused with the red no-go
   // hatch either) plus a dark umber outline — clearly "burnt ground", not a score band.
   map.addSource('burnZones',{type:'geojson',data:S.burnZones});
-  map.addImage('burnhatch', hatchImage('#F0A54A', true), {pixelRatio:2});
-  const burnCol='#6B4A22';
+  // edge:'solid' — a fire perimeter IS surveyed, so it earns a stroke
   map.addLayer({id:'burnZones',type:'fill',source:'burnZones',
-    layout:{visibility:'none'},paint:{'fill-pattern':'burnhatch',
-      'fill-opacity':['case',['==',['get','cls'],'prime'],0.9,0.45]}});
+    layout:{visibility:'none'},paint:{'fill-pattern':'pat-burns',
+      'fill-opacity':['case',['==',['get','cls'],'prime'],0.95,0.5]}});
   map.addLayer({id:'burnZones-line',type:'line',source:'burnZones',
-    layout:{visibility:'none'},paint:{'line-color':burnCol,
-      'line-width':['case',['==',['get','cls'],'prime'],2,1.2],'line-opacity':1}});
+    layout:{visibility:'none'},paint:{'line-color':'#C97A2B','line-width':1.5,'line-opacity':1}});
   // thermal refuge + funnel ZONES (areas, not points)
   map.addSource('refugeZones',{type:'geojson',data:S.refugeZones});
   map.addSource('funnelZones',{type:'geojson',data:S.funnelZones});
-  map.addLayer({id:'refugeZones',type:'fill',source:'refugeZones',paint:{'fill-color':REFUGE_COL,'fill-opacity':FILL_ALPHA}});
-  map.addLayer({id:'refugeZones-line',type:'line',source:'refugeZones',paint:{'line-color':REFUGE_COL,'line-width':1.5,'line-opacity':1,'line-dasharray':[4,2]}});
+  map.addLayer({id:'refugeZones',type:'fill',source:'refugeZones',
+    paint:{'fill-pattern':'pat-refuge','fill-opacity':0.9}});
+  // edge:'none' — no stroke (cross-hatch pattern carries the identity instead)
   // Funnels share --z-med (#FF8C00) with MEDIUM huntability in the frozen Cartes
-  // Xperts palette — the same hex genuinely does double duty on the paper sheet. So
-  // they must separate by TEXTURE, not hue: funnels are outline-only with a long
-  // dash and no wash, which also suits a pinch-point (a line-like feature) better
-  // than a filled band.
+  // Funnels share #FF8C00 with MEDIUM in the frozen Cartes Xperts palette, so they
+  // separate by TEXTURE not hue — a soft radial field, the weakest evidence in the
+  // system. edge:'none': no stroke, because outlining a DEM-inferred pinch point
+  // would sell a guess as a surveyed line.
   map.addLayer({id:'funnelZones',type:'fill',source:'funnelZones',
-    layout:{visibility:'none'},paint:{'fill-color':FUNNEL_COL,'fill-opacity':0.04}});
-  map.addLayer({id:'funnelZones-line',type:'line',source:'funnelZones',
-    layout:{visibility:'none'},paint:{'line-color':FUNNEL_COL,'line-width':2.2,
-      'line-opacity':1,'line-dasharray':[6,3]}});
+    layout:{visibility:'none'},
+    paint:{'fill-pattern':'pat-funnel','fill-opacity':0.85}});
 
   map.addSource('lakes',{type:'geojson',data:S.lakes});
   map.addSource('rivers',{type:'geojson',data:S.rivers});
@@ -370,10 +556,11 @@ function init(){
   map.addLayer({id:'rail',type:'line',source:'infra',filter:['==',['get','t'],'rail'],
     paint:{'line-color':'#c7cdc3','line-width':1.5,'line-dasharray':[2,3],'line-opacity':0.9}});
 
+  // edge:'dashed', NEVER filled — this hull is our own drawing, and says so
   map.addLayer({id:'areas-fill',type:'fill',source:'areas',
-    paint:{'fill-color':['case',['<=',['get','rank'],2],'#2fbf5b','#e2c044'],'fill-opacity':0.10}});
+    paint:{'fill-color':'#CBD5DA','fill-opacity':0}});
   map.addLayer({id:'areas-line',type:'line',source:'areas',
-    paint:{'line-color':'#ffffff','line-width':2,'line-opacity':0.9,'line-dasharray':[3,2]}});
+    paint:{'line-color':'#CBD5DA','line-width':1.5,'line-opacity':.9,'line-dasharray':[3,2]}});
   // REAL routes from the engine (terrain/water-cost following, hundreds of points).
   // These were computed and exported but never drawn — the map used to show a
   // straight camp→centroid dash instead, which is exactly the wrong line to trust
@@ -398,8 +585,10 @@ function init(){
   map.addSource('shooters',{type:'geojson',data:fc([])});
   map.addLayer({id:'shooterLines',type:'line',source:'shooterLines',
     paint:{'line-color':'#e6e9e3','line-width':1.2,'line-dasharray':[2,2],'line-opacity':0.85}});
-  map.addLayer({id:'shooters',type:'circle',source:'shooters',
-    paint:{'circle-radius':['interpolate',['linear'],['zoom'],9,4,12,7,15,10],'circle-color':'#0b0f0d','circle-stroke-color':'#e6e9e3','circle-stroke-width':2.2}});
+  map.addLayer({id:'shooters',type:'symbol',source:'shooters',
+    layout:{'icon-image':'shooter','icon-allow-overlap':true,
+      'icon-size':['interpolate',['linear'],['zoom'],9,0.55,12,0.8,15,1]},
+    paint:{'icon-opacity':0.95}});
   map.addLayer({id:'shooters-label',type:'symbol',source:'shooters',minzoom:10,
     layout:{'text-field':'SHOOTER','text-size':10,'text-offset':[0,-1.4],'text-font':['Open Sans Bold'],'text-allow-overlap':true},
     paint:{'text-color':'#e6e9e3','text-halo-color':'#0b0f0d','text-halo-width':1.5}});
@@ -424,10 +613,16 @@ function init(){
     layout:{'text-field':['to-string',['get','rank']],'text-size':15,'text-font':['Open Sans Bold'],'text-allow-overlap':true},
     paint:{'text-color':'#fff','text-halo-color':['case',['get','top'],'#127a2e','#111'],'text-halo-width':2.5}});
   // river crossings on routes — red = river (needs a boat), amber = fordable stream
-  map.addLayer({id:'crossings',type:'circle',source:'crossings',
-    paint:{'circle-radius':6.5,
-      'circle-color':['case',['==',['get','kind'],'river'],'#e2231a','#ffd24a'],
-      'circle-stroke-color':'#0b0f0d','circle-stroke-width':2.5}});
+  // A crossing is a decision point, so it gets the same badge treatment as every
+  // other waypoint — and the same glyph the legend shows. As anonymous red/amber
+  // dots these read as "sites", and 173 of them strung along an access route read
+  // as a mystery linear feature.
+  map.addLayer({id:'crossings',type:'symbol',source:'crossings',
+    layout:{'icon-image':['match',['get','kind'],
+        'bridge','crossing_bridge','ford','crossing_ford','crossing_boat'],
+      'icon-size':['interpolate',['linear'],['zoom'],8,0.5,11,0.75,14,1],
+      'icon-allow-overlap':true},
+    paint:{'icon-opacity':0.95}});
 
   // interactions
   map.on('click','huntZones',e=>{ const p=e.features[0].properties; const cl=HUNT_CLS[p.cls]||{};
@@ -438,7 +633,8 @@ function init(){
       .setHTML(`<h4>${p.type} · ${p.area_km2} km²</h4><div class="s">${p.what}</div><div class="s" style="margin-top:4px"><b>When:</b> ${p.when}</div>`).addTo(map);});
   map.on('click','refugeZones',e=>{ new maplibregl.Popup().setLngLat(e.lngLat)
     .setHTML(`<h4><span style="color:${REFUGE_COL}">▨</span> Thermal refuge · ${e.features[0].properties.area_km2} km²</h4><div class="s">${ZONE_WHY.refuge}</div>`).addTo(map);});
-  map.on('click','tenureZones-line',e=>{ const p=e.features[0].properties; tenurePopup(e.lngLat,p); });
+  ['tenureZones-line','tenureZones-line-ok'].forEach(id=>
+    map.on('click',id,e=>{ const p=e.features[0].properties; tenurePopup(e.lngLat,p); }));
   map.on('click','tenureBlocked',e=>{ const p=e.features[0].properties; tenurePopup(e.lngLat,p); });
   map.on('click','burnZones',e=>{ const p=e.features[0].properties;
     const prime=p.cls==='prime';
@@ -453,13 +649,20 @@ function init(){
     .setHTML(`<h4><span style="color:${FUNNEL_COL}">▨</span> Funnel / pass · ${e.features[0].properties.area_km2} km²</h4><div class="s">${ZONE_WHY.funnel}</div>`).addTo(map);});
   ['huntZones','browseZones','refugeZones','funnelZones','burnZones'].forEach(l=>{map.on('mouseenter',l,()=>map.getCanvas().style.cursor='pointer');map.on('mouseleave',l,()=>map.getCanvas().style.cursor='');});
   map.on('click','crossings',e=>{ const p=e.features[0].properties;
-    const river=p.kind==='river', noBoat=SETUP.watercraft==='none';
-    const msg = river ? (noBoat
-        ? '<b style="color:#f79">Impassable on foot.</b> This route crosses a river and you have no boat — reroute or add a boat in Setup.'
-        : 'River crossing — take the '+(SETUP.watercraft==='motor'?'motorboat':'canoe')+' across here.')
-      : 'Small stream — fordable on foot; watch footing.';
+    const noBoat=SETUP.watercraft==='none';
+    const msg = p.kind==='bridge'
+      ? 'A road bridge is mapped here, so this is not an obstacle — you drive or walk over it.'
+      : p.kind==='ford'
+        ? 'Mapped as a stream rather than a river — fordable on foot, but watch your footing and the water level.'
+        : (noBoat
+           ? '<b style="color:#f79">Treat as impassable on foot.</b> This is a mapped river, you have no boat, and nothing here tells us how wide it is — reroute or add a boat in Setup.'
+           : 'Take the '+(SETUP.watercraft==='motor'?'motorboat':'canoe')+' across here.');
+    // never let the popup imply more certainty than the data carries
+    const basis = p.basis==='measured'
+      ? '<div class="s" style="margin-top:6px;opacity:.8">Measured: a bridge is mapped at this point.</div>'
+      : '<div class="s" style="margin-top:6px;opacity:.8">Inferred from the OSM waterway class alone — no width, ford or riverbank data ships for this area. Verify on the ground.</div>';
     new maplibregl.Popup().setLngLat(e.lngLat)
-      .setHTML('<h4>'+(river?'River':'Stream')+' crossing</h4><div class="s">'+msg+'</div>').addTo(map);});
+      .setHTML('<h4>'+(CROSS_LABEL[p.kind]||CROSS_LABEL.boat)+'</h4><div class="s">'+msg+'</div>'+basis).addTo(map);});
   map.on('click','areas-fill',e=>selectArea(e.features[0].properties.rank));
   map.on('click','sites',e=>{const p=e.features[0].properties;
     const scent = p.type==='saline_blind'
@@ -473,13 +676,22 @@ function init(){
 
   buildShooters(); buildThermal();
   buildPanel(); buildWeather(); buildLegend(); buildTools();
+  toggleWeather(false);   // the wind calendar is a rail tool now — off until asked for
   setVis(LYR_MAP.roads,true); setVis(LYR_MAP.boundaries,true);   // roads + borders on by default in every view
-  renderSetup(); renderBrief(); wireTabs(); initPlans(); initAccount(); initLang(); initExport(); setTab(startTab());
+  applySiteFilter();
+  // Each of these is independent chrome. Binding the tabs is the one thing that must
+  // never be skipped, so a failure in an earlier renderer cannot cascade into
+  // an app with dead navigation.
+  [renderSetup,renderBrief,wireTabs,initPlans,initAccount,initLang,initExport].forEach(fn=>{
+    try{ fn(); }catch(e){ console.error('init step failed:',fn.name,e); }
+  });
+  setTab(startTab());
   if(window.I18N) I18N.apply(document);
   // Deep link from the plans dashboard: /transect/app?plan=<id> restores that plan
   // (and its cached analysis, when it has one) instead of opening blank.
   const _pid=new URLSearchParams(location.search).get('plan');
   if(_pid) openPlanById(_pid);
+  resumeJob();          // rejoin an analysis that outlived the page
   if(DOC.blank || !(DOC.areas||[]).length){
     map.jumpTo({center:[DOC.meta.center.lon,DOC.meta.center.lat],zoom:7.5});
   } else {
@@ -756,7 +968,7 @@ function buildLegend(){ /* the separate legend is gone — colour meaning now li
    `count` lets a row honestly report NO DATA instead of silently showing nothing. */
 function setVis(ids,on){(ids||[]).forEach(id=>map.getLayer(id)&&map.setLayoutProperty(id,'visibility',on?'visible':'none'));}
 const LYR_MAP={areas:['areas-fill','areas-line','area-badges'],sites:['sites','sites-wind'],
-  camps2:['camps','staging'],routes:['route-access','route-best','route-hot'],
+  camps2:['camps'],staging:['staging'],routes:['route-best','route-hot'],access:['route-access'],
   water:['lakes','lakes-line','rivers'],crossings:['crossings'],
   roads:['roads','roads-case','rail','trans'],
   boundaries:['boundaries'],
@@ -766,109 +978,277 @@ const LYR_MAP={areas:['areas-fill','areas-line','area-badges'],sites:['sites','s
   funnel:['funnelZones','funnelZones-line'],
   browse:['browseZones','browseZones-line'],
   burns:['burnZones','burnZones-line'],
-  tenure:['tenureBlocked','tenureZones-line']};
+  tenure:['tenureBlocked','tenureZones-line'],tenureOk:['tenureZones-line-ok']};
 
+/* ============================================================================
+   ONE ARRAY drives the panel row, the map paint and the legend meaning, so they
+   cannot drift apart. Adding a layer is one entry; there is no second place.
+
+   Two independent axes (SYMBOLOGY §1):
+     kind — the TEXTURE: what kind of thing this is
+     edge — the HONESTY axis: how much we know about where it stops
+              none   → continuous field, NO STROKE AT ALL, soft feather only
+              solid  → somebody surveyed that line (burn perimeters, tenure)
+              dashed → we drew the edge ourselves and say so (hulls, borders)
+   Never outline a guess: a crisp line around a DEM-inferred funnel converts a fuzzy
+   probability into a surveyed boundary, and a hunter plans a stalk against it.
+   ========================================================================== */
 const LAYERS=[
- {group:t('lay.g.zones'), rows:[
-   {k:'hz-high', kind:'zone', c:'var(--z-high)', name:'High likelihood', note:'Model score in the top band',
-    on:true, hz:'high', count:()=>(DOC.hunt_zones||[]).filter(z=>z.cls==='high').length},
-   {k:'hz-medium', kind:'zone', c:'var(--z-med)', name:'Medium', note:'Scored, second band',
-    on:true, hz:'medium', count:()=>(DOC.hunt_zones||[]).filter(z=>z.cls==='medium').length},
-   {k:'hz-low', kind:'zone', c:'var(--z-low)', name:'Low', note:'Scored but not prioritised',
-    on:true, hz:'low', count:()=>(DOC.hunt_zones||[]).filter(z=>z.cls==='low').length},
-   {k:'refuge', kind:'zone', c:'var(--thermal)', name:'Thermal refuge', note:'Cool midday bedding',
-    on:true, lyr:'refuge', count:()=>(DOC.refuge_zones||[]).length},
-   {k:'browse', kind:'stipple', c:'var(--browse)', name:'Browse / feeding',
-    note:'Regen & riparian forage — the food itself', on:false, lyr:'browse',
-    count:()=>(DOC.browse_zones||[]).length},
-   {k:'burns', kind:'hatch', c:'#F0A54A', name:'Burn regeneration',
-    note:'Mapped fire perimeters by age — browse peaks 15–22 yr after a burn. The single strongest predictor here.',
-    on:false, lyr:'burns', count:()=>(DOC.burn_zones||[]).length},
-   {k:'funnel', kind:'dash', c:'var(--z-med)', name:'Funnels / passes',
-    note:'Terrain pinch points — inferred from the DEM, weakly evidenced', on:false, lyr:'funnel',
-    count:()=>(DOC.funnel_zones||[]).length},
- ]},
- {group:t('lay.g.sites'), rows:[
-   {k:'sites', kind:'point', c:'var(--z-high)', glyph:'g-circle', name:'Hunt sites',
-    note:'Calling, feeding, glassing, ground-truth', on:true, lyr:'sites',
-    count:()=>(DOC.waypoints||[]).filter(w=>SITE_TYPES.includes(w.type)).length},
-   {k:'camps2', kind:'point', c:'var(--accent)', glyph:'g-gable', name:'Camps & staging',
-    note:'Where you sleep; where the truck sits', on:true, lyr:'camps2',
-    count:()=>(DOC.camps||[]).length},
-   {k:'shooters', kind:'point', c:'var(--z-low)', glyph:'g-diamond', name:'Caller / shooter',
-    note:'Shooter ~70 m downwind of the caller', on:true, lyr:'shooters'},
-   {k:'areas', kind:'outline', c:'var(--ref-outline)', name:'Focus-area outlines',
-    note:'Plan extent', on:true, lyr:'areas', count:()=>(DOC.areas||[]).length},
-   {k:'thermal', kind:'line', c:'var(--text-3)', dash:'dashed', name:'Thermal drift',
-    note:'Modelled slope airflow — an inference, not a measurement', on:false, lyr:'thermal'},
- ]},
- {group:t('lay.g.access'), rows:[
-   {k:'routes', kind:'line', c:'var(--z-high)', name:'Routes', note:'Access in, and the best line to hunt',
-    on:true, lyr:'routes', count:()=>(DOC.routes||[]).length},
-   {k:'roads', kind:'line', c:'var(--ref-outline)', name:'Roads & rail',
-    note:'Reference geography, not a model output', on:true, lyr:'roads'},
-   {k:'tenure', kind:'zone', c:'var(--danger)', name:'Outfitter / tenure',
-    note:'Pourvoiries, ZECs, réserves — hatched red is CLOSED to you and is masked out of the ranking',
-    on:true, lyr:'tenure', count:()=>(DOC.tenure_zones||[]).length},
-   {k:'boundaries', kind:'outline', c:'var(--ref-outline)', name:'Borders & places',
-    note:'Reference geography', on:true, lyr:'boundaries'},
-   {k:'water', kind:'line', c:'var(--water-shore)', name:'Rivers & lakes',
-    note:'Mapped hydrography (OSM)', on:true, lyr:'water',
-    count:()=>((DOC.hydro||{}).rivers||[]).length},
-   {k:'crossings', kind:'point', c:'var(--saline)', glyph:'g-triangle', name:'River crossings',
-    note:'Red = needs a boat · amber = fordable', on:true, lyr:'crossings',
-    count:()=>(DOC.crossings||[]).length},
- ]},
-];
+ {k:'hz-high', group:'MODEL ZONES', kind:'solid', edge:'none', name:'High likelihood',
+  note:'Model score in the top band', hex:'#E2231A', icon:'target', on:true, hz:'high',
+  count:()=>(DOC.hunt_zones||[]).filter(z=>z.cls==='high').length},
+ {k:'hz-medium', group:'MODEL ZONES', kind:'solid', edge:'none', name:'Medium',
+  note:'Scored, second band', hex:'#FF8C00', icon:'target', on:true, hz:'medium',
+  count:()=>(DOC.hunt_zones||[]).filter(z=>z.cls==='medium').length},
+ {k:'hz-low', group:'MODEL ZONES', kind:'solid', edge:'none', name:'Low',
+  note:'Scored but not prioritised', hex:'#FFD400', icon:'target', on:true, hz:'low',
+  count:()=>(DOC.hunt_zones||[]).filter(z=>z.cls==='low').length},
+ {k:'refuge', group:'MODEL ZONES', kind:'cross', edge:'none', name:'Thermal refuge',
+  note:'Cool midday bedding', hex:'#FF00C8', icon:'trees', on:true, lyr:'refuge',
+  count:()=>(DOC.refuge_zones||[]).length},
+ {k:'browse', group:'MODEL ZONES', kind:'stipple', edge:'none', name:'Browse / feeding',
+  note:'Regen & riparian forage — the food itself', hex:'#8FB43A', icon:'leaf', on:false, lyr:'browse',
+  count:()=>(DOC.browse_zones||[]).length},
+ {k:'burns', group:'MODEL ZONES', kind:'hatch', edge:'solid', name:'Burn regeneration',
+  note:'Fire perimeters by age — browse peaks 15–22 yr after a burn. Strongest single predictor here.',
+  hex:'#C97A2B', icon:'flame', on:false, lyr:'burns', count:()=>(DOC.burn_zones||[]).length},
+ {k:'funnel', group:'MODEL ZONES', kind:'soft', edge:'none', name:'Funnels / passes',
+  note:'Terrain pinch points — inferred from the DEM, weakly evidenced',
+  hex:'#FF8C00', icon:'fork', on:false, lyr:'funnel', count:()=>(DOC.funnel_zones||[]).length},
 
-function lpHTML(r){
-  const st=`--c:${r.c}`;
-  if(r.kind==='zone')    return `<span class="lp lp--zone" style="${st}"><i></i></span>`;
-  if(r.kind==='stipple') return `<span class="lp lp--stipple" style="${st}"><i></i></span>`;
-  if(r.kind==='hatch')   return `<span class="lp lp--hatch" style="${st}"><i></i></span>`;
-  if(r.kind==='dash')    return `<span class="lp lp--dashbox" style="${st}"></span>`;
-  if(r.kind==='outline') return `<span class="lp lp--outline" style="${st}"></span>`;
-  if(r.kind==='line')    return `<span class="lp lp--line" style="${st};--dash:${r.dash||'solid'}"><i></i></span>`;
-  return `<span class="lp lp--point" style="${st}"><i class="${r.glyph||'g-circle'}"></i></span>`;
+ // These were one "Hunt sites" row drawing four different icons — so the map showed
+ // four symbols the legend never named, and you could not turn one off. They are four
+ // different jobs at four different times of day; they get four rows.
+ {k:'st-rut', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Rut / calling',
+  note:'Stands of 30 min or more — where you call from', hex:'#E2231A', icon:'megaphone',
+  on:true, site:'rut_calling', count:()=>siteCount('rut_calling')},
+ {k:'st-saline', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Saline / feeding',
+  note:'Browse edge and aquatic feed — first and last light. Regulated: check the zone.',
+  hex:'#0047FF', icon:'droplets', on:true, site:'saline_blind', count:()=>siteCount('saline_blind')},
+ {k:'st-glass', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Glassing knobs',
+  note:'Computed viewshed — high ground worth sitting behind glass', hex:'#1F6F3F',
+  icon:'binoculars', on:true, site:'glassing', count:()=>siteCount('glassing')},
+ {k:'st-ground', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Ground-truth checks',
+  note:'Go stand here and see if the model was right — sign, tracks, rubs', hex:'#CBD5DA',
+  icon:'eye', on:true, site:'validate_ground', count:()=>siteCount('validate_ground')},
+ // Camp and staging were one row, so a vehicle hunter — who has no camp at all —
+ // could not see or toggle the only pin that matters to them: where the truck goes.
+ {k:'camps2', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Base camp',
+  note:'Where you sleep. Spike hunts only — a vehicle hunt has no camp.',
+  hex:'#C8963E', icon:'tent', on:true, lyr:'camps2',
+  count:()=>(DOC.waypoints||[]).filter(w=>w.type==='base_camp').length||(DOC.camps||[]).length},
+ {k:'staging', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Staging / parking',
+  note:'Where you leave the truck — one per focus area, at its nearest road',
+  hex:'#DCA94D', icon:'truck', on:true, lyr:'staging',
+  count:()=>(DOC.waypoints||[]).filter(w=>w.type==='parking').length},
+ {k:'shooters', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Caller / shooter',
+  note:'Shooter ~70 m downwind of the caller', hex:'#FFD400', icon:'target', on:true, lyr:'shooters',
+  count:()=>'—'},
+ {k:'areas', group:'SITES & FEATURES', kind:'dashed', edge:'dashed', name:'Focus-area outlines',
+  note:'Plan extent — a hull we drew, not a surveyed edge', hex:'#CBD5DA', on:true, lyr:'areas',
+  count:()=>(DOC.areas||[]).length},
+ {k:'thermal', group:'SITES & FEATURES', kind:'line', edge:'dashed', name:'Thermal drift',
+  note:'Modelled slope airflow — an inference, not a measurement',
+  hex:'#CBD5DA', dash:'dashed', on:false, lyr:'thermal', count:()=>'—'},
+
+ // One "Routes" row used to cover three visually different lines, so the white
+ // dashed access leg had no legend entry at all — you could see it and not name it.
+ {k:'routes', group:'ACCESS & HYDRO', kind:'line', edge:'solid', name:'Hunt lines',
+  note:'The best line to walk in on, from camp to the stand', hex:'#E2231A', icon:'route',
+  on:true, lyr:'routes',
+  count:()=>(DOC.routes||[]).filter(r=>(r.type||r.t)!=='route_access').length},
+ {k:'access', group:'ACCESS & HYDRO', kind:'line', edge:'dashed', name:'Access from staging',
+  note:'Truck to the area — one short leg per focus area, from its own staging point',
+  hex:'#CBD5DA', dash:'dashed', icon:'truck', on:false, lyr:'access',
+  count:()=>(DOC.routes||[]).filter(r=>(r.type||r.t)==='route_access').length},
+ {k:'roads', group:'ACCESS & HYDRO', kind:'line', edge:'solid', name:'Roads & rail',
+  note:'Reference geography, not a model output', hex:'#CBD5DA', on:true, lyr:'roads',
+  count:()=>(DOC.infra||[]).length},
+ // These were one row describing only the red hatch, so the amber dashed boundary —
+ // ZEC / réserve faunique, ground you CAN hunt but must register or book first —
+ // drew on the map with no legend entry and no tooltip, and vanished when you
+ // toggled "outfitter". Two different legal outcomes, two rows.
+ {k:'tenure', group:'ACCESS & HYDRO', kind:'exclude', edge:'solid', name:'Closed to you',
+  note:'Exclusive outfitter tenure — hatched red is masked out of the ranking entirely',
+  hex:'#C9564A', icon:'ban', on:true, lyr:'tenure',
+  count:()=>(DOC.tenure_zones||[]).filter(z=>z.huntable===false).length},
+ {k:'tenure-ok', group:'ACCESS & HYDRO', kind:'line', edge:'dashed', name:'Bookable ground',
+  note:'ZEC or réserve faunique — you may hunt here, but register or reserve first',
+  hex:'#E0A62E', dash:'dashed', icon:'milestone', on:true, lyr:'tenureOk',
+  count:()=>(DOC.tenure_zones||[]).filter(z=>z.huntable!==false).length},
+ {k:'boundaries', group:'ACCESS & HYDRO', kind:'outline', edge:'dashed', name:'Borders & places',
+  note:'Reference geography', hex:'#CBD5DA', on:true, lyr:'boundaries', count:()=>'—'},
+ {k:'water', group:'ACCESS & HYDRO', kind:'line', edge:'solid', name:'Rivers & lakes',
+  note:'Mapped hydrography (OSM)', hex:'#7FC4E8', icon:'waves', on:true, lyr:'water',
+  count:()=>'—'},
+ {k:'crossings', group:'ACCESS & HYDRO', kind:'point', edge:'none', name:'River crossings',
+  note:'On the access legs. Green = a mapped bridge · amber = fordable · red = assume a boat',
+  hex:CROSS_BODY, icon:'waves',
+  chips:[CROSS_CHIP.bridge,CROSS_CHIP.ford,CROSS_CHIP.boat],
+  on:false, lyr:'crossings',
+  count:()=>(DOC.crossings||[]).length},
+];
+const LAYER_GROUPS=['MODEL ZONES','SITES & FEATURES','ACCESS & HYDRO'];
+let groupOpacity={'MODEL ZONES':0.55,'SITES & FEATURES':1,'ACCESS & HYDRO':1};
+
+/* The panel swatch and the map tile come from ONE generator, so a hunter can never
+   trust a swatch that doesn't match what's drawn. */
+function layerCSS(kind,hex,dash){
+  const a=(h,p)=>h+p;                                  // #RRGGBB + alpha hex
+  switch(kind){
+    case 'solid':   return `background:${hex};opacity:.34;box-shadow:inset 0 0 5px 2px ${a(hex,'1F')}`;
+    case 'stipple': return `background-color:${a(hex,'18')};background-image:radial-gradient(${a(hex,'AA')} 1.4px,transparent 1.5px);background-size:7px 7px`;
+    case 'cross':   return `background-image:repeating-linear-gradient(45deg,${a(hex,'88')} 0 1.5px,transparent 1.5px 6px),repeating-linear-gradient(-45deg,${a(hex,'88')} 0 1.5px,transparent 1.5px 6px)`;
+    case 'soft':    return `background-image:radial-gradient(120% 100% at 50% 50%,${a(hex,'4D')} 0%,${a(hex,'1A')} 55%,transparent 100%)`;
+    case 'hatch':   return `background-color:${a(hex,'18')};background-image:repeating-linear-gradient(45deg,${a(hex,'AA')} 0 2px,transparent 2px 7px);border:1.5px solid ${hex}`;
+    case 'exclude': return `background-color:${a(hex,'22')};background-image:repeating-linear-gradient(135deg,${a(hex,'DD')} 0 3px,transparent 3px 6px);border:2px solid ${hex}`;
+    case 'dashed':  return `border:1.5px dashed ${hex};background:none`;
+    case 'outline': return `border:1.5px dashed ${a(hex,'66')};background:none`;
+    default:        return '';
+  }
 }
+function lpHTML(r){
+  if(r.kind==='line')
+    return `<span class="lp lp--line"><i style="border-top:2px ${r.dash||'solid'} ${r.hex}"></i></span>`;
+  if(r.kind==='point')
+    if(r.chips)
+    return `<span class="lp lp--point lp--pair">${r.chips.map(c=>
+      iconBadge(r.icon,r.hex,16,c)).join('')}</span>`;
+  return `<span class="lp lp--point">${iconBadge(r.icon,r.hex,18)}</span>`;
+  return `<span class="lp lp--fill" style="${layerCSS(r.kind,r.hex,r.dash)}"></span>`;
+}
+/* Rounded-square badge, layer colour, halo, glyph colour COMPUTED from luminance
+   so it never has to be hand-maintained (SYMBOLOGY §2). */
+function glyphOn(hex){
+  const n=parseInt(hex.slice(1),16);
+  const L=(0.299*((n>>16)&255)+0.587*((n>>8)&255)+0.114*(n&255))/255;
+  return L>0.55?'#0B0F0D':'#F2F5F6';
+}
+function iconBadge(name,hex,size,chip){
+  const d=(window.TRANSECT_ICONS||{})[name];
+  const s=size||24;
+  const glyph=d?`<svg viewBox="0 0 24 24" width="${Math.round(s*0.58)}" height="${Math.round(s*0.58)}"
+      fill="none" stroke="${glyphOn(hex)}" stroke-width="2.4" stroke-linecap="round"
+      stroke-linejoin="round"><path d="${d}"/></svg>`:'';
+  const dot=chip?`<i class="wpchip" style="background:${chip}"></i>`:'';
+  return `<span class="wpb" style="width:${s}px;height:${s}px;background:${hex}">${glyph}${dot}</span>`;
+}
+
 let showMeaning=true;
 let layersDismissed=false;   // set when YOU close it, so auto-open doesn't override you
+
+/* COUNT RULE (SYMBOLOGY §0). NO DATA is load-bearing — it is the visible proof of
+   "never render data you don't have", so it must mean exactly one thing: this source
+   shipped ZERO geometry for this AOI. It must NOT be used for "nothing analysed yet",
+   which is a different claim and was making all 18 rows read NO DATA on a blank start. */
+function layerCount(r){
+  if(DOC.blank) return {v:'—', state:'pending'};        // no analysis yet ≠ no data
+  const n=r.count?r.count():null;
+  if(n==='—'||n==null) return {v:'—', state:r.on?'on':'off'};   // continuous/uncountable
+  if(n===0) return {v:t('lay.nodata','NO DATA'), state:'nodata'};
+  return {v:String(n), state:r.on?'on':'off'};
+}
 function buildLayersDock(){
   const d=document.getElementById('layersDock');
-  let h=`<div class="dhead"><h4>${t('lay.title')}</h4><button class="dclose" title="Close">✕</button></div>
+  const rows=LAYERS.map(r=>({r,c:layerCount(r)}));
+  const onCount=rows.filter(x=>x.r.on&&x.c.state!=='nodata').length;
+  let h=`<div class="dhead"><h4>${t('lay.title')}</h4>
+      <span class="t-micro" id="layOn">${onCount} ON</span>
+      <button class="dclose" title="Close">✕</button></div>
     <div class="drow"><span class="t-micro">${t('lay.meaning')}</span>
       <label class="sw"><input type="checkbox" id="meaningOn" ${showMeaning?'checked':''}><i></i></label></div>
     <div class="dbody">`;
-  LAYERS.forEach(g=>{
-    const tot=g.rows.reduce((n,r)=>n+(r.count?(r.count()||0):0),0);
-    h+=`<div class="grouplabel">${g.group}<span class="ct">${tot||''}</span></div>`;
-    g.rows.forEach(r=>{
-      const n=r.count?r.count():null;
-      const nodata=(n===0);
-      h+=`<label class="layer-row" data-k="${r.k}" data-state="${nodata?'nodata':(r.on?'on':'off')}">
-        <input type="checkbox" ${r.on?'checked':''} ${nodata?'disabled':''}>
+  LAYER_GROUPS.forEach(g=>{
+    const gr=rows.filter(x=>x.r.group===g);
+    const live=gr.filter(x=>x.c.state!=='nodata');
+    const on=live.filter(x=>x.r.on).length;
+    const tri = on===0?'none':(on===live.length?'all':'partial');
+    h+=`<div class="grouphead2" data-g="${g}">
+        <button class="master" data-tri="${tri}" title="Toggle all">${tri==='all'?'✓':(tri==='partial'?'–':'')}</button>
+        <span class="glabel">${g}</span><span class="gcount">${on} / ${live.length}</span>
+        <input class="gop" type="range" min="10" max="100" value="${Math.round(groupOpacity[g]*100)}" data-g="${g}" title="Group opacity"></div>`;
+    gr.forEach(({r,c})=>{
+      const dis = c.state==='nodata' || c.state==='pending';
+      h+=`<label class="layer-row" data-k="${r.k}" data-state="${c.state}" data-edge="${r.edge}">
+        <input type="checkbox" ${r.on&&!dis?'checked':''} ${dis?'disabled':''}>
         ${lpHTML(r)}
-        <span><span class="name">${r.name}</span>${showMeaning&&r.note?`<span class="note">${r.note}</span>`:''}</span>
-        <span class="count">${nodata?t('lay.nodata'):(n!=null?n:'')}</span></label>`;
+        <span class="lmeta"><span class="name">${r.name}</span>${showMeaning&&r.note?`<span class="note">${r.note}</span>`:''}</span>
+        <span class="count">${c.v}</span></label>`;
     });
   });
   d.innerHTML=h+`</div>`;
   d.querySelector('.dclose').onclick=()=>{layersDismissed=true;closeDocks();};
-  d.querySelector('#meaningOn').onchange=e=>{showMeaning=e.target.checked;buildLayersDock();};
+  d.querySelector('#meaningOn').onchange=e=>{showMeaning=e.target.checked;buildLayersDock();openDock('layersDock','railLayers');};
+  // group master: tri-state toggle
+  d.querySelectorAll('.master').forEach(b=>b.onclick=e=>{
+    e.preventDefault(); e.stopPropagation();
+    const g=b.closest('.grouphead2').dataset.g;
+    const gr=LAYERS.filter(r=>r.group===g && layerCount(r).state!=='nodata' && layerCount(r).state!=='pending');
+    const allOn=gr.every(r=>r.on);
+    gr.forEach(r=>{ r.on=!allOn; applyLayer(r); });
+    buildLayersDock(); openDock('layersDock','railLayers');
+  });
+  d.querySelectorAll('.gop').forEach(sl=>sl.oninput=e=>{
+    const g=e.target.dataset.g; groupOpacity[g]=+e.target.value/100;
+    LAYERS.filter(r=>r.group===g).forEach(applyLayer);
+  });
   d.querySelectorAll('.layer-row').forEach(row=>{
     const cb=row.querySelector('input'); if(cb.disabled) return;
     cb.onchange=()=>{
-      const r=LAYERS.flatMap(g=>g.rows).find(x=>x.k===row.dataset.k); if(!r) return;
+      const r=LAYERS.find(x=>x.k===row.dataset.k); if(!r) return;
       r.on=cb.checked; row.dataset.state=r.on?'on':'off';
-      if(r.hz) applyHuntZoneFilter();
-      else if(r.lyr){ setVis(LYR_MAP[r.lyr],r.on);
-        if(r.lyr==='browse') showBrowse=r.on;
-        if(r.lyr==='thermal'&&r.on){const hr=document.getElementById('hour');updateThermal(hr?+hr.value:12);} }
+      applyLayer(r); refreshLayerHeader();
     };
+    // hovering a row emphasises that layer on the map, and vice versa
+    row.onmouseenter=()=>emphasiseLayer(row.dataset.k,true);
+    row.onmouseleave=()=>emphasiseLayer(row.dataset.k,false);
+  });
+}
+/* The sites layer is one MapLibre layer drawing several icons, so per-type rows
+   drive a filter rather than a visibility flag. */
+function siteCount(t){ return (DOC.waypoints||[]).filter(w=>w.type===t).length; }
+function applySiteFilter(){
+  if(!map.getLayer('sites')) return;
+  const on=LAYERS.filter(r=>r.site&&r.on).map(r=>r.site);
+  if(!on.length){ setVis(['sites','sites-wind'],false); return; }
+  setVis(['sites','sites-wind'],true);
+  const f=['in',['get','type'],['literal',on]];
+  map.setFilter('sites',f);
+  if(map.getLayer('sites-wind')) map.setFilter('sites-wind',f);
+}
+function refreshLayerHeader(){
+  const el=document.getElementById('layOn'); if(!el) return;
+  el.textContent=LAYERS.filter(r=>r.on&&layerCount(r).state!=='nodata').length+' ON';
+}
+function applyLayer(r){
+  if(r.hz){ applyHuntZoneFilter(); return; }
+  if(r.site){ applySiteFilter(); return; }
+  if(!r.lyr) return;
+  setVis(LYR_MAP[r.lyr], r.on);
+  if(r.lyr==='browse') showBrowse=r.on;
+  if(r.lyr==='thermal'&&r.on){const hr=document.getElementById('hour');updateThermal(hr?+hr.value:12);}
+  // group opacity applies to the fill of model zones
+  const op=groupOpacity[r.group]!=null?groupOpacity[r.group]:1;
+  (LYR_MAP[r.lyr]||[]).forEach(id=>{
+    if(!map.getLayer(id)) return;
+    const ty=map.getLayer(id).type;
+    try{
+      if(ty==='fill') map.setPaintProperty(id,'fill-opacity',(r.kind==='solid'?FILL_ALPHA:0.9)*op);
+    }catch(e){}
+  });
+}
+function emphasiseLayer(k,on){
+  const r=LAYERS.find(x=>x.k===k); if(!r||!r.lyr) return;
+  (LYR_MAP[r.lyr]||[]).forEach(id=>{
+    if(!map.getLayer(id)) return;
+    try{
+      if(map.getLayer(id).type==='symbol')
+        map.setLayoutProperty(id,'icon-size',on?1.25:['interpolate',['linear'],['zoom'],8,0.7,11,1.05,13,1.45,15,1.9]);
+    }catch(e){}
   });
 }
 function applyHuntZoneFilter(){
-  const on=LAYERS[0].rows.filter(r=>r.hz&&r.on).map(r=>r.hz);
+  const on=LAYERS.filter(r=>r.hz&&r.on).map(r=>r.hz);
   ['huntZones','huntZones-line'].forEach(id=>map.getLayer(id)&&
     map.setFilter(id,['in',['get','cls'],['literal',on.length?on:['__none__']]]));
 }
@@ -929,65 +1309,229 @@ function buildBaseDock(){
     terrExag=+e.target.value; d.querySelector('#exagVal').textContent=terrExag.toFixed(1)+'×';
     if(terrOn) map.setTerrain({source:'dem',exaggeration:terrExag}); };
 }
-/* A card must appear where you clicked — anchor it to the rail button that opened it. */
+/* ---------------------------------------------------------------------------
+   SYMBOLOGY §4 — TOOLBARS.
+   One principle: persistent controls live in a narrow icon rail; everything
+   transient is a card anchored to the control that opened it. Nothing floats
+   without a parent.
+
+   Entry points, and they are NOT interchangeable:
+     • Hunting layers  → its own pill at left:420 top:88, beside the sidebar.
+     • Model surface   → view rail, mountain glyph. Shows/hides huntability.
+     • Area statistics → view rail, crosshair. Follows the cursor.
+     • Basemap         → the SAT/2D chip in the bottom-right map controls.
+   An earlier revision hung Layers and Basemap off the tool rail, which put
+   three unrelated things behind two buttons and left the surface unreachable.
+--------------------------------------------------------------------------- */
+const ANCHOR={
+  layersDock:()=>({left:420,top:142}),                       // under the Layers pill
+  baseDock:  ()=>({right:70,bottom:12}),                     // beside the SAT chip
+  surfDock:  ()=>({right:70,top:railTop('surface')})         // aligned to its own rail button
+};
+/* the tooltip/readout slot: top = 22px TOOLS cap + index × 40px row.
+   A tooltip that appears in a fixed spot regardless of which button you
+   hovered is worse than no tooltip — this was a real defect in rev 2. */
+const TOOL_DEFS=[
+  {k:'dist',    icon:'ruler',    name:'Measure',        hint:'Click points on the map for a running distance. Double-click to finish.'},
+  {k:'area',    icon:'pentagon', name:'Area',           hint:'Draw a polygon — reports hectares and km².'},
+  {k:'route',   icon:'route',    name:'Build route',    hint:'Multi-point access route at 2.5 km/h bushwhack. Exports its own GPX.'},
+  {k:'waypoint',icon:'pin',      name:'Drop pin',       hint:'Log fresh sign or a wallow. Feeds the re-ranking loop.'},
+  {k:'wind',    icon:'wind',     name:'Wind calendar',  hint:'Per-day forecast wind against each stand’s optimal approach.'}
+];
+const VIEW_DEFS=[
+  {k:'surface', icon:'mountain', name:'Model surface',   hint:'Show or hide the huntability surface. Predicted moose ground — not terrain.'},
+  {k:'stats',   icon:'crosshair',name:'Area statistics', hint:'Score breakdown, land-cover mix and confidence for whatever is under the cursor.'}
+];
+/* Not in the spec's five, but they exist in this build and dropping working tools
+   is worse than one extra divider. They still get a real hint card — every
+   icon-only button has a hover label aligned to its own row, no exceptions. */
+const EXTRA_DEFS=[
+  {k:'line',  icon:'milestone', name:'Draw line',      hint:'Freehand line for a boundary or a note to yourself. Not measured, not exported to the model.'},
+  {k:'clear', icon:'ban',       name:'Clear drawings', hint:'Removes every measurement, line and dropped pin from this session. Saved plan data is untouched.'}
+];
+const TOOLS_CARD_H=22+TOOL_DEFS.length*40+2;
+/* "top = 22 + index x 40" in the spec is just "aligned to that button's own
+   row". Reading the button's real rect says the same thing and cannot drift when
+   the rail gains or loses a button — which is exactly how the first attempt at
+   this broke (the view rail landed 74px on top of the tool rail). */
+function railTop(k){
+  const b=document.querySelector(`#railStack button[data-k="${k}"]`);
+  if(b) return Math.round(b.getBoundingClientRect().top);
+  const ti=TOOL_DEFS.findIndex(t=>t.k===k);
+  return ti>=0 ? 76+22+ti*40 : 76;
+}
+function railIcon(name,size){
+  const d=(window.TRANSECT_ICONS||{})[name]||'';
+  return `<svg viewBox="0 0 24 24" width="${size||18}" height="${size||18}" fill="none"
+    stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${d}"/></svg>`;
+}
+
+/* A card must appear where you clicked, so every dock declares its anchor. */
 function openDock(id,btnId){
   closeDocks(id);
-  const d=document.getElementById(id), b=document.getElementById(btnId);
-  if(!d||!b) return;
-  const r=b.getBoundingClientRect();
-  d.style.top=Math.max(62,r.top-6)+'px';
-  d.style.right=(window.innerWidth-r.left+10)+'px';
-  d.classList.remove('hidden'); b.classList.add('on');
+  const d=document.getElementById(id); if(!d) return;
+  const a=(ANCHOR[id]||(()=>({right:70,top:142})))();
+  d.style.left  = a.left  !=null ? a.left+'px'  : 'auto';
+  d.style.right = a.right !=null ? a.right+'px' : 'auto';
+  d.style.top   = a.top   !=null ? a.top+'px'   : 'auto';
+  d.style.bottom= a.bottom!=null ? a.bottom+'px': 'auto';
+  d.classList.remove('hidden');
+  const b=btnId&&document.getElementById(btnId); if(b) b.classList.add('on');
+  refreshLayersPill();
 }
+const DOCK_BTN={layersDock:'layersPill',baseDock:'mcSat',surfDock:'viewSurface'};
 function closeDocks(except){
-  ['layersDock','baseDock'].forEach(id=>{ if(id===except) return;
-    const d=document.getElementById(id); if(d) d.classList.add('hidden'); });
-  ['railLayers','railBase'].forEach(id=>{const b=document.getElementById(id);
-    if(b && !(except&&((except==='layersDock'&&id==='railLayers')||(except==='baseDock'&&id==='railBase')))) b.classList.remove('on');});
+  Object.keys(DOCK_BTN).forEach(id=>{
+    if(id===except) return;
+    const d=document.getElementById(id); if(d) d.classList.add('hidden');
+    const b=document.getElementById(DOCK_BTN[id]); if(b) b.classList.remove('on');
+  });
+  refreshLayersPill();
 }
 function toggleDock(id,btnId){
-  const d=document.getElementById(id);
-  if(d && !d.classList.contains('hidden')){ if(id==='layersDock') layersDismissed=true; closeDocks(); } else { if(id==='layersDock'){ layersDismissed=false; buildLayersDock(); } else buildBaseDock(); openDock(id,btnId); }
+  const d=document.getElementById(id); if(!d) return;
+  if(!d.classList.contains('hidden')){
+    if(id==='layersDock') layersDismissed=true;
+    closeDocks();
+  } else {
+    if(id==='layersDock'){ layersDismissed=false; buildLayersDock(); }
+    else if(id==='baseDock') buildBaseDock();
+    else if(id==='surfDock') buildSurfDock();
+    openDock(id,btnId||DOCK_BTN[id]);
+  }
 }
 
-/* ---------------- right rail: persistent tools, transient cards ------------- */
+/* ---------------- rails: persistent tools, transient cards ------------- */
 function buildTools(){
-  const rail=document.getElementById('rail');
-  rail.innerHTML=`
-    <button id="railLayers" data-tip="Hunting layers">▤</button>
-    <button id="railBase" data-tip="Basemap">◱</button>
-    <div class="sep"></div>
-    <button data-tool="dist" data-tip="Measure distance">↔</button>
-    <button data-tool="area" data-tip="Measure area">▱</button>
-    <button data-tool="line" data-tip="Draw line">✎</button>
-    <button data-tool="route" data-tip="Build route">➤</button>
-    <button data-tool="waypoint" data-tip="Drop waypoint">◉</button>
-    <button id="drawClear" data-tip="Clear drawings">✕</button>`;
-  document.getElementById('railLayers').onclick=()=>toggleDock('layersDock','railLayers');
-  document.getElementById('railBase').onclick=()=>toggleDock('baseDock','railBase');
-  rail.querySelectorAll('button[data-tool]').forEach(b=>b.onclick=()=>setDrawTool(b.dataset.tool));
-  document.getElementById('drawClear').onclick=()=>{clearDraw();setDrawTool(null);};
+  /* Layers pill — the only door to the hunting layers, parked beside the
+     sidebar rather than in the right rail, because it belongs to the analysis
+     you are reading on the left, not to the map instruments on the right. */
+  const pill=document.getElementById('layersPill');
+  pill.innerHTML=`<span class="bars"><i></i><i></i><i></i></span>
+    <span class="pmeta"><span class="pcap">${t('pill.cap','HUNT MAP')}</span>
+      <span class="pname">${t('pill.name','Layers')}</span></span>
+    <span class="pcount" id="pillCount">—</span>`;
+  pill.onclick=()=>toggleDock('layersDock','layersPill');
 
+  /* TOOL RAIL — right:12 top:76, 46px, mono cap + 40px hairline-divided rows */
+  const rail=document.getElementById('rail');
+  rail.innerHTML=`<div class="railcap">${t('rail.tools','TOOLS')}</div>`+
+    TOOL_DEFS.map(x=>`<button data-tool="${x.k}" data-k="${x.k}">${railIcon(x.icon)}</button>`).join('')+
+    // draw-line and clear are ours, not the spec's five — kept because dropping
+    // working tools is worse than one extra divider. Flagged in the handoff notes.
+    `<div class="sep"></div>
+     <button data-tool="line" data-k="line">${railIcon('milestone')}</button>
+     <button id="drawClear" data-k="clear">${railIcon('ban')}</button>`;
+
+  /* VIEW RAIL — directly beneath, same 46px card, two buttons */
+  const vr=document.getElementById('viewRail');
+  vr.innerHTML=VIEW_DEFS.map(v=>`<button id="view${v.k[0].toUpperCase()+v.k.slice(1)}" data-k="${v.k}">${railIcon(v.icon)}</button>`).join('');
+
+  /* hover tooltip / live readout, aligned to the hovered button's own row */
+  [...rail.querySelectorAll('button'),...vr.querySelectorAll('button')].forEach(b=>{
+    b.onmouseenter=()=>showRailTip(b.dataset.k);
+    b.onmouseleave=()=>hideRailTip();
+  });
+  rail.querySelectorAll('button[data-tool]').forEach(b=>b.onclick=()=>{
+    if(b.dataset.tool==='wind'){ toggleWeather(); return; }
+    setDrawTool(drawTool===b.dataset.tool?null:b.dataset.tool);
+    showRailTip(b.dataset.k);
+  });
+  document.getElementById('drawClear').onclick=()=>{clearDraw();setDrawTool(null);};
+  document.getElementById('viewSurface').onclick=()=>toggleDock('surfDock','viewSurface');
+  document.getElementById('viewStats').onclick=()=>{
+    statsOn=!statsOn;
+    document.getElementById('viewStats').classList.toggle('on',statsOn);
+    if(!statsOn) hideStats();
+  };
+
+  /* MAP CONTROLS — right:12 bottom:12. Compass only once rotated; zoom clamped
+     3–17 (past 17 the model is finer than its own inputs); SAT chip is both a
+     status readout and the door to Basemap; locate centres the AOI, not you. */
   const mc=document.getElementById('mapctl');
-  mc.innerHTML=`<button id="mcN" data-tip="North up">N</button>
-    <button id="mcIn">+</button><button id="mcOut">−</button>
-    <button id="mcSat">SAT</button>`;
+  mc.innerHTML=`<button id="mcN" class="round" title="${t('ctl.north','North up')}">N</button>
+    <div class="zoomcard"><button id="mcIn" title="${t('ctl.in','Zoom in')}">+</button>
+    <button id="mcOut" title="${t('ctl.out','Zoom out')}">−</button></div>
+    <button id="mcSat" class="satchip" title="${t('ctl.base','Basemap')}"><b>SAT</b><i>2D</i></button>
+    <button id="mcLoc" title="${t('ctl.locate','Centre the area')}">${railIcon('crosshair',15)}</button>`;
   document.getElementById('mcN').onclick=()=>map.easeTo({bearing:0,pitch:0});
   document.getElementById('mcIn').onclick=()=>map.zoomIn();
   document.getElementById('mcOut').onclick=()=>map.zoomOut();
-  document.getElementById('mcSat').onclick=()=>toggleDock('baseDock','railBase');
+  document.getElementById('mcSat').onclick=()=>toggleDock('baseDock','mcSat');
+  document.getElementById('mcLoc').onclick=()=>fitAOI();
+  const syncCompass=()=>{
+    const b=map.getBearing(), p=map.getPitch();
+    document.getElementById('mcN').style.display=(Math.abs(b)>0.5||p>0.5)?'grid':'none';
+    document.getElementById('mcN').style.transform=`rotate(${-b}deg)`;
+  };
+  map.on('rotate',syncCompass); map.on('pitch',syncCompass); syncCompass();
+  const syncZoom=()=>{
+    const z=map.getZoom();
+    document.getElementById('mcIn').disabled = z>=map.getMaxZoom()-0.01;
+    document.getElementById('mcOut').disabled= z<=map.getMinZoom()+0.01;
+  };
+  map.on('zoom',syncZoom); syncZoom();
 
   setupDraw();
+  buildStatsCard();
+  calibrateImagery();
+  buildIdentify();
+  toggleWeather(false);
   buildLayersDock();          // built, but shown/hidden per tab (see syncDocks)
+  refreshLayersPill();
+}
+function refreshLayersPill(){
+  const p=document.getElementById('layersPill'); if(!p) return;
+  const open=!document.getElementById('layersDock')?.classList.contains('hidden');
+  p.classList.toggle('on',open);
+  const c=document.getElementById('pillCount');
+  if(c) c.textContent=LAYERS.filter(r=>r.on&&layerCount(r).state==='on').length+' '+t('lay.on','ON');
+}
+function showRailTip(k){
+  const def=TOOL_DEFS.concat(EXTRA_DEFS,VIEW_DEFS).find(x=>x.k===k);
+  const tip=document.getElementById('railTip'); if(!tip) return;
+  if(!def){ tip.classList.add('hidden'); return; }
+  // A tool with a running value replaces its tooltip with a live readout,
+  // and a measurement always states its assumption.
+  const live=(k===drawTool)&&drawReadout&&drawReadout();
+  tip.style.top=railTop(k)+'px';
+  tip.innerHTML= live
+    ? `<div class="tipcap">${t('tip.measuring','MEASURING')}<span>${t('tip.esc','ESC TO EXIT')}</span></div>
+       <div class="tiptiles">${live.tiles.map(v=>`<span>${v}</span>`).join('')}</div>
+       <div class="tipnote">${live.note}</div>`
+    : `<div class="tipname">${def.name}</div><div class="tipnote">${def.hint}</div>`;
+  tip.classList.remove('hidden');
+}
+function hideRailTip(){
+  const tip=document.getElementById('railTip'); if(!tip) return;
+  if(drawTool){ showRailTip(drawTool); return; }   // keep a live readout up
+  tip.classList.add('hidden');
+}
+/* The wind calendar is a tool now, so its strip is a tool surface: off until you
+   ask for it. It also used to sit on top of the mandatory scale bar. */
+let weatherWanted=false;
+function toggleWeather(force){
+  const w=document.getElementById('weather'); if(!w) return;
+  const show = force!=null ? force : w.classList.contains('hidden');
+  if(force==null) weatherWanted=show;      // an explicit click is a preference; a tab switch is not
+  w.classList.toggle('hidden',!show);
+  document.body.classList.toggle('weather-on',show);
+  if(show) document.documentElement.style.setProperty('--weather-h',
+    Math.round(w.getBoundingClientRect().height)+'px');
+  document.querySelector('#rail button[data-tool="wind"]')?.classList.toggle('on',show);
 }
 /* Layers belongs with the analysis, not with the location picker: hidden on Setup and
    Brief, open on Overview and Field — unless you closed it yourself. */
 function syncDocks(tab){
   const onMap = (tab==='overview' || tab==='field');
+  const rail=document.getElementById('rail'), vr=document.getElementById('viewRail'),
+        pill=document.getElementById('layersPill'), mc=document.getElementById('mapctl');
+  [rail,vr,mc].forEach(e=>{ if(e) e.style.display=''; });   // tools are always visible
+  if(pill) pill.classList.toggle('hidden',!onMap);
   if(!onMap){ closeDocks(); return; }
   if(layersDismissed) return;
   const d=document.getElementById('layersDock');
-  if(d && d.classList.contains('hidden')){ buildLayersDock(); openDock('layersDock','railLayers'); }
+  if(d && d.classList.contains('hidden')){ buildLayersDock(); openDock('layersDock','layersPill'); }
 }
 /* the draw/measure strip is now part of the persistent right rail (buildTools) */
 /* ---- OnX-style field tools: distance / line / area / route / waypoint ---- */
@@ -1001,6 +1545,7 @@ function ringKm2(ring){ // spherical polygon area
 }
 function areaFmt(km2){ return UNITS==='imperial'?(km2*0.386102).toFixed(2)+' mi²':km2.toFixed(2)+' km²'; }
 function setupDraw(){
+  if(map.getSource('annot')) return;   // idempotent: chromeFallback() may have built it already
   map.addSource('annot',{type:'geojson',data:fc([])});
   map.addLayer({id:'annot-fill',type:'fill',source:'annot',filter:['==','$type','Polygon'],
     paint:{'fill-color':'#f0c069','fill-opacity':0.18}});
@@ -1031,6 +1576,10 @@ function finishDraw(){
   drawPts=[]; renderAnnot();
 }
 function renderAnnot(){
+  // The measurement was being computed correctly and never shown: the readout only
+  // refreshed on hovering the rail button, so clicking points on the map produced a
+  // running total nobody could see. That is why the tools felt dead.
+  if(drawTool) showRailTip(drawTool);
   const feats=drawSaved.slice();
   if(drawPts.length){
     const isArea=drawTool==='area';
@@ -1047,7 +1596,13 @@ function setDrawTool(t){
   finishDraw();                         // commit any in-progress geometry
   drawTool=(drawTool===t)?null:t; drawPts=[];
   document.querySelectorAll('#rail button[data-tool]').forEach(b=>b.classList.toggle('on',b.dataset.tool===drawTool));
-  map.getCanvas().style.cursor=drawTool?'crosshair':'';
+  // crosshair for point-placing tools, but a distinct cursor for the ones that
+  // are about to consume your click differently
+  map.getCanvas().style.cursor = drawTool
+    ? (drawTool==='waypoint' ? 'copy' : 'crosshair')
+    : '';
+  document.body.classList.toggle('tool-armed', !!drawTool);
+  document.body.setAttribute('data-tool', drawTool||'');
   map.doubleClickZoom[drawTool?'disable':'enable']();
   const hint=document.getElementById('drawhint');
   if(hint) hint.textContent=drawTool?({dist:'Click points; double-click to finish. Shows distance.',
@@ -1105,7 +1660,7 @@ function hav(a,b){const R=6371,dLat=(b[1]-a[1])*Math.PI/180,dLon=(b[0]-a[0])*Mat
 
 /* ---------------- Setup (redesigned) ---------------- */
 let draft={center:[DOC.meta.center.lon,DOC.meta.center.lat],radius:DOC.meta.radius_km||50,
-  walkAccess:null, walkHunt:null, leaving:'',
+  walkAccess:null, walkHunt:null, leaving:'', party:2,
   dates: (USING_EXAMPLE && DOC.meta && DOC.meta.target_dates) ? DOC.meta.target_dates.slice() : []};
 function renderSetup(){
   const el=document.getElementById('setup');
@@ -1142,6 +1697,12 @@ function renderSetup(){
 
     <div class="sec">
       <div class="sechead"><span class="num">03</span><h3>${t('setup.s3')}</h3></div>
+      <label class="fld">${t('setup.party','Hunters in the party')}</label>
+      <div class="numrow"><input id="partySize" type="number" min="1" max="12" step="1"
+        value="${draft.party||2}"><span>${t('setup.partyU','hunters')}</span></div>
+      <div class="s" style="margin-top:6px">${t('setup.partyNote',
+        'Party size changes the analysis, not just the wording: focus areas are sized to hold the crew, and each area gets a calling stand per hunter plus glassing positions to pair up on.')}</div>
+
       <label class="fld">How you'll hunt</label>
       <div class="seg"><button id="hsSpike" ${SETUP.huntStyle==='spike'?'aria-pressed="true"':''}>${t('setup.spike')}</button>
         <button id="hsVeh" ${SETUP.huntStyle==='vehicle'?'aria-pressed="true"':''}>${t('setup.vehicle')}</button></div>
@@ -1203,6 +1764,9 @@ function renderSetup(){
     if(m.length===2&&!isNaN(m[0])&&!isNaN(m[1])){draft.center=[m[1],m[0]];map.flyTo({center:draft.center,zoom:10});drawDraft();}};
   const rad=document.getElementById('radius');
   rad.oninput=()=>{draft.radius=fromU(+rad.value);document.getElementById('radVal').textContent=(+rad.value)+' '+unitBig();drawDraft();};
+  document.getElementById('partySize').onchange=e=>{
+    draft.party=Math.max(1,Math.min(12,Math.round(+e.target.value||2)));
+    e.target.value=draft.party; setPlanName(PLAN_NAME,false);};   // edited => unsaved
   document.getElementById('walkAccess').onchange=e=>{draft.walkAccess=fromU(+e.target.value);applyHunt();};
   document.getElementById('walkHunt').onchange=e=>draft.walkHunt=fromU(+e.target.value);
   const clearErr=()=>{const b=document.getElementById('setupErr'); if(b){b.className='';b.innerHTML='';}};
@@ -1236,10 +1800,16 @@ function applyHunt(){
     veh?['case',['>',['coalesce',['get','dr'],0],rk],0.03,['case',['<=',['get','rank'],2],0.16,0.12]]:0.10);
   map.setPaintProperty('areas-line','line-opacity',
     veh?['case',['>',['coalesce',['get','dr'],0],rk],0.2,0.9]:0.9);
-  // river crossings emphasis when no boat (they block foot routes)
-  if(map.getLayer('crossings'))
-    map.setPaintProperty('crossings','circle-radius',
-      (SETUP.watercraft==='none')?['case',['==',['get','kind'],'river'],9,6.5]:6.5);
+  // Crossings emphasis when you have no boat — they are hard blocks on a foot route.
+  // This used to set circle-radius, but crossings became a SYMBOL layer when it got
+  // its icon badges. setPaintProperty then threw, renderSetup() aborted, and since
+  // wireTabs() is the very next call, EVERY tab button lost its handler: the whole
+  // navigation died from one stale property name. Symbol layers scale via icon-size.
+  if(map.getLayer('crossings') && map.getLayer('crossings').type==='symbol')
+    map.setLayoutProperty('crossings','icon-size',
+      (SETUP.watercraft==='none')
+        ? ['case',['==',['get','kind'],'boat'],1.15,0.8]
+        : ['interpolate',['linear'],['zoom'],8,0.5,11,0.75,14,1]);
   if(document.getElementById('list')) buildPanel();
 }
 function setUnits(u){ if(u===UNITS)return; UNITS=u; renderSetup(); buildPanel(); if(!document.getElementById('detail').classList.contains('hidden')){} }
@@ -1327,7 +1897,8 @@ function runAnalysis(){
     residency:'quebec_resident',
     // Setup constraints now shape the analysis (no-boat river barriers, walk range, rut-phase weighting)
     watercraft:SETUP.watercraft, hunt_style:SETUP.huntStyle,
-    walk_access_km:draft.walkAccess, walk_hunt_km:draft.walkHunt};
+    walk_access_km:draft.walkAccess, walk_hunt_km:draft.walkHunt,
+    party_size:draft.party||2};
   // wipe the previous result up front: leaving it on the map while a new box computes
   // invites reading old areas as if they belonged to the new one.
   if(hasResult()){ applyDoc(blankDoc()); paintTabLocks(); }
@@ -1349,23 +1920,10 @@ function runAnalysis(){
         habitat:'habitat model',behavior:'behavioural surfaces',access:'access & pack-out',
         synth:'placing areas & sites',contract:'building your plan'};
       const _jh=authTok()?{'Authorization':'Bearer '+authTok()}:{};
-      const poll=()=>fetch(API_URL+'/jobs/'+j.job_id,{headers:_jh}).then(r=>r.json()).then(s=>{
-        if(s.status==='done'){ stop(); setBtn('RUN ANALYSIS →',false); applyDoc(s.scout);
-          // a finished run should present its result: Overview, with the layers card
-          // showing what was drawn — even if it was dismissed earlier during Setup.
-          layersDismissed=false; setTab('overview'); syncDocks('overview'); }
-        else if(s.status==='error'){ stop(); setBtn('RUN ANALYSIS →',false); alert('Analysis failed: '+(s.error||'unknown')); }
-        else if(s.status==='unknown'){ stop(); setBtn('RUN ANALYSIS →',false); alert('The engine restarted — please run again.'); }
-        else {
-          const st=s.stage||'', nm=STAGE[st]||st;
-          // acquire has no sub-progress to report, so say what it's doing, not 0%
-          lastHead = (st==='acquire')
-            ? `ANALYSING… ${nm}`
-            : `ANALYSING… ${nm} · ${Math.round((s.progress||0)*100)}%`;
-          setBtn(line(lastHead),true); setTimeout(poll,2500);
-        }
-      }).catch(()=>{ stop(); setBtn('RUN ANALYSIS →',false); alert('Lost connection to the engine.'); });
-      poll();
+      // Remember the job so a reload — or a give-up — can pick the run back up.
+      // Losing a ten-minute analysis to a browser refresh is not acceptable.
+      rememberJob(j.job_id);
+      pollJob(j.job_id,_jh,STAGE,stop,setBtn,line,h=>{lastHead=h;});
     })
     .catch(()=>{ setBtn('RUN ANALYSIS →',false);
       alert('Engine API not reachable — showing the current scout. (RUN ANALYSIS needs the engine online.)');
@@ -1539,12 +2097,16 @@ function exitDeep(){
 let curTab='overview', lastSel=1;
 // The rail is persistent (you reach for tools constantly); only the ledger and the
 // weather strip swap by step.
+/* The wind calendar is a rail tool now, so the tab no longer decides whether its
+   strip is up — you do. The tab only decides whether it is ALLOWED up (it means
+   nothing on Setup or Brief), and it was covering the mandatory scale bar. */
 const TAB_SHOW={setup:{setup:1},overview:{panel:1,weather:1},
   field:{panel:1,weather:1},brief:{brief:1}};
 function setTab(name){
-  const ids=['panel','setup','brief','weather'];
+  const ids=['panel','setup','brief'];
   const show=TAB_SHOW[name]||{};
   ids.forEach(id=>{const el=document.getElementById(id); if(el) el.classList.toggle('hidden',!show[id]);});
+  toggleWeather(!!show.weather && weatherWanted);
   document.querySelectorAll('#tabbar button').forEach(b=>b.classList.toggle('on',b.dataset.tab===name));
   // the draft AOI box is a Setup-only preview — hide it elsewhere so it doesn't
   // cover the map or intercept zone clicks.
@@ -1638,7 +2200,7 @@ function savePlans(a){ try{localStorage.setItem('transect_plans',JSON.stringify(
 function currentPlan(name, withDoc){
   const p={id:uuid(), name:name||PLAN_NAME||('Plan '+new Date().toLocaleDateString()), savedAt:Date.now(),
     aoi:(DOC.meta&&DOC.meta.title)||'', units:UNITS,
-    setup:{center:draft.center.slice(),radius:draft.radius,walkAccess:draft.walkAccess,walkHunt:draft.walkHunt,
+    setup:{center:draft.center.slice(),radius:draft.radius,walkAccess:draft.walkAccess,walkHunt:draft.walkHunt,party:draft.party,
       leaving:draft.leaving,watercraft:SETUP.watercraft,huntStyle:SETUP.huntStyle,dates:draft.dates.slice()},
     area:lastSel, annot:JSON.parse(JSON.stringify(drawSaved||[]))};
   // The computed analysis is the expensive part (3–5 min). Store it with the plan so
@@ -1652,6 +2214,7 @@ function applyPlan(p){
   const s=p.setup||{};
   draft.center=(s.center||draft.center).slice(); draft.radius=s.radius||draft.radius;
   draft.walkAccess=s.walkAccess??draft.walkAccess; draft.walkHunt=s.walkHunt??draft.walkHunt;
+  draft.party=s.party??draft.party;
   draft.leaving=s.leaving||draft.leaving;
   if(s.dates&&s.dates.length===2) draft.dates=s.dates.slice();
   SETUP.watercraft=s.watercraft||SETUP.watercraft; SETUP.huntStyle=s.huntStyle||SETUP.huntStyle;
@@ -1810,8 +2373,12 @@ function exportWaypoints(){
     {lon:x.lon,lat:x.lat,name:LABELS[x.type]||x.type,desc:(x.properties&&x.properties.when)||''}));
   (DOC.camps||[]).forEach(c=>w.push({lon:c.site.lon,lat:c.site.lat,name:'Camp '+c.id,desc:'base camp'}));
   (DOC.waypoints||[]).filter(x=>x.type==='parking').forEach(x=>w.push({lon:x.lon,lat:x.lat,name:'Vehicle staging',desc:'leave the truck here'}));
-  (DOC.crossings||[]).forEach(c=>w.push({lon:c.ll[0],lat:c.ll[1],
-    name:(c.kind==='river'?'River':'Stream')+' crossing',desc:c.kind==='river'?'needs a boat':'fordable on foot'}));
+  // A bridged crossing is not a waypoint worth carrying into the field; the other
+  // two are, and each says how confident the call is.
+  (DOC.crossings||[]).filter(c=>c.kind!=='bridge').forEach(c=>w.push({lon:c.ll[0],lat:c.ll[1],
+    name:(c.kind==='ford'?'Ford':'Water crossing'),
+    desc:(c.kind==='ford'?'fordable on foot':'assume you need a boat')
+         +(c.basis==='inferred'?' (inferred — verify on the ground)':'')}));
   (drawSaved||[]).filter(f=>f.geometry.type==='Point').forEach((f,i)=>w.push(
     {lon:f.geometry.coordinates[0],lat:f.geometry.coordinates[1],name:f.properties.label||('Waypoint '+(i+1)),desc:'my mark'}));
   return w;
@@ -1864,4 +2431,345 @@ function initExport(){
     menu.classList.add('hidden');
   });
   document.addEventListener('click',e=>{ if(!menu.contains(e.target)&&e.target!==btn) menu.classList.add('hidden'); });
+}
+
+/* ---------------------------------------------------------------------------
+   §4 — VIEW RAIL SURFACES: model surface card, area statistics, tool readouts.
+--------------------------------------------------------------------------- */
+function fitAOI(){
+  if(!DOC.blank && (DOC.areas||[]).length)
+    map.fitBounds(bbox(DOC.areas),{padding:{top:80,left:400,right:200,bottom:120},duration:600});
+  else if(DOC.box) map.fitBounds([[DOC.box.w,DOC.box.s],[DOC.box.e,DOC.box.n]],{padding:70,duration:600});
+}
+
+/* --- Model surface card -----------------------------------------------------
+   The value ramp legend lives IN this card, not floating on the map, because it
+   is only meaningful while the surface is on. And the card has to say out loud
+   that holes are EXCLUDED, not low-scoring: a hole is an admission of
+   ignorance, and excluded ground must never look like low-scoring ground. */
+let surfMode='banded', surfMin=0, surfOpacity=0.55;
+const RAMP=[['#FFD400','Low','.30'],['#FF8C00','Medium','.55'],['#E2231A','High','.75']];
+function buildSurfDock(){
+  const d=document.getElementById('surfDock');
+  const on=LAYERS.filter(r=>r.hz).some(r=>r.on);
+  d.innerHTML=`<div class="dhead"><h4>${t('surf.title','Model surface')}</h4>
+      <button class="dclose" title="Close">✕</button></div>
+    <div class="dbody">
+      <label class="drow drow--sw"><span>${t('surf.show','Show huntability')}</span>
+        <input type="checkbox" id="surfOn" ${on?'checked':''}></label>
+      <div class="grouplabel">${t('surf.ramp','VALUE RAMP')}</div>
+      <div class="ramp">${RAMP.map(([hex,lab,v])=>
+        `<div class="ramprow"><i style="background:${hex}"></i><span>${lab}</span><b>${v}</b></div>`).join('')}</div>
+      <div class="seg" id="surfSeg">
+        <button data-m="banded" class="${surfMode==='banded'?'on':''}">${t('surf.banded','Banded')}</button>
+        <button data-m="cont" class="${surfMode==='cont'?'on':''}">${t('surf.cont','Continuous')}</button>
+      </div>
+      <label class="drow"><span>${t('surf.hide','Hide below')}</span>
+        <input type="range" id="surfMin" min="0" max="90" value="${surfMin}">
+        <b id="surfMinV">${surfMin?('.'+String(surfMin).padStart(2,'0')):t('surf.none','none')}</b></label>
+      <label class="drow"><span>${t('surf.op','Opacity')}</span>
+        <input type="range" id="surfOp" min="10" max="100" value="${Math.round(surfOpacity*100)}">
+        <b>${Math.round(surfOpacity*100)}%</b></label>
+      <p class="dnote">${t('surf.holes',
+        'Holes in the surface are <b>excluded</b> ground — deep water, road corridors, outfitter tenure — not low scores. Excluded is not the same as bad, and the model refuses to guess there.')}</p>
+    </div>`;
+  d.querySelector('.dclose').onclick=()=>closeDocks();
+  d.querySelector('#surfOn').onchange=e=>{
+    LAYERS.filter(r=>r.hz).forEach(r=>{r.on=e.target.checked;});
+    applyHuntZoneFilter(); buildLayersDock(); refreshLayerHeader(); refreshLayersPill();
+  };
+  d.querySelectorAll('#surfSeg button').forEach(b=>b.onclick=()=>{
+    surfMode=b.dataset.m; buildSurfDock(); openDock('surfDock','viewSurface'); applyHuntZoneFilter();
+  });
+  d.querySelector('#surfMin').oninput=e=>{
+    surfMin=+e.target.value;
+    d.querySelector('#surfMinV').textContent=surfMin?('.'+String(surfMin).padStart(2,'0')):t('surf.none','none');
+    applyHuntZoneFilter();
+  };
+  d.querySelector('#surfOp').oninput=e=>{
+    surfOpacity=+e.target.value/100; groupOpacity['MODEL ZONES']=surfOpacity;
+    LAYERS.filter(r=>r.group==='MODEL ZONES').forEach(applyLayer);
+    e.target.nextElementSibling.textContent=e.target.value+'%';
+  };
+}
+
+/* --- Area statistics --------------------------------------------------------
+   Follows the cursor at a 16px offset and flips at the viewport edges. The
+   confidence gauge travels WITH the number, always — a score shown without its
+   confidence is the most misleading thing this interface could put on screen. */
+let statsOn=false;
+function buildStatsCard(){
+  if(document.getElementById('statsCard')) return;
+  const el=document.createElement('div');
+  el.id='statsCard'; el.className='hidden';
+  document.body.appendChild(el);
+  map.on('mousemove',e=>{ if(statsOn) moveStats(e); });
+  map.on('mouseout',()=>hideStats());
+}
+function hideStats(){ document.getElementById('statsCard')?.classList.add('hidden'); }
+function moveStats(e){
+  const el=document.getElementById('statsCard'); if(!el) return;
+  const hit=map.queryRenderedFeatures(e.point,{layers:['huntZones','areas-fill'].filter(l=>map.getLayer(l))});
+  const a=areaUnderPoint(e.lngLat);
+  if(!a && !hit.length){ el.classList.add('hidden'); return; }
+  el.innerHTML=statsHTML(a);
+  el.classList.remove('hidden');
+  const r=el.getBoundingClientRect(), pad=16;
+  let x=e.originalEvent.clientX+pad, y=e.originalEvent.clientY+pad;
+  if(x+r.width  > innerWidth -8) x=e.originalEvent.clientX-r.width -pad;
+  if(y+r.height > innerHeight-8) y=e.originalEvent.clientY-r.height-pad;
+  el.style.left=Math.max(8,x)+'px'; el.style.top=Math.max(8,y)+'px';
+}
+function areaUnderPoint(ll){
+  let best=null;
+  (DOC.areas||[]).forEach(a=>{ if(a.geometry && ptInPoly([ll.lng,ll.lat],a.geometry)) best=a; });
+  return best;
+}
+function ptInPoly(p,geom){
+  const rings=geom.type==='Polygon'?geom.coordinates:(geom.coordinates||[]).flat(1);
+  let inside=false;
+  (rings[0]?[rings[0]]:[]).concat(geom.type==='MultiPolygon'?geom.coordinates.map(c=>c[0]):[]).forEach(ring=>{
+    for(let i=0,j=ring.length-1;i<ring.length;j=i++){
+      const xi=ring[i][0],yi=ring[i][1],xj=ring[j][0],yj=ring[j][1];
+      if(((yi>p[1])!==(yj>p[1])) && (p[0]<(xj-xi)*(p[1]-yi)/(yj-yi)+xi)) inside=!inside;
+    }
+  });
+  return inside;
+}
+/* the five weighted factors, straight off the engine's own methodology so the
+   card can never drift from what the model actually did */
+const FACTOR_W=[['Browse / burn regen',0.35],['Water & wetland',0.25],
+                ['Security & thermal cover',0.20],['Terrain',0.10],['Cover↔opening edge',0.10]];
+function statsHTML(a){
+  if(!a) return `<div class="scap">${t('stats.cap','AREA STATISTICS')}</div>
+    <div class="snone">${t('stats.none','Outside a ranked area — the model scores the raster here but did not cluster it into a focus area.')}</div>`;
+  const c=a.conf||{}, pct=Math.round((c.score||0)*100);
+  return `<div class="scap">${t('stats.cap','AREA STATISTICS')}<span>#${a.rank} · ${a.area_km2} km²</span></div>
+    <div class="sscore"><b>${(a.huntability||0).toFixed(3).replace(/^0/,'')}</b>
+      <span class="sbar"><i style="width:${Math.round((a.huntability||0)*100)}%"></i></span></div>
+    <div class="sfact">${FACTOR_W.map(([n,w])=>
+      `<div><span>${n}</span><i style="width:${w*100*2.4}px"></i><b>${Math.round(w*100)}%</b></div>`).join('')}</div>
+    <div class="sconf"><span>${t('stats.conf','CONFIDENCE')}</span>
+      <span class="sgauge"><i style="width:${pct}%"></i></span><b>${pct}% ${c.band||''}</b></div>
+    <div class="snote">${(c.drivers||[])[0]||''}</div>`;
+}
+
+/* --- Tool readout -----------------------------------------------------------
+   A measurement always states its assumption. A bare "1:56" invites trust the
+   model cannot promise. */
+function drawReadout(){
+  if(!drawPts.length) return null;
+  if(drawTool==='dist'||drawTool==='line'||drawTool==='route'){
+    const km=polyKm(drawPts);
+    const h=km/2.5, hh=Math.floor(h), mm=Math.round((h-hh)*60);
+    return {tiles:[UNITS==='imperial'?(km*0.621371).toFixed(2)+' mi':km.toFixed(2)+' km',
+                   `${hh}:${String(mm).padStart(2,'0')} h`],
+            note:t('tip.assume','Estimated at 2.5 km/h bushwhack. A loaded pack-out is roughly half that.')};
+  }
+  if(drawTool==='area'&&drawPts.length>2)
+    return {tiles:[areaFmt(ringKm2(drawPts))],note:t('tip.areaAssume','Spherical area of the ring as drawn.')};
+  return null;
+}
+
+/* ---------------------------------------------------------------------------
+   JOB POLLING — resilient by default.
+
+   What went wrong on 2026-08-04: the engine pegs a core for the length of a run,
+   and while it did, one poll came back as a Caddy 502 ("EOF" on a reused
+   keep-alive connection). A proxy-generated 502 carries no CORS headers, so the
+   browser rejects it outright and `fetch` rejects — which the old single-`.catch`
+   poller treated as fatal. It threw away a run that was still computing fine on
+   the server, and said "Lost connection to the engine."
+
+   A poll failure is almost never the end of a run. So: retry with backoff, only
+   give up after a sustained outage, and keep the job id so the run can be
+   rejoined after a give-up or a page reload.
+--------------------------------------------------------------------------- */
+const JOB_KEY='transect_job';
+const POLL_MS=2500, POLL_GIVEUP_MS=180000;   // 3 min of consecutive failures
+function rememberJob(id){ try{localStorage.setItem(JOB_KEY,JSON.stringify({id,at:Date.now()}));}catch(e){} }
+function forgetJob(){ try{localStorage.removeItem(JOB_KEY);}catch(e){} }
+function storedJob(){
+  try{
+    const j=JSON.parse(localStorage.getItem(JOB_KEY)||'null');
+    // a job older than two hours is not worth rejoining; the engine drops it on restart
+    if(j&&j.id&&Date.now()-j.at<7200000) return j.id;
+  }catch(e){}
+  return null;
+}
+function pollJob(jid,headers,STAGE,stop,setBtn,line,onHead){
+  let failedSince=0;
+  const tick=()=>{
+    fetch(API_URL+'/jobs/'+jid,{headers,cache:'no-store'})
+      .then(r=>{
+        // 5xx from the proxy means the engine was too busy to answer, not that the
+        // run died. Treat it as a retry, exactly like a dropped connection.
+        if(r.status>=500) throw new Error('upstream '+r.status);
+        return r.json();
+      })
+      .then(s=>{
+        failedSince=0;
+        if(s.status==='done'){
+          stop(); forgetJob(); setBtn('RUN ANALYSIS →',false); applyDoc(s.scout);
+          // a finished run should present its result: Overview, with the layers card
+          // showing what was drawn — even if it was dismissed earlier during Setup.
+          layersDismissed=false; setTab('overview'); syncDocks('overview');
+        } else if(s.status==='error'){
+          stop(); forgetJob(); setBtn('RUN ANALYSIS →',false);
+          alert('Analysis failed: '+(s.error||'unknown'));
+        } else if(s.status==='unknown'){
+          stop(); forgetJob(); setBtn('RUN ANALYSIS →',false);
+          alert('The engine restarted — please run again.');
+        } else {
+          const st=s.stage||'', nm=STAGE[st]||st;
+          // acquire has no sub-progress to report, so say what it's doing, not 0%
+          const head=(st==='acquire') ? `ANALYSING… ${nm}`
+            : `ANALYSING… ${nm} · ${Math.round((s.progress||0)*100)}%`;
+          onHead(head); setBtn(line(head),true); setTimeout(tick,POLL_MS);
+        }
+      })
+      .catch(()=>{
+        const now=Date.now();
+        if(!failedSince) failedSince=now;
+        const out=now-failedSince;
+        if(out>POLL_GIVEUP_MS){
+          stop(); setBtn('RUN ANALYSIS →',false);
+          alert('The engine stopped answering for three minutes.\n\n'+
+                'Your analysis is probably still running — reload the page and it will '+
+                'reconnect to it automatically.');
+          return;
+        }
+        // say so on the button rather than silently stalling, and back off
+        const head=`ANALYSING… reconnecting (${Math.round(out/1000)}s)`;
+        onHead(head); setBtn(line(head),true);
+        setTimeout(tick,Math.min(POLL_MS*Math.ceil(out/10000+1),10000));
+      });
+  };
+  tick();
+}
+/* On load, rejoin a run that was still going when the page went away. */
+function resumeJob(){
+  const jid=storedJob(); if(!jid) return;
+  const hdr=authTok()?{'Authorization':'Bearer '+authTok()}:{};
+  fetch(API_URL+'/jobs/'+jid,{headers:hdr,cache:'no-store'}).then(r=>r.json()).then(s=>{
+    if(!s||s.status==='unknown'||s.status==='error'){ forgetJob(); return; }
+    if(s.status==='done'){
+      forgetJob(); applyDoc(s.scout); layersDismissed=false; setTab('overview'); syncDocks('overview');
+      return;
+    }
+    setTab('setup');
+    const setBtn=(t,d)=>{const b=document.getElementById('runBtn'); if(b){b.textContent=t;b.disabled=!!d;}};
+    const line=t=>t;
+    const STAGE={acquire:'fetching terrain, imagery, burns & hydro',terrain:'terrain analysis',
+      habitat:'habitat model',behavior:'behavioural surfaces',access:'access & pack-out',
+      synth:'placing areas & sites',contract:'building your plan'};
+    pollJob(jid,hdr,STAGE,()=>{},setBtn,line,()=>{});
+  }).catch(()=>{});
+}
+
+/* ---------------------------------------------------------------------------
+   HOVER IDENTIFY — "what am I looking at?"
+   Every drawn thing on this map is a claim, and a claim you can't name is worse
+   than one you can't see. Hovering any feature names it, says which legend row
+   it belongs to, and gives the one fact that matters for that kind. The feature
+   under the cursor also lifts, so the label and the geometry can't be mismatched.
+--------------------------------------------------------------------------- */
+const IDENTIFY = [
+  // order matters: points first, so a site beats the polygon under it
+  {lyr:'sites',        row:p=>SITE_ROW[p.type], title:p=>SITE_LABEL[p.type]||p.type||'Hunt site',
+                       sub:p=>p.when||''},
+  {lyr:'camps',        row:'camps2',   title:()=>'Base camp',  sub:p=>p.anchor?`${p.anchor} access`:''},
+  {lyr:'staging',      row:'staging',  title:p=>p.is_camp?'Staging — and your camp':'Staging / parking',
+                       sub:p=>p.walk_km!=null?`leave the truck here — ~${p.walk_km} km walk to the area`
+                                             :'where you leave the truck'},
+  {lyr:'shooters',     row:'shooters', title:()=>'Shooter position',
+                       sub:()=>'~70 m downwind of the caller'},
+  {lyr:'crossings',    row:'crossings',
+                       title:p=>CROSS_LABEL[p.kind]||CROSS_LABEL.boat,
+                       chip:p=>CROSS_CHIP[p.kind]||CROSS_CHIP.boat,
+                       // basis is the whole point: say whether we checked or guessed
+                       sub:p=>[(p.why||''),
+                               p.basis==='measured'?'Measured from mapped road data.'
+                                                   :'Inferred from the waterway class alone — no width or ford data ships here.',
+                               p.route?`On the ${p.route.replace('route_','')} leg.`:''
+                              ].filter(Boolean).join(' ')},
+  {lyr:'huntZones',    row:null,       title:p=>(HUNT_CLS[p.cls]||{}).label||'Likelihood band',
+                       sub:p=>`${p.area_km2} km² · model band, no surveyed edge`},
+  {lyr:'refugeZones',  row:'refuge',   title:()=>'Thermal refuge',   sub:p=>`${p.area_km2} km²`},
+  {lyr:'browseZones',  row:'browse',   title:()=>'Browse / feeding', sub:p=>`${p.area_km2} km²`},
+  {lyr:'burnZones',    row:'burns',    title:p=>`Burn regeneration · ${p.cls||''}`, sub:p=>`${p.area_km2} km²`},
+  {lyr:'funnelZones',  row:'funnel',   title:()=>'Funnel / pass',    sub:p=>`${p.area_km2} km²`},
+  {lyr:'tenureBlocked',row:'tenure',   title:()=>'Closed to you',    sub:p=>p.name||'outfitter / reserve tenure'},
+  {lyr:'tenureZones-line-ok', row:'tenure-ok', title:()=>'Bookable — register first',
+                       sub:p=>(p.name?p.name+' — ':'')+'you may hunt here, but it is a ZEC or réserve faunique: daily registration or a reservation is required.'},
+  {lyr:'areas-fill',   row:'areas',    title:p=>`Focus area ${p.rank}`,
+                       sub:p=>`${p.area_km2} km² · score ${p.mean_huntability}`},
+  {lyr:'route-best',   row:'routes',   title:()=>'Hunt line',        sub:()=>'camp → stand, least-cost on foot'},
+  {lyr:'route-hot',    row:'routes',   title:()=>'Midday line',      sub:()=>'camp → thermal refuge'},
+  {lyr:'route-access', row:'access',   title:()=>'Access leg',       sub:()=>'staging point → this focus area'},
+  {lyr:'roads',        row:'roads',    title:p=>p.name||'Road',      sub:p=>p.highway||''},
+  {lyr:'rivers',       row:'water',    title:p=>p.name||'Watercourse',sub:()=>'mapped hydrography (OSM)'},
+  {lyr:'lakes',        row:'water',    title:p=>p.name||'Waterbody', sub:()=>'mapped hydrography (OSM)'}
+];
+const SITE_ROW={rut_calling:'st-rut',saline_blind:'st-saline',glassing:'st-glass',
+  validate_ground:'st-ground'};
+const SITE_LABEL={rut_calling:'Rut / calling stand',thermal_refuge:'Thermal refuge',
+  saline_blind:'Saline / feeding',funnel:'Funnel / pass',glassing:'Glassing knob',
+  validate_ground:'Ground-truth check',base_camp:'Base camp',parking:'Staging / parking'};
+let idHover=null;
+function buildIdentify(){
+  if(document.getElementById('idCard')) return;
+  const el=document.createElement('div');
+  el.id='idCard'; el.className='hidden';
+  document.body.appendChild(el);
+  map.on('mousemove',e=>{
+    // A tool owns the cursor. Identifying features while someone is placing
+    // measurement points fights them for the pointer and buries the readout.
+    if(drawTool){ clearIdentify(); return; }
+    const live=IDENTIFY.filter(d=>map.getLayer(d.lyr) &&
+      map.getLayoutProperty(d.lyr,'visibility')!=='none');
+    const hits=map.queryRenderedFeatures(
+      [[e.point.x-4,e.point.y-4],[e.point.x+4,e.point.y+4]],
+      {layers:live.map(d=>d.lyr)});
+    if(!hits.length){ clearIdentify(); return; }
+    // honour IDENTIFY order (points before polygons), not paint order
+    const def=live.find(d=>hits.some(h=>h.layer.id===d.lyr));
+    const f=hits.find(h=>h.layer.id===def.lyr);
+    const p=f.properties||{};
+    const rk=typeof def.row==='function'?def.row(p):def.row;
+    const row=rk?LAYERS.find(r=>r.k===rk):null;
+    const sub=(def.sub&&def.sub(p))||'';
+    el.innerHTML=
+      `<div class="idhead">${row?iconBadge(row.icon,row.hex,18,def.chip&&def.chip(p)):''}
+         <span>${def.title(p)}</span></div>`+
+      (sub?`<div class="idsub">${sub}</div>`:'')+
+      (row?`<div class="idrow">${row.name}</div>`:'');
+    el.classList.remove('hidden');
+    const r=el.getBoundingClientRect(), pad=14, cx=e.originalEvent.clientX, cy=e.originalEvent.clientY;
+    let x=cx+pad, y=cy+pad;
+    if(x+r.width  > innerWidth -8) x=cx-r.width -pad;
+    if(y+r.height > innerHeight-8) y=cy-r.height-pad;
+    el.style.left=Math.max(8,x)+'px'; el.style.top=Math.max(8,y)+'px';
+    map.getCanvas().style.cursor='pointer';
+    if(idHover!==def.lyr){ if(idHover) emphasiseMapLayer(idHover,false);
+      emphasiseMapLayer(def.lyr,true); idHover=def.lyr; }
+  });
+  map.on('mouseout',clearIdentify);
+}
+function clearIdentify(){
+  const el=document.getElementById('idCard'); if(el) el.classList.add('hidden');
+  if(idHover){ emphasiseMapLayer(idHover,false); idHover=null; }
+  if(!drawTool) map.getCanvas().style.cursor='';
+}
+/* lift the hovered layer so the label and the geometry can't disagree */
+function emphasiseMapLayer(id,on){
+  if(!map.getLayer(id)) return;
+  const t=map.getLayer(id).type;
+  try{
+    if(t==='fill') map.setPaintProperty(id,'fill-opacity',on?1:(id==='areas-fill'?0.10:0.9));
+    else if(t==='line') map.setPaintProperty(id,'line-width',
+      on?(id==='roads'?3.4:4):(id==='route-best'?2.4:2));
+    else if(t==='symbol') map.setPaintProperty(id,'icon-opacity',on?1:0.95);
+    else if(t==='circle') map.setPaintProperty(id,'circle-opacity',on?1:0.9);
+  }catch(e){}
 }

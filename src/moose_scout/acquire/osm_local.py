@@ -33,7 +33,7 @@ osm_id=yes
 attributes=highway,waterway,railway,natural,water,landuse
 [multipolygons]
 osm_id=yes
-attributes=natural,water,landuse,waterway
+attributes=natural,water,landuse,waterway,building,leisure,amenity
 [multilinestrings]
 osm_id=yes
 attributes=waterway,railway
@@ -54,6 +54,15 @@ _LAYERS = {
     "rail": ("lines", "railway IN ('rail','narrow_gauge','light_rail')"),
     "waterways": ("lines", "waterway IN ('river','stream','canal','tidal_channel','rapids')"),
     "waterbodies": ("multipolygons", "natural = 'water' OR landuse = 'reservoir'"),
+    # Developed ground. NOT a cadastre — Québec parcel data isn't open (the MSP WMS
+    # refuses it, Données Québec doesn't carry it, and the assessment-unit layer is
+    # Montréal-only). But you cannot hunt private land, so ignoring it entirely is
+    # worse than an honest inference: mapped residential/farm/industrial landuse and
+    # building footprints are almost certainly private or occupied.
+    "builtup": ("multipolygons",
+                "landuse IN ('residential','farmland','farmyard','industrial','commercial',"
+                "'retail','quarry','cemetery','allotments','village_green','recreation_ground') "
+                "OR building IS NOT NULL OR leisure IN ('park','golf_course')"),
 }
 
 
@@ -158,6 +167,9 @@ DRIVE_WHERE = ("highway IN ('motorway','trunk','primary','secondary','tertiary',
 RAIL_WHERE = "railway IN ('rail','narrow_gauge','light_rail')"
 WATERLINE_WHERE = "waterway IN ('river','stream','canal','tidal_channel','rapids')"
 WATERPOLY_WHERE = "natural = 'water' OR landuse = 'reservoir'"
+BUILTUP_WHERE = ("landuse IN ('residential','farmland','farmyard','industrial','commercial',"
+                 "'retail','quarry','cemetery','allotments','village_green','recreation_ground') "
+                 "OR building IS NOT NULL OR leisure IN ('park','golf_course')")
 
 
 def _get(bbox, name, layer, where):
@@ -181,3 +193,8 @@ def waterways(bbox):
 
 def waterbodies(bbox):
     return _get(bbox, "waterbodies", "multipolygons", WATERPOLY_WHERE)
+
+
+def builtup(bbox):
+    """Developed / likely-private ground. An inference, not a cadastre — label it so."""
+    return _get(bbox, "builtup", "multipolygons", BUILTUP_WHERE)

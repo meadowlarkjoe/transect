@@ -33,6 +33,7 @@
   --panel-w:380px; --dock-w:296px; --rail-w:46px; --bar-h:52px;
   --e-panel:0 6px 24px #0008; --e-pop:0 12px 34px #000b; --e-modal:0 20px 60px #000c;
   --focus:0 0 0 2px var(--bg),0 0 0 4px var(--accent);
+  --blur:blur(10px);
   /* legacy aliases still referenced in places */
   --panel:var(--surface); --panel2:var(--surface-2); --muted:var(--text-2);
 }
@@ -234,21 +235,58 @@ input[type=range]:focus{box-shadow:none;border:0}
 /* ==========================================================================
    RIGHT ICON RAIL + floating cards anchored to their button
    ========================================================================== */
-#rail{position:absolute;z-index:7;top:calc(var(--bar-h) + 10px);right:10px;
-  width:var(--rail-w);background:var(--surface);border:1px solid var(--line);
-  border-radius:var(--r-lg);box-shadow:var(--e-panel);padding:5px;
-  display:flex;flex-direction:column;gap:3px}
-#rail button{position:relative;width:36px;height:36px;display:grid;place-items:center;
-  background:transparent;border:0;border-radius:var(--r-md);color:var(--text-2);
-  cursor:pointer;font-size:15px;line-height:1}
-#rail button:hover{background:var(--surface-2);color:var(--text)}
-#rail button.on{background:var(--accent);color:var(--accent-on)}
-#rail .sep{height:1px;background:var(--line);margin:3px 2px}
-#rail button::after{content:attr(data-tip);position:absolute;right:calc(100% + 9px);top:50%;
-  transform:translateY(-50%);white-space:nowrap;background:var(--surface-3);color:var(--text);
-  border:1px solid var(--line-2);border-radius:var(--r-sm);padding:5px 8px;
-  font:500 11px/1 var(--sans);opacity:0;pointer-events:none;transition:opacity .12s}
-#rail button:hover::after{opacity:1}
+/* SYMBOLOGY §4 anchoring table — these numbers are the spec, not taste:
+     tool rail      right:12 top:76, width 46, persistent
+     tooltip        right:54, top aligned to the hovered button's OWN row
+     view rail      right:12, directly under the tool rail
+     layers card    left:420 top:142 (under the Layers pill)
+     basemap card   right:70 bottom:12 (beside the SAT chip)
+     surface card   right:70, aligned to its rail button
+     area stats     follows cursor, 16px offset, flips at edges
+     scale bar      left:404 bottom:12, mandatory, never in a rail          */
+/* The two rails stack in one flex column so the view rail follows whatever
+   height the tool rail actually has — hard-coding its top broke the moment the
+   tool rail gained a button. */
+#railStack{position:absolute;z-index:24;right:12px;top:76px;display:flex;
+  flex-direction:column;gap:8px;align-items:flex-end}
+#rail,#viewRail{width:var(--rail-w);background:var(--surface);backdrop-filter:var(--blur);
+  border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--e-panel);overflow:hidden}
+#rail .railcap{text-align:center;padding:7px 0 6px;font:600 8.5px/1 var(--mono);
+  letter-spacing:.16em;color:var(--text-3);border-bottom:1px solid var(--line)}
+#rail button,#viewRail button{width:100%;height:40px;display:grid;place-items:center;
+  background:transparent;border:0;color:var(--text-2);cursor:pointer}
+#viewRail button+button{border-top:1px solid var(--line)}
+#rail button:hover,#viewRail button:hover{background:var(--surface-2);color:var(--text)}
+#rail button.on,#viewRail button.on{background:var(--accent);color:var(--accent-on)}
+#rail .sep{height:1px;background:var(--line)}
+
+/* Layers pill — its own door, beside the sidebar. */
+#layersPill{position:absolute;z-index:22;left:420px;top:88px;display:flex;align-items:center;
+  gap:10px;background:var(--surface);backdrop-filter:var(--blur);border:1px solid var(--line);
+  border-radius:9px;box-shadow:var(--e-panel);padding:8px 14px 8px 12px;cursor:pointer;
+  color:var(--text);user-select:none}
+#layersPill:hover{border-color:var(--line-2)}
+#layersPill.on{border-color:var(--accent)}
+#layersPill.on .pname{color:var(--accent-hi)}
+#layersPill .bars{display:grid;gap:2px;width:15px}
+#layersPill .bars i{height:2px;border-radius:1px;background:currentColor}
+#layersPill .bars i:nth-child(2){opacity:.65}
+#layersPill .bars i:nth-child(3){opacity:.35}
+#layersPill .pcap{display:block;font:500 8.5px/1 var(--mono);letter-spacing:.18em;color:var(--text-3)}
+#layersPill .pname{display:block;font:600 13px/1.2 var(--sans);margin-top:3px}
+#layersPill .pcount{font:400 10px/1 var(--mono);color:var(--text-3);margin-left:2px}
+
+/* Tooltip / live readout — 236px, right:54, aligned to its own button's row. */
+#railTip{position:absolute;z-index:25;right:54px;width:236px;background:var(--surface-3);
+  border:1px solid var(--line-2);border-radius:var(--r-md);box-shadow:var(--e-pop);
+  padding:10px 12px;pointer-events:none}
+#railTip .tipname{font:600 11.5px/1.3 var(--sans);color:var(--text);margin-bottom:4px}
+#railTip .tipnote{font:400 11px/1.5 var(--sans);color:var(--text-2);text-wrap:pretty}
+#railTip .tipcap{display:flex;justify-content:space-between;font:600 8.5px/1 var(--mono);
+  letter-spacing:.16em;color:var(--text-3);margin-bottom:8px}
+#railTip .tiptiles{display:flex;gap:6px;margin-bottom:7px}
+#railTip .tiptiles span{flex:1;background:var(--surface-2);border-radius:var(--r-sm);
+  padding:7px 8px;font:500 13px/1 var(--mono);color:var(--text)}
 
 .dock{position:absolute;z-index:8;width:var(--dock-w);background:var(--surface);
   border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--e-pop);
@@ -329,10 +367,25 @@ input[type=range]:focus{box-shadow:none;border:0}
 /* ==========================================================================
    MAP CONTROLS (bottom-right stack)
    ========================================================================== */
-#mapctl{position:absolute;z-index:6;right:10px;bottom:14px;display:flex;flex-direction:column;gap:6px}
-#mapctl button{width:var(--rail-w);height:36px;background:var(--surface);border:1px solid var(--line);
-  border-radius:var(--r-md);color:var(--text-2);cursor:pointer;font:500 11px/1 var(--mono);
-  letter-spacing:.08em;box-shadow:var(--e-panel)}
+#mapctl{position:absolute;z-index:24;right:12px;bottom:12px;display:flex;flex-direction:column;
+  gap:8px;align-items:flex-end}
+#mapctl>button{width:var(--rail-w);height:var(--rail-w);background:var(--surface);
+  backdrop-filter:var(--blur);border:1px solid var(--line);border-radius:var(--r-lg);
+  color:var(--text);cursor:pointer;font:500 11px/1 var(--mono);letter-spacing:.08em;
+  box-shadow:var(--e-panel);display:grid;place-items:center}
+#mcN{border-radius:50%!important;font-weight:600}
+#mapctl .zoomcard{width:var(--rail-w);background:var(--surface);backdrop-filter:var(--blur);
+  border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--e-panel);overflow:hidden}
+#mapctl .zoomcard button{width:100%;height:40px;background:transparent;border:0;color:var(--text);
+  font:400 17px/1 var(--mono);cursor:pointer}
+#mapctl .zoomcard button+button{border-top:1px solid var(--line)}
+#mapctl .zoomcard button:hover:not([disabled]){background:var(--surface-2)}
+#mapctl .zoomcard button[disabled]{opacity:.3;cursor:default}
+#mapctl .satchip{height:auto!important;padding:7px 0;line-height:1}
+#mapctl .satchip b{display:block;font:500 9px/1 var(--mono);letter-spacing:.1em}
+#mapctl .satchip i{display:block;font:600 9.5px/1 var(--mono);color:var(--text-3);margin-top:4px;font-style:normal}
+#mapctl .satchip.on{background:var(--accent-tint);border-color:var(--accent)}
+#mapctl .satchip.on b{color:var(--accent-hi)}
 #mapctl button:hover{color:var(--text);border-color:var(--line-2)}
 #mapctl button.on{background:var(--accent);color:var(--accent-on);border-color:var(--accent)}
 
@@ -432,3 +485,125 @@ input[type=range]:focus{box-shadow:none;border:0}
 /* language picker in the top bar */
 .langseg{width:auto;flex:0 0 auto;padding:2px;gap:2px}
 .langseg>button{padding:5px 9px;font:600 10.5px/1 var(--mono);letter-spacing:.08em;min-width:32px}
+
+/* ==========================================================================
+   LAYER ROW — SYMBOLOGY §3.  16px toggle · 34px preview · label(1fr, TRUNCATES) · count
+   The label must never wrap: "Burn regeneration" and "Outfitter / tenure" have to
+   truncate cleanly at 296px.
+   ========================================================================== */
+.layer-row{display:grid;grid-template-columns:16px 34px 1fr auto;gap:10px;
+  align-items:center;padding:7px 12px;cursor:pointer}
+.layer-row:hover{background:var(--surface-2)}
+.layer-row .lmeta{min-width:0}
+.layer-row .name{display:block;font:400 12px/1.2 var(--sans);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.layer-row .note{display:block;font:400 10px/1.35 var(--sans);color:var(--text-3);margin-top:2px}
+.layer-row .count{font:500 10px/1 var(--mono);color:var(--text-4);white-space:nowrap}
+.layer-row input[type=checkbox]{accent-color:var(--accent);width:14px;height:14px;margin:0}
+/* off ≠ disabled — still clickable, just quieter */
+.layer-row[data-state="off"] .name{color:var(--text-3)}
+.layer-row[data-state="off"] .lp{opacity:.38}
+/* the source ships zero geometry for this AOI — the honesty guarantee, made visible */
+.layer-row[data-state="nodata"]{opacity:.45;cursor:default}
+.layer-row[data-state="nodata"] .count{color:var(--danger-fg)}
+/* nothing analysed yet — a DIFFERENT claim from "no data" */
+.layer-row[data-state="pending"]{opacity:.5;cursor:default}
+.layer-row:hover .lp{box-shadow:0 0 0 2px color-mix(in srgb,var(--c,#CBD5DA) 40%,transparent)}
+
+/* previews — generated by the same function as the map paint */
+.lp{width:34px;height:20px;border-radius:var(--r-xs);overflow:hidden;flex:0 0 auto}
+.lp--fill{display:block}
+.lp--line{display:grid;place-items:center;border-radius:0}
+.lp--line>i{display:block;width:30px;height:0}
+.lp--point{display:grid;place-items:center;background:none}
+
+/* waypoint badge — pictogram carries the type, colour carries the convention */
+.wpb{display:grid;place-items:center;border-radius:8px;
+  box-shadow:0 0 0 1.5px var(--halo),0 1px 4px #0009;transition:transform .12s}
+.wpb svg{display:block}
+
+/* group header — tri-state master, live n/total, per-group opacity */
+.grouphead2{display:grid;grid-template-columns:auto 1fr auto 64px;gap:8px;align-items:center;
+  padding:11px 12px 5px}
+.grouphead2 .glabel{font:600 9.5px/1.2 var(--mono);letter-spacing:.16em;color:var(--text-3)}
+.grouphead2 .gcount{font:500 9.5px/1 var(--mono);color:var(--text-4)}
+.grouphead2 .master{width:15px;height:15px;border-radius:3px;border:1px solid var(--line-2);
+  background:var(--bg);color:var(--accent-on);font:700 10px/1 var(--sans);cursor:pointer;
+  display:grid;place-items:center;padding:0}
+.grouphead2 .master[data-tri="all"]{background:var(--accent);border-color:var(--accent)}
+.grouphead2 .master[data-tri="partial"]{background:var(--accent-tint);border-color:var(--accent);color:var(--accent-hi)}
+.grouphead2 .gop{width:64px;height:3px;accent-color:var(--accent);padding:0;border:0;background:transparent}
+.dock .dhead #layOn{margin-left:auto;margin-right:8px}
+
+
+/* ==========================================================================
+   §4 — MODEL SURFACE CARD + AREA STATISTICS
+   ========================================================================== */
+.dock .drow--sw{justify-content:space-between}
+.dock .ramp{padding:2px var(--s-3) 8px}
+.dock .ramprow{display:grid;grid-template-columns:22px 1fr auto;gap:9px;align-items:center;
+  padding:4px 0;font:400 11.5px/1.2 var(--sans);color:var(--text-2)}
+.dock .ramprow i{height:12px;border-radius:3px}
+.dock .ramprow b{font:500 10px/1 var(--mono);color:var(--text-4)}
+.dock .seg{display:flex;margin:2px var(--s-3) 10px;border:1px solid var(--line);
+  border-radius:var(--r-sm);overflow:hidden}
+.dock .seg button{flex:1;padding:6px 0;background:transparent;border:0;cursor:pointer;
+  font:600 9.5px/1 var(--mono);letter-spacing:.08em;color:var(--text-2)}
+.dock .seg button.on{background:var(--accent);color:var(--accent-on)}
+.dock .drow input[type=range]{flex:1;margin:0 10px;height:3px}
+.dock .drow b{font:500 10px/1 var(--mono);color:var(--text-4);min-width:38px;text-align:right}
+.dock .dnote{margin:0;padding:10px var(--s-3) 12px;font:400 11px/1.55 var(--sans);color:var(--text-2)}
+.dock .dnote b{color:var(--danger-fg);font-weight:600}
+
+/* Follows the cursor at 16px, flips at the edges. The confidence gauge is part
+   of the card, never a separate surface — a score without it misleads. */
+#statsCard{position:fixed;z-index:40;width:264px;pointer-events:none;background:var(--surface);
+  backdrop-filter:var(--blur);border:1px solid var(--line-2);border-radius:var(--r-lg);
+  box-shadow:var(--e-pop);padding:11px 12px 12px}
+#statsCard.hidden{display:none}
+#statsCard .scap{display:flex;justify-content:space-between;font:600 8.5px/1 var(--mono);
+  letter-spacing:.16em;color:var(--text-3);margin-bottom:9px}
+#statsCard .sscore{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+#statsCard .sscore b{font:500 26px/1 var(--mono);color:var(--text);letter-spacing:-.01em}
+#statsCard .sbar{flex:1;height:5px;border-radius:3px;background:var(--surface-3);overflow:hidden}
+#statsCard .sbar i{display:block;height:100%;background:var(--accent)}
+#statsCard .sfact div{display:grid;grid-template-columns:1fr 24px auto;gap:8px;align-items:center;
+  padding:3px 0;font:400 10.5px/1.3 var(--sans);color:var(--text-2)}
+#statsCard .sfact i{height:4px;border-radius:2px;background:var(--accent);opacity:.7;max-width:24px}
+#statsCard .sfact b{font:500 9.5px/1 var(--mono);color:var(--text-4)}
+#statsCard .sconf{display:flex;align-items:center;gap:8px;margin-top:9px;padding-top:9px;
+  border-top:1px solid var(--line);font:600 8.5px/1 var(--mono);letter-spacing:.14em;color:var(--text-3)}
+#statsCard .sgauge{flex:1;height:5px;border-radius:3px;background:var(--surface-3);overflow:hidden}
+#statsCard .sgauge i{display:block;height:100%;background:var(--warn-fg)}
+#statsCard .sconf b{font:500 9.5px/1 var(--mono);color:var(--text-2);letter-spacing:0}
+#statsCard .snote,#statsCard .snone{margin-top:7px;font:400 10.5px/1.5 var(--sans);color:var(--text-3)}
+
+/* The scale bar is mandatory and never lives in a rail. */
+.maplibregl-ctrl-bottom-left{left:404px!important;bottom:12px!important;right:auto!important;z-index:23}
+body.weather-on .maplibregl-ctrl-bottom-left{bottom:calc(var(--weather-h,170px) + 12px)!important}
+.maplibregl-ctrl-bottom-left .maplibregl-ctrl{margin:0!important}
+.maplibregl-ctrl-scale{background:var(--surface)!important;backdrop-filter:var(--blur);
+  border:1px solid var(--line)!important;border-top-width:1px!important;border-radius:var(--r-sm);
+  color:var(--text-2)!important;font:500 9.5px/1 var(--mono)!important;padding:5px 8px!important}
+
+#baseDock{width:304px}   /* §4: the basemap card is 304, not the 296 dock default */
+
+/* Hover identify — what is this thing? */
+#idCard{position:fixed;z-index:41;max-width:280px;pointer-events:none;background:var(--surface);
+  backdrop-filter:var(--blur);border:1px solid var(--line-2);border-radius:var(--r-md);
+  box-shadow:var(--e-pop);padding:9px 11px}
+#idCard.hidden{display:none}
+#idCard .idhead{display:flex;align-items:center;gap:8px;font:600 12.5px/1.25 var(--sans);color:var(--text)}
+#idCard .idsub{margin-top:5px;font:400 11px/1.5 var(--sans);color:var(--text-2);text-wrap:pretty}
+#idCard .idrow{margin-top:6px;padding-top:6px;border-top:1px solid var(--line);
+  font:600 8.5px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;color:var(--text-3)}
+/* state chip on a waypoint badge — subordinate to the glyph, never a second marker */
+.wpb{position:relative}
+.wpb .wpchip{position:absolute;top:-2px;right:-2px;width:7px;height:7px;border-radius:50%;
+  border:1.5px solid var(--bg);box-sizing:content-box}
+.lp--pair{display:flex;gap:3px;align-items:center}
+
+/* A tool owns the cursor: hover-identify stands down and the map says so. */
+body.tool-armed #idCard{display:none!important}
+body.tool-armed .maplibregl-canvas{cursor:crosshair}
+body.tool-armed[data-tool="waypoint"] .maplibregl-canvas{cursor:copy}

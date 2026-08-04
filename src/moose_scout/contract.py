@@ -331,6 +331,13 @@ def build(ctx: Context) -> dict:
                          "access_flag": p.get("access_flag"), "boat_required": p.get("boat_required", False),
                          "habitat_score": p.get("habitat_score"), "retrieval_score": p.get("retrieval_score"),
                          "stats": p.get("stats"), "conf": p.get("conf"),
+                         # reachability under THIS hunter's setup. An unreachable area
+                         # still ships — dimmed with its reason — because hiding good
+                         # ground you can't get to is worse than showing it.
+                         "reachable": p.get("reachable", True),
+                         "unreachable_why": p.get("unreachable_why"),
+                         "walk_in_km": p.get("walk_in_km"),
+                         "crew": p.get("crew"),
                          "geometry": a["geometry"]})
 
     # legal + methodology + weather
@@ -504,8 +511,20 @@ def build(ctx: Context) -> dict:
         # EVERY AOI came out "high" no matter how poor the ground actually was. These
         # are fixed cut-offs: a weak area should return few or no high zones, and a
         # genuinely good one should return many. That is the point of the rescale.
-        doc["hunt_zones"] = _polygonize(ctx, cache, "huntability.tif",
+        # BANDS SHOW HABITAT, NOT REACHABILITY.
+        #
+        # These used to band `huntability` = habitat x retrieval, so prime ground you
+        # simply cannot get to was scored DOWN into "low" — painted the same colour as
+        # genuinely poor habitat. That breaks the rule the whole interface rests on:
+        # excluded ground must never look like low-scoring ground, and a hunter is
+        # entitled to see that the good stuff exists and is out of reach for a stated
+        # reason. Access belongs in the FOCUS AREA gate (which is about your setup),
+        # not in the picture of where the animals are.
+        band_src = "habitat_phase.tif" if (cache / "habitat_phase.tif").exists() else "huntability.tif"
+        doc["hunt_zones"] = _polygonize(ctx, cache, band_src,
                                         [("low", 0.25), ("medium", 0.40), ("high", 0.55)])
+        doc["bands_source"] = ("habitat" if band_src.startswith("habitat")
+                               else "huntability (legacy cache — access is baked in)")
     except Exception:
         doc["hunt_zones"] = []
     try:
@@ -575,11 +594,47 @@ def build(ctx: Context) -> dict:
         pass
     doc["hydro"] = hydro
 
-    # river crossings on routes — classified: 'river' needs a boat, 'stream' is a
-    # ford. (App hides/keeps them per the hunter's watercraft in Setup.)
+    # --- crossings on routes ---------------------------------------------------
+    # This used to be a flat binary: waterway=river => "needs a boat", anything else
+    # => "fordable". That asserted as fact something we had no evidence for. A named
+    # river with a highway bridge over it is not an obstacle at all, and a river we
+    # cannot measure is not the same as one we measured and found wide.
+    #
+    # What OSM actually offers here, in descending order of trustworthiness:
+    #   bridge  — a road tagged bridge=yes within BRIDGE_M of the point. MEASURED.
+    #   ford    — a way tagged ford=yes, or width/intermittent tags. TAGGED.
+    #   class   — waterway=river/canal vs stream/brook/ditch. INFERRED, weak.
+    # Anything resting on the last one says so, so the hunter knows the difference
+    # between "we checked" and "we guessed". In this AOI 0 of 10 river lines carry a
+    # riverbank polygon and none carry a width tag, so most calls ARE the weak one.
+    BRIDGE_M = 30.0          # a bridge node and a route crossing rarely coincide exactly
+    FORD_WIDTH_M = 4.0       # tagged narrower than this and you can wade it
     crossings = []
     try:
-        from shapely.geometry import LineString as _LS
+        from shapely.geometry import LineString as _LS, Point as _PT
+        from shapely.ops import unary_union as _uu
+
+        # bridge geometry from the road network we already fetched
+        bridges = None
+        try:
+            import geopandas as gpd
+            rl = cache / "roads.gpkg"
+            if rl.exists():
+                gr = gpd.read_file(rl)
+                if gr.crs and gr.crs.to_epsg() != 4326:
+                    gr = gr.to_crs(4326)
+                col = "other_tags" if "other_tags" in gr.columns else None
+                if col is not None:
+                    br = gr[gr[col].fillna("").str.contains('"bridge"=>"yes"', regex=False)]
+                    if len(br):
+                        bridges = _uu(list(br.geometry))
+        except Exception:
+            bridges = None
+
+        # deg -> m at this latitude, so BRIDGE_M is a real distance not a degree fudge
+        import math as _m
+        latr = _m.radians(ctx.aoi.center.lat)
+        m_per_deg = 111320.0 * max(0.2, _m.cos(latr))
 
         def _pts(route_coords, union):
             out = []
@@ -589,20 +644,56 @@ def build(ctx: Context) -> dict:
                     out.append([round(gg.x, 5), round(gg.y, 5)])
             return out
 
+        def _classify(pt, weak_kind):
+            """weak_kind is what the waterway class alone would say."""
+            if bridges is not None:
+                d = _PT(pt).distance(bridges) * m_per_deg
+                if d <= BRIDGE_M:
+                    return "bridge", "road bridge mapped here", "measured"
+            if weak_kind == "stream":
+                return "ford", "mapped as a stream, not a river", "inferred"
+            return "boat", "mapped as a river; no bridge and no width data", "inferred"
+
+        # Lakes are POLYGONS. The detector only ever intersected river/stream LINES,
+        # so a route drawn straight across open water produced no crossing marker
+        # whatsoever — the single worst version of this bug, because the map showed
+        # a walking line over a lake and said nothing about it.
+        lake_union = None
+        try:
+            from shapely.geometry import Polygon as _POLY
+            polys = [_POLY(ring) for ring in hydro.get("lakes", []) if len(ring) >= 4]
+            if polys:
+                lake_union = _uu(polys).boundary      # crossing = cutting the SHORE
+        except Exception:
+            lake_union = None
+
         for r in routes:
             cc = r["geometry"]["coordinates"]
             if len(cc) < 2:
                 continue
             leg = r["properties"]["legend"]
-            if big_union is not None:
-                for p in _pts(cc, big_union):
-                    crossings.append({"route": leg, "ll": p, "kind": "river"})
-            if small_union is not None:
-                for p in _pts(cc, small_union):
-                    crossings.append({"route": leg, "ll": p, "kind": "stream"})
+            for union, weak in ((big_union, "river"), (small_union, "stream")):
+                if union is None:
+                    continue
+                for p in _pts(cc, union):
+                    kind, why, basis = _classify(p, weak)
+                    crossings.append({"route": leg, "ll": p, "kind": kind,
+                                      "why": why, "basis": basis})
+            if lake_union is not None:
+                for p in _pts(cc, lake_union):
+                    kind, why, basis = _classify(p, "river")   # open water: never a ford
+                    if kind == "ford":
+                        kind, why = "boat", "open water — not a stream"
+                    crossings.append({"route": leg, "ll": p, "kind": kind,
+                                      "why": why + " (lake shore)", "basis": basis})
     except Exception:
         pass
     doc["crossings"] = crossings
+    doc["crossings_note"] = (
+        "Crossing calls are graded. 'Measured' means a bridge is mapped at the point. "
+        "'Inferred' means it rests on the OSM waterway class alone — no width, ford or "
+        "riverbank data ships for this area, so treat a boat call as 'assume the worst "
+        "until you see it'.")
 
     out = outputs_dir(ctx.aoi.name) / "transect.json"
     out.write_text(json.dumps(doc, indent=2))

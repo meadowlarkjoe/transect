@@ -61,7 +61,14 @@ confidence:
 
 # --- Focus-area extraction -----------------------------------------------------
 focus_areas:
-  count: 5                       # candidate areas to emit for the AOI
+  # NO COUNT CAP — areas are gated on QUALITY, not on how many we felt like showing.
+  # A candidate must sit in the top quartile of the smoothed huntability surface, be
+  # >=30% of the AOI maximum, be at least one area-radius from the next candidate,
+  # and hold min_area_km2 of contiguous ground. However many clear that bar is the
+  # answer — the count is a finding, not a setting.
   min_area_km2: 3
+  # Floor on candidate separation. 0 = derive it from max_area_km2 (one area-radius),
+  # which is what you want; set a metres value only to force areas further apart.
+  min_separation_m: 0
   max_area_km2: 60               # ~ SEPAQ secteur scale (Portneuf sec.12 = 61 km2)
   smoothing_m: 100
