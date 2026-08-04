@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Tuple
 
 import yaml
 from pydantic import BaseModel, Field
@@ -75,8 +75,8 @@ class HunterCfg(BaseModel):
     # HUNT-FROM-A-FIXED-CAMP. When set, the hunter has already chosen where they're
     # basing: skip camp-finding, anchor camp/staging THERE, and narrow the whole
     # analysis to a circle around it (they only hunt what they can walk from camp).
-    fixed_camp: tuple[float, float] | None = None   # (lat, lon), or None for auto
-    hunt_radius_km: float | None = None             # analysis radius from a fixed camp
+    fixed_camp: Optional[Tuple[float, float]] = None   # (lat, lon), or None for auto
+    hunt_radius_km: Optional[float] = None             # analysis radius from a fixed camp
 
 
 class AOI(BaseModel):
