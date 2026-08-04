@@ -607,3 +607,8 @@ body.weather-on .maplibregl-ctrl-bottom-left{bottom:calc(var(--weather-h,170px) 
 body.tool-armed #idCard{display:none!important}
 body.tool-armed .maplibregl-canvas{cursor:crosshair}
 body.tool-armed[data-tool="waypoint"] .maplibregl-canvas{cursor:copy}
+
+/* Box-draw mode: the map has stopped panning, so say why. */
+body.boxdraw .maplibregl-canvas{cursor:crosshair!important}
+body.boxdraw-active .maplibregl-canvas{cursor:grabbing!important}
+body.boxdraw #dragBox,#dragBox.on{background:var(--accent);color:var(--accent-on);border-color:var(--accent)}

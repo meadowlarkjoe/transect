@@ -703,6 +703,7 @@ function init(){
   // reconnect would be thrown away as "belongs to another plan".
   if(_pid){ CUR_PLAN_ID=_pid; openPlanById(_pid); }
   resumeJob();          // rejoin an analysis that outlived the page — this plan's only
+  abandonJobOnUnload();
   if(DOC.blank || !(DOC.areas||[]).length){
     // neutral starting camera; zoomed out enough to read as "pick somewhere"
     map.jumpTo({center:[DEFAULT_VIEW.lon,DEFAULT_VIEW.lat],zoom:5.5});
@@ -1790,7 +1791,12 @@ function renderSetup(){
   const clearErr=()=>{const b=document.getElementById('setupErr'); if(b){b.className='';b.innerHTML='';}};
   document.getElementById('dateStart').onchange=e=>{if(e.target.value)draft.dates[0]=e.target.value;clearErr();};
   document.getElementById('dateEnd').onchange=e=>{if(e.target.value)draft.dates[1]=e.target.value;clearErr();};
-  document.getElementById('dragBox').onclick=()=>startBoxDraw();
+  document.getElementById('dragBox').onclick=(e)=>{
+    const b=e.currentTarget;
+    if(b.classList.contains('on')){ cancelBoxDraw(); return; }   // click again to leave
+    b.classList.add('on'); b.textContent='▛ Drawing — drag on the map (Esc to cancel)';
+    startBoxDraw();
+  };
   document.getElementById('uMetric').onclick=()=>setUnits('metric');
   document.getElementById('uImperial').onclick=()=>setUnits('imperial');
   document.querySelectorAll('#setup [data-base]').forEach(b=>b.onclick=()=>switchBase(b.dataset.base));
@@ -1988,10 +1994,17 @@ function drawDraft(){
       paint:{'line-color':'#e2c044','line-width':2,'line-dasharray':[3,2]}});
     map.addLayer({id:'draft-fill',type:'fill',source:'draft',paint:{'fill-color':'#e2c044','fill-opacity':0.06}}); }
 }
+let _boxCleanup=null;
+function cancelBoxDraw(){ if(_boxCleanup) _boxCleanup(); }
 function startBoxDraw(){
-  map.getCanvas().style.cursor='crosshair'; map.dragPan.disable();
+  // Box-draw takes over the drag gesture, so the cursor has to say so: crosshair
+  // while you are aiming, grabbing while you are actually dragging the corner out.
+  // Without it the mode is invisible and the map just stops panning.
+  map.getCanvas().style.cursor='crosshair';
+  document.body.classList.add('boxdraw');
+  map.dragPan.disable();
   let start=null;
-  const onDown=(e)=>{start=e.lngLat; };
+  const onDown=(e)=>{ start=e.lngLat; document.body.classList.add('boxdraw-active'); };
   const onMove=(e)=>{ if(!start)return;
     const b=[[start.lng,start.lat],[e.lngLat.lng,start.lat],[e.lngLat.lng,e.lngLat.lat],[start.lng,e.lngLat.lat],[start.lng,start.lat]];
     map.getSource('draft').setData(fc([{type:'Feature',geometry:{type:'Polygon',coordinates:[b]},properties:{}}]));};
@@ -2003,9 +2016,19 @@ function startBoxDraw(){
     document.getElementById('radVal').textContent=draft.radius+' '+unitBig();
     document.getElementById('coord').value=clat.toFixed(4)+', '+clon.toFixed(4);
     cleanup(); drawDraft();};
-  function cleanup(){ map.getCanvas().style.cursor=''; map.dragPan.enable();
-    map.off('mousedown',onDown);map.off('mousemove',onMove);map.off('mouseup',onUp);}
-  map.on('mousedown',onDown);map.on('mousemove',onMove);map.on('mouseup',onUp);
+  const onKey=(ev)=>{ if(ev.key==='Escape') cleanup(); };
+  function cleanup(){
+    map.getCanvas().style.cursor=''; map.dragPan.enable();
+    document.body.classList.remove('boxdraw','boxdraw-active');
+    const b=document.getElementById('dragBox');
+    if(b){ b.classList.remove('on'); b.textContent='▛ Drag a box on the map'; }
+    map.off('mousedown',onDown); map.off('mousemove',onMove); map.off('mouseup',onUp);
+    window.removeEventListener('keydown',onKey);
+    _boxCleanup=null;
+  }
+  _boxCleanup=cleanup;
+  window.addEventListener('keydown',onKey);
+  map.on('mousedown',onDown); map.on('mousemove',onMove); map.on('mouseup',onUp);
 }
 
 /* Nominatim geocode (no key) */
@@ -2697,6 +2720,11 @@ function pollJob(jid,headers,STAGE,stop,setBtn,line,onHead){
         } else if(s.status==='error'){
           stop(); forgetJob(); setBtn('RUN ANALYSIS →',false);
           alert('Analysis failed: '+(s.error||'unknown'));
+        } else if(s.status==='cancelled'){
+          stop(); forgetJob(); setBtn('RUN ANALYSIS →',false);
+          if(s.orphaned) alert('That run was stopped because nothing was watching it.\n\n'
+            +'The engine cancels an analysis when the tab that started it goes away, so it '
+            +'is not computing for nobody. Run it again when you are ready.');
         } else if(s.status==='unknown'){
           stop(); forgetJob(); setBtn('RUN ANALYSIS →',false);
           alert('The engine restarted — please run again.');
@@ -2727,6 +2755,21 @@ function pollJob(jid,headers,STAGE,stop,setBtn,line,onHead){
   };
   tick();
 }
+/* Tell the engine when we leave, so a run is never computed for nobody.
+   `pagehide` fires on close, navigation and mobile backgrounding; `keepalive` is what
+   lets a request outlive the document. The server also reaps unheard-from jobs on its
+   own, because this beacon is best-effort — a crash or a lost network sends nothing. */
+function abandonJobOnUnload(){
+  window.addEventListener('pagehide',()=>{
+    const j=storedJob(); if(!j) return;
+    // A reload is not an abandonment: resumeJob() will reconnect and the heartbeat
+    // resumes well inside the server's window, so only fire when the run is live.
+    try{
+      fetch(API_URL+'/jobs/'+j.id,{method:'DELETE',keepalive:true,
+        headers:authTok()?{'Authorization':'Bearer '+authTok()}:{}});
+    }catch(e){}
+  });
+}
 /* On load, rejoin a run that was still going when the page went away. */
 /* Rejoin a run that outlived the page — but ONLY for the plan that started it.
    Reattaching unconditionally meant opening "+ New hunt plan" adopted whatever job
@@ -2743,7 +2786,7 @@ function resumeJob(){
   const jid=j.id;
   const hdr=authTok()?{'Authorization':'Bearer '+authTok()}:{};
   fetch(API_URL+'/jobs/'+jid,{headers:hdr,cache:'no-store'}).then(r=>r.json()).then(s=>{
-    if(!s||s.status==='unknown'||s.status==='error'){ forgetJob(); return; }
+    if(!s||s.status==='unknown'||s.status==='error'||s.status==='cancelled'){ forgetJob(); return; }
     if(s.status==='done'){
       forgetJob(); applyDoc(s.scout); layersDismissed=false; setTab('overview'); syncDocks('overview');
       autosavePlan();

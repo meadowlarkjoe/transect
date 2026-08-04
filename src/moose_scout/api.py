@@ -159,6 +159,11 @@ def _run(job_id: str, req: ScoutReq) -> None:
             JOBS[job_id]["res_m"] = res
         ctx = Context(aoi=aoi, species=load_species(species), model=model)
         for i, stage in enumerate(STAGES):
+            # Checked between stages rather than inside them: a stage is the smallest
+            # unit we can abandon without leaving half-written rasters behind.
+            if JOBS.get(job_id, {}).get("cancel"):
+                JOBS[job_id].update(status="cancelled", stage="cancelled")
+                return
             JOBS[job_id].update(stage=stage, progress=round(i / len(STAGES), 2))
             pipeline.run_stage(stage, ctx)
         # return the app's data contract (transect.json), same shape the app binds to
@@ -183,7 +188,8 @@ def scout(req: ScoutReq, x_api_key: str = Header(default=None),
     if REQUIRE_ACCOUNT and not uid:
         raise HTTPException(status_code=401, detail="sign in to run an analysis")
     jid = uuid.uuid4().hex[:12]
-    JOBS[jid] = {"status": "running", "stage": "queued", "progress": 0.0, "uid": uid}
+    JOBS[jid] = {"status": "running", "stage": "queued", "progress": 0.0, "uid": uid,
+                 "started": time.time(), "seen": time.time()}
     threading.Thread(target=_run, args=(jid, req), daemon=True).start()
     return {"job_id": jid}
 
@@ -193,11 +199,52 @@ def job(jid: str, authorization: str = Header(default=None)):
     j = JOBS.get(jid)
     if not j:
         return {"status": "unknown"}
+    # Every poll is a heartbeat. The front end polls a running job every 2.5 s, so
+    # "nobody has asked in ORPHAN_S" means the tab is gone — closed, crashed or
+    # navigated away — and the run is being computed for nobody. Using the existing
+    # poll avoids a second mechanism, and it survives a reload: the new page
+    # reconnects and resumes the heartbeat well inside the window.
+    j["seen"] = time.time()
     # Don't hand one account's analysis to another; jobs are readable by their owner.
     if REQUIRE_ACCOUNT and j.get("uid") is not None:
         if _uid(authorization) != j.get("uid"):
             raise HTTPException(status_code=403, detail="not your job")
     return j
+
+
+@app.delete("/jobs/{jid}")
+def cancel_job(jid: str, authorization: str = Header(default=None)):
+    """Explicit abandon — sent by the page as it unloads, and usable from the UI."""
+    j = JOBS.get(jid)
+    if not j:
+        return {"status": "unknown"}
+    if REQUIRE_ACCOUNT and j.get("uid") is not None:
+        if _uid(authorization) != j.get("uid"):
+            raise HTTPException(status_code=403, detail="not your job")
+    j["cancel"] = True
+    return {"status": "cancelling"}
+
+
+ORPHAN_S = 90.0          # ~36 missed polls at the client's 2.5 s cadence
+
+
+def _reap_orphans():
+    """Cancel runs nobody is watching. A scout run pegs a core for minutes; one left
+    behind by a closed tab is pure waste on a 2-vCPU box, and several of them are an
+    outage. Started as a daemon so it dies with the process."""
+    while True:
+        time.sleep(30)
+        now = time.time()
+        for jid, j in list(JOBS.items()):
+            if j.get("status") != "running" or j.get("cancel"):
+                continue
+            seen = j.get("seen") or j.get("started") or now
+            if now - seen > ORPHAN_S:
+                j["cancel"] = True
+                j["orphaned"] = True
+
+
+threading.Thread(target=_reap_orphans, daemon=True).start()
 
 
 @app.get("/health")
