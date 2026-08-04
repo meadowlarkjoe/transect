@@ -13,11 +13,17 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 5
+ENGINE_REVISION = 6
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    6: "Fixed a bug that gutted the browse/food layer across any AOI with burns (the "
+       "disturbance-age step propagated NaN and zeroed browse on all never-burned ground) "
+       "— habitat now reads the whole area, not a sliver. Reachability is now driven by "
+       "how far you said you'll walk (access + hunt walk) rather than a fixed decay, and "
+       "access DISCOUNTS rather than ERASES habitat, so the map no longer collapses to a "
+       "road corridor. Funnels show at a lower bar.",
     5: "Accuracy pass across the map datapoints: funnels now flag genuine necks (≤300 m, "
        "local constriction) instead of km-wide gaps; thermal refuge counts wet/lowland "
        "cover (cedar/spruce swamp), not just cool slopes; calling sites add wallows and a "

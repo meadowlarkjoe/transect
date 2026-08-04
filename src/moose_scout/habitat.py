@@ -133,11 +133,16 @@ def run(ctx: Context) -> None:
         age = float(ctx.aoi.season.year) - burn
         pts = [(0, 0.05), (5, 0.05), (9, 0.35), (14, 0.85), (18, 1.00),
                (22, 1.00), (27, 0.80), (35, 0.45), (60, 0.15), (200, 0.10)]
-        dist_val = np.interp(np.clip(age, 0, 200),
+        dist_val = np.interp(np.clip(np.nan_to_num(age), 0, 200),
                              [p[0] for p in pts], [p[1] for p in pts]).astype("float32")
-        dist_val[burn <= 0] = 0.0            # never-burned → no disturbance signal
-        burn_age = np.where(burn > 0, age, np.nan).astype("float32")
-        browse = np.maximum(np.nan_to_num(browse), dist_val)
+        # burn_year nodata is 0 → ru.read turns it to NaN, so `burn > 0` is False AND
+        # `burn <= 0` is False on never-burned cells. The old `dist_val[burn<=0]=0` missed
+        # them, leaving dist_val NaN there, and np.maximum(browse, NaN) then propagated NaN
+        # and ZEROED browse across all never-burned ground (i.e. most of any AOI that has
+        # burns). Force the disturbance signal to 0 wherever there is no real burn year.
+        dist_val = np.where(np.isfinite(burn) & (burn > 0), dist_val, 0.0).astype("float32")
+        burn_age = np.where(np.isfinite(burn) & (burn > 0), age, np.nan).astype("float32")
+        browse = np.maximum(np.nan_to_num(browse), np.nan_to_num(dist_val))
         ru.write(cache / "burn_browse.tif", dist_val, prof)
 
     # --- water/forage proximity ---

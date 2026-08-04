@@ -3073,7 +3073,10 @@ function clearIdentify(){
    fatten the whole road network, and water is everywhere. The identify card still
    NAMES them; we just don't light them up. Only model output (zones, sites, our
    routes) earns a highlight. */
-const NO_EMPHASIS=new Set(['roads','roads-case','rail','trans','rivers','lakes','lakes-line','boundaries']);
+// huntZones is the huntability SURFACE — its opacity is owned by the Model-surface
+// slider, so a hover must not touch it (it was jumping to 100% on hover and settling at
+// 0.9, never back to the slider value). Identify still NAMES it; it just isn't lit up.
+const NO_EMPHASIS=new Set(['roads','roads-case','rail','trans','rivers','lakes','lakes-line','boundaries','huntZones']);
 /* lift the hovered layer so the label and the geometry can't disagree */
 function emphasiseMapLayer(id,on){
   if(NO_EMPHASIS.has(id)) return;

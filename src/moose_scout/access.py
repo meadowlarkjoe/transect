@@ -214,15 +214,24 @@ def run(ctx: Context) -> None:
         dist_road = np.full(hsm.shape, 1e6, dtype="float32")   # no roads → truck N/A
     ru.write(cache / "dist_road.tif", dist_road.astype("float32"), prof)
 
-    # --- extraction ease: truck always; water ONLY if the hunter has the craft ---
-    # Score on the EFFORT distance where we have it (foot pack-out), so huntability
-    # reflects how hard the meat is to move, not just how many metres away the road is.
-    truck = np.exp(-(dist_effort if dist_effort is not None else dist_road) / decay)
+    # --- reachability = HOW FAR YOU SAID YOU'LL WALK, not a magic decay -------------
+    # The old exp(-dist/2500) faded reachability on an arbitrary constant unrelated to the
+    # hunter's own budget — so ground the hunter would happily walk to scored as "far",
+    # and (via the huntability product) the map collapsed to a road corridor. Instead:
+    # ground within your stated foot budget (access-walk + hunt-walk) of a road is
+    # reachable; a soft tail lets you push ~60% past it. The EFFORT distance is used, so
+    # steep or thick ground shrinks how far that budget actually carries you.
+    walk_km = (float(getattr(hunter, "walk_access_km", 2.0) or 0.0)
+               + float(getattr(hunter, "walk_hunt_km", 4.0) or 0.0))
+    walk_m = max(1000.0, walk_km * 1000.0)
+    reach_d = dist_effort if dist_effort is not None else dist_road
+    truck = np.clip(1.0 - (reach_d - walk_m) / (0.6 * walk_m), 0.0, 1.0)
     if wc == "none":
-        extraction = truck.astype("float32")            # no boat → no water access at all
+        extraction = truck.astype("float32")            # no boat → foot access only
     else:
-        water_decay = decay * (1.8 if wc == "motor" else 1.2)   # a motor reaches further
-        canoe = np.exp(-dist_water / water_decay)
+        # a boat extends access along water: reachable within a paddle + a short carry
+        paddle_m = walk_m * (3.0 if wc == "motor" else 2.0)
+        canoe = np.clip(1.0 - (dist_water - paddle_m) / (0.6 * paddle_m), 0.0, 1.0)
         extraction = np.maximum(truck, canoe).astype("float32")
 
     # ACCESS UNKNOWN ≠ ACCESS IMPOSSIBLE. If no road network was acquired (a big box can
@@ -306,7 +315,15 @@ def run(ctx: Context) -> None:
     retrieval = np.clip(extraction * (1 - pw * pressure), 0, 1).astype("float32")
     ru.write(cache / "retrieval.tif", retrieval, prof)
 
-    hunt = np.clip(hsm_phase * retrieval, 0, 1)
+    # Access DISCOUNTS habitat, it does not ERASE it. Multiplying straight by retrieval
+    # let a 4-decade exponential decay from the road (and, with no boat, the river-barrier
+    # foot-reachability) zero out huge regions — so the huntability surface collapsed to
+    # the road-connected band and the rest of the AOI simply wasn't drawn ("the engine
+    # isn't evaluating the whole area"). It also made the map hostage to how complete the
+    # road fetch happened to be. Floor the access term: unreachable good habitat still
+    # shows (as lower tiers, with the pack-out cost stated), reachable ground is brightest.
+    ACCESS_FLOOR = 0.35
+    hunt = np.clip(hsm_phase * (ACCESS_FLOOR + (1.0 - ACCESS_FLOOR) * retrieval), 0, 1)
     hunt[np.isnan(hsm)] = np.nan
 
     # LEGAL GATE — filter #1, and it must bite on the raster, not just the prose.
