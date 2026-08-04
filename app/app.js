@@ -1012,13 +1012,13 @@ const LYR_MAP={areas:['areas-fill','areas-line','area-badges'],sites:['sites','s
    probability into a surveyed boundary, and a hunter plans a stalk against it.
    ========================================================================== */
 const LAYERS=[
- {k:'hz-high', group:'MODEL ZONES', kind:'solid', edge:'none', name:'High likelihood',
+ {k:'hz-high', group:'MODEL ZONES', panel:false, kind:'solid', edge:'none', name:'High likelihood',
   note:'Model score in the top band', hex:'#E2231A', icon:'target', on:true, hz:'high',
   count:()=>(DOC.hunt_zones||[]).filter(z=>z.cls==='high').length},
- {k:'hz-medium', group:'MODEL ZONES', kind:'solid', edge:'none', name:'Medium',
+ {k:'hz-medium', group:'MODEL ZONES', panel:false, kind:'solid', edge:'none', name:'Medium',
   note:'Scored, second band', hex:'#FF8C00', icon:'target', on:true, hz:'medium',
   count:()=>(DOC.hunt_zones||[]).filter(z=>z.cls==='medium').length},
- {k:'hz-low', group:'MODEL ZONES', kind:'solid', edge:'none', name:'Low',
+ {k:'hz-low', group:'MODEL ZONES', panel:false, kind:'solid', edge:'none', name:'Low',
   note:'Scored but not prioritised', hex:'#FFD400', icon:'target', on:true, hz:'low',
   count:()=>(DOC.hunt_zones||[]).filter(z=>z.cls==='low').length},
  {k:'refuge', group:'MODEL ZONES', kind:'cross', edge:'none', name:'Thermal refuge',
@@ -1168,7 +1168,7 @@ function layerCount(r){
 }
 function buildLayersDock(){
   const d=document.getElementById('layersDock');
-  const rows=LAYERS.map(r=>({r,c:layerCount(r)}));
+  const rows=LAYERS.filter(r=>r.panel!==false).map(r=>({r,c:layerCount(r)}));
   const onCount=rows.filter(x=>x.r.on&&x.c.state!=='nodata').length;
   let h=`<div class="dhead"><h4>${t('lay.title')}</h4>
       <span class="t-micro" id="layOn">${onCount} ON</span>
@@ -1201,7 +1201,7 @@ function buildLayersDock(){
   d.querySelectorAll('.master').forEach(b=>b.onclick=e=>{
     e.preventDefault(); e.stopPropagation();
     const g=b.closest('.grouphead2').dataset.g;
-    const gr=LAYERS.filter(r=>r.group===g && layerCount(r).state!=='nodata' && layerCount(r).state!=='pending');
+    const gr=LAYERS.filter(r=>r.group===g && r.panel!==false && layerCount(r).state!=='nodata' && layerCount(r).state!=='pending');
     const allOn=gr.every(r=>r.on);
     gr.forEach(r=>{ r.on=!allOn; applyLayer(r); });
     buildLayersDock(); openDock('layersDock','railLayers');
@@ -1236,7 +1236,7 @@ function applySiteFilter(){
 }
 function refreshLayerHeader(){
   const el=document.getElementById('layOn'); if(!el) return;
-  el.textContent=LAYERS.filter(r=>r.on&&layerCount(r).state!=='nodata').length+' ON';
+  el.textContent=LAYERS.filter(r=>r.panel!==false&&r.on&&layerCount(r).state!=='nodata').length+' ON';
 }
 function applyLayer(r){
   if(r.hz){ applyHuntZoneFilter(); return; }
@@ -1503,7 +1503,7 @@ function refreshLayersPill(){
   const open=!document.getElementById('layersDock')?.classList.contains('hidden');
   p.classList.toggle('on',open);
   const c=document.getElementById('pillCount');
-  if(c) c.textContent=LAYERS.filter(r=>r.on&&layerCount(r).state==='on').length+' '+t('lay.on','ON');
+  if(c) c.textContent=LAYERS.filter(r=>r.panel!==false&&r.on&&layerCount(r).state==='on').length+' '+t('lay.on','ON');
 }
 function showRailTip(k){
   const def=TOOL_DEFS.concat(EXTRA_DEFS,VIEW_DEFS).find(x=>x.k===k);

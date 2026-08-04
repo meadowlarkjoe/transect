@@ -620,3 +620,9 @@ body.boxdraw #dragBox,#dragBox.on{background:var(--accent);color:var(--accent-on
   border-radius:var(--r-sm);color:var(--text);font:500 11px/1 var(--mono);padding:6px 7px}
 #railTip .tipcoord button{background:var(--accent);color:var(--accent-on);border:0;border-radius:var(--r-sm);
   font:600 10px/1 var(--mono);padding:0 10px;cursor:pointer}
+
+/* Model surface is now the SOLE control for the high/med/low bands, so its view-rail
+   button is brass to read as primary — not just another white tool glyph. */
+#viewSurface svg{stroke:var(--accent)}
+#viewSurface.on{background:var(--accent);}
+#viewSurface.on svg{stroke:var(--accent-on)}
