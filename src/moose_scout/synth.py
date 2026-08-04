@@ -830,8 +830,13 @@ def _rut_section(ctx) -> list:
     from . import rut_timing
     r = rut_timing.summary(ctx)
     w = r["windows"]
+    # NOT "latitude-adjusted" — the peak is deliberately anchored at ~2 Oct for every
+    # latitude (moose conception is latitude-invariant across the range; see
+    # rut_timing.py and lat_note). The old label claimed a shift the model refuses to
+    # make, which is exactly the kind of thing a hunter checks and loses trust over.
     out = ["", "## Rut timing", "",
-           f"Latitude-adjusted rut for {ctx.aoi.center.lat:.1f}°N (peak ~**{r['peak_date']}**):", "",
+           f"Rut for a {ctx.aoi.center.lat:.1f}°N hunt (peak ~**{r['peak_date']}** — "
+           f"anchored, not shifted for latitude):", "",
            f"- **Pre-rut:** {w['pre_rut'][0]} → {w['pre_rut'][1]}",
            f"- **Peak rut:** {w['peak_rut'][0]} → {w['peak_rut'][1]}  *(be here)*",
            f"- **Post-rut:** {w['post_rut'][0]} → {w['post_rut'][1]}"]
