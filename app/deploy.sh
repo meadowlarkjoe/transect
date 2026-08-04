@@ -14,6 +14,32 @@
 # URL. No stale JS/CSS, and no version number to remember to bump.
 set -e
 SRC="$(cd "$(dirname "$0")" && pwd)"
+
+# NOTHING GOES LIVE THAT IS NOT IN THE REPO.
+#
+# This script used to be run from a working copy that was not under version control
+# at all, so the live site ran ahead of git for a full day — 52 KB of app.js that
+# existed nowhere but one directory and Cloudflare. If the box had died, so had the
+# work. Deploy is now only legal from inside the repo, with a clean tree.
+#
+# ALLOW_DIRTY=1 escapes the check for a genuine emergency; it prints what it is
+# shipping that git has never seen, so the escape is never silent.
+if ! git -C "$SRC" rev-parse --git-dir >/dev/null 2>&1; then
+  echo "REFUSING: $SRC is not inside a git repository." >&2
+  echo "Deploy from the repo (moose-scout/app), not from a loose copy." >&2
+  exit 1
+fi
+DIRTY="$(git -C "$SRC" status --porcelain -- "$SRC")"
+if [ -n "$DIRTY" ]; then
+  echo "REFUSING: uncommitted changes would go live without existing in git:" >&2
+  echo "$DIRTY" >&2
+  if [ "${ALLOW_DIRTY:-0}" != "1" ]; then
+    echo "Commit them, or re-run with ALLOW_DIRTY=1 if this is an emergency." >&2
+    exit 1
+  fi
+  echo "ALLOW_DIRTY=1 set — shipping anyway." >&2
+fi
+echo "deploying $(git -C "$SRC" rev-parse --short HEAD) from $(git -C "$SRC" rev-parse --abbrev-ref HEAD)"
 D="$(mktemp -d)/tdeploy"
 mkdir -p "$D"
 rsync -a --exclude '_headers' --exclude '_redirects' --exclude '.git' --exclude 'deploy.sh' "$SRC/" "$D/"
