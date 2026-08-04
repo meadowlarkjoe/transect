@@ -43,11 +43,60 @@ attributes=natural,water
 """
 
 
+# A derived, spatially-indexed GPKG holding only the four layers we actually use.
+# Reading the raw .pbf works but costs ~60 s per query because GDAL re-parses the whole
+# 1.1 GB file every time; querying this instead is a bbox lookup against an R-tree.
+# Built once by build_index() (scripts/build_osm_index.py).
+GPKG = os.environ.get("OSM_GPKG", str(Path(PBF).with_suffix("")) + "_index.gpkg")
+_LAYERS = {
+    "roads": ("lines", "highway IN ('motorway','trunk','primary','secondary','tertiary',"
+                       "'unclassified','residential','track','service')"),
+    "rail": ("lines", "railway IN ('rail','narrow_gauge','light_rail')"),
+    "waterways": ("lines", "waterway IN ('river','stream','canal','tidal_channel','rapids')"),
+    "waterbodies": ("multipolygons", "natural = 'water' OR landuse = 'reservoir'"),
+}
+
+
+def has_index() -> bool:
+    try:
+        return Path(GPKG).is_file() and Path(GPKG).stat().st_size > 100_000
+    except Exception:
+        return False
+
+
 def available() -> bool:
+    if has_index():
+        return True
     try:
         return Path(PBF).is_file() and Path(PBF).stat().st_size > 1_000_000
     except Exception:
         return False
+
+
+def build_index(verbose: bool = True) -> bool:
+    """One-time: pull the four layers we use out of the .pbf into an indexed GPKG."""
+    if not Path(PBF).is_file():
+        return False
+    ok = False
+    for name, (layer, where) in _LAYERS.items():
+        cmd = ["ogr2ogr", "-f", "GPKG", GPKG, PBF, layer,
+               "-nln", name, "-where", where,
+               "-oo", "CONFIG_FILE=" + _conf_path(),
+               "-nlt", "PROMOTE_TO_MULTI", "-skipfailures",
+               "-lco", "SPATIAL_INDEX=YES"]
+        if ok:
+            cmd.insert(3, "-update")           # append into the same file
+        env = dict(os.environ, OSM_MAX_TMPFILE_SIZE="2000", CPL_LOG="/dev/null")
+        try:
+            if verbose:
+                print(f"  building {name}…", flush=True)
+            subprocess.run(cmd, check=True, env=env, timeout=5400,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            ok = True
+        except Exception as e:  # noqa: BLE001
+            if verbose:
+                print(f"  {name} FAILED: {e}", flush=True)
+    return ok
 
 
 def _conf_path() -> str:
@@ -55,6 +104,18 @@ def _conf_path() -> str:
     if not p.exists():
         p.write_text(_OSMCONF)
     return str(p)
+
+
+def read_indexed(bbox, name: str):
+    """Fast path: bbox query against the prebuilt, spatially-indexed GPKG."""
+    if not has_index():
+        return None
+    try:
+        import geopandas as gpd
+        g = gpd.read_file(GPKG, layer=name, bbox=tuple(bbox))
+        return g.set_crs(4326, allow_override=True) if len(g) else g
+    except Exception:
+        return None
 
 
 def read_bbox(bbox, layer: str, where: str | None = None):
@@ -99,17 +160,24 @@ WATERLINE_WHERE = "waterway IN ('river','stream','canal','tidal_channel','rapids
 WATERPOLY_WHERE = "natural = 'water' OR landuse = 'reservoir'"
 
 
+def _get(bbox, name, layer, where):
+    g = read_indexed(bbox, name)          # indexed GPKG: ~1 s
+    if g is not None:
+        return g
+    return read_bbox(bbox, layer, where)  # raw .pbf: ~60 s
+
+
 def roads(bbox):
-    return read_bbox(bbox, "lines", DRIVE_WHERE)
+    return _get(bbox, "roads", "lines", DRIVE_WHERE)
 
 
 def rail(bbox):
-    return read_bbox(bbox, "lines", RAIL_WHERE)
+    return _get(bbox, "rail", "lines", RAIL_WHERE)
 
 
 def waterways(bbox):
-    return read_bbox(bbox, "lines", WATERLINE_WHERE)
+    return _get(bbox, "waterways", "lines", WATERLINE_WHERE)
 
 
 def waterbodies(bbox):
-    return read_bbox(bbox, "multipolygons", WATERPOLY_WHERE)
+    return _get(bbox, "waterbodies", "multipolygons", WATERPOLY_WHERE)
