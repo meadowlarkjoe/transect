@@ -202,16 +202,35 @@ def run(ctx: Context) -> None:
     bull[water_mask] = np.nan
     ru.write(cache / "hsm_bull.tif", ru.normalize(bull).astype("float32"), prof)
 
-    # --- thermal refuge: dense COVER is the thing; cool aspect + water ENHANCE it ---
-    # Was a hard product (cool × cover × water-prox), so on any AOI where the good
-    # bedding cover sits >400 m from water — most of a big box — the whole surface
-    # collapsed to ~0 and NO thermal-refuge sites were placed (Rouyn: p90=0). A refuge
-    # is fundamentally security/thermal cover; a cool north aspect and nearby water
-    # make it better but their absence must not zero a good stand of cover.
-    thermal = np.nan_to_num(cover) * (0.40 + 0.30 * np.nan_to_num(cool)
-                                      + 0.30 * _prox(dist_water, 100, 400))
+    # --- thermal refuge: SPECIFIC ground, not a wash over the whole box ------------
+    # Two failure modes bracket this. The original hard product (cool × cover × water)
+    # zeroed a good cover stand that happened to sit far from water. The fix over-
+    # corrected: cover × (0.40 + …) put a 0.40 floor under every forested cell and then
+    # ru.normalize() re-ranked the surface so 0.5 meant "AOI median" — on a boreal box
+    # that is ~half the map, so refuge blanketed everything (a hunter's own words:
+    # "thermal refuge is densely forested hilltops etc. — much more specific than this").
+    # A refuge is dense security/thermal cover that a cool aspect OR nearby water makes
+    # usable as a midday retreat. Build it on an ABSOLUTE scale (NO normalize) so the
+    # downstream 0.5 threshold means the same thing in every AOI:
+    #   • dense cover is NECESSARY — ramp 0.55→0.85 so open/regen ground contributes 0;
+    #   • a cool (N/E) aspect or water proximity is what turns cover into refuge;
+    #   • the 0.20 floor keeps a genuinely dense stand from zeroing when it has neither,
+    #     so sites can still be placed, but it can never clear threshold on its own.
+    # Dense canopy is NECESSARY; a genuinely cool (N/NE) aspect is what makes it a
+    # midday thermal retreat. Aspect is meaningless on flat ground — cos(aspect) there is
+    # just noise averaging to ~0.5 — so the cool-aspect credit is GATED BY SLOPE, or a
+    # lake-rich boreal box lights up ~everywhere. (Water proximity is a FEEDING driver,
+    # not a thermal one, so it no longer enters here.) Result: refuge keys on densely
+    # forested cool slopes, which is what a hunter means by it. NOTE: this misses flat
+    # lowland-conifer / cedar-swamp thermal cover — that needs canopy-closure or stand
+    # data we don't yet have; the rigorous definition is the datapoint-accuracy audit.
+    cover0 = np.nan_to_num(cover)
+    dense = np.clip((cover0 - 0.60) / 0.25, 0.0, 1.0)
+    slope_gate = np.clip(np.nan_to_num(slope) / 8.0, 0.0, 1.0)      # ~flat → no aspect credit
+    coolp = np.clip((np.nan_to_num(cool) - 0.50) / 0.40, 0.0, 1.0) * slope_gate
+    thermal = (dense * (0.10 + 0.90 * coolp)).astype("float32")
     thermal[water_mask] = np.nan
-    ru.write(cache / "hsm_thermal.tif", ru.normalize(thermal).astype("float32"), prof)
+    ru.write(cache / "hsm_thermal.tif", thermal, prof)
 
     # --- rut/calling sites: cover<->opening EDGE is the thing; funnel + water enhance --
     # Same brittleness: edge × funnel × wet_prox meant a cruise edge far from water

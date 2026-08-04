@@ -13,6 +13,7 @@ water/wetland = aquatic forage) and are reliable north of the écoforestière li
 from __future__ import annotations
 
 from ..config import Context, cache_dir
+from .. import rasterio_utils as ru
 from ..rasterio_utils import target_grid
 
 
@@ -23,39 +24,35 @@ def fetch(ctx: Context) -> None:
     import planetary_computer as pc
     import rasterio
     from pystac_client import Client
-    from rasterio.enums import Resampling
-    from rasterio.transform import Affine
-    from rasterio.warp import reproject, transform_bounds
-    from rasterio.windows import from_bounds
 
     os.environ.setdefault("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
     cache = cache_dir(ctx.aoi.name)
     minlon, minlat, maxlon, maxlat = ctx.aoi.bbox_wgs84()
+    aoi_wgs = (minlon, minlat, maxlon, maxlat)
     dst_crs, dst_transform, W, H = target_grid(ctx)
 
     cat = Client.open("https://planetarycomputer.microsoft.com/api/stac/v1",
                       modifier=pc.sign_inplace)
     items = list(cat.search(collections=["esa-worldcover"],
-                            bbox=[minlon, minlat, maxlon, maxlat], limit=5).items())
+                            bbox=[minlon, minlat, maxlon, maxlat], limit=12).items())
     if not items:
         raise RuntimeError("no WorldCover item for AOI")
-    # Prefer the most recent map.
-    item = sorted(items, key=lambda i: i.properties.get("start_datetime", ""))[-1]
-
-    href = item.assets["map"].href
-    with rasterio.open(href) as src:
-        l, b, r, t = transform_bounds("EPSG:4326", src.crs, minlon, minlat, maxlon, maxlat)
-        win = from_bounds(l, b, r, t, src.transform)
-        lc_src = src.read(1, window=win, out_shape=(H, W), resampling=Resampling.nearest)
-        win_tr = src.window_transform(win)
-        sx = (win.width / W) if win.width else 1
-        sy = (win.height / H) if win.height else 1
-        src_tr = win_tr * Affine.scale(sx, sy)
-        scrs = src.crs
+    # A 45 km box straddles WorldCover's 3° tiles, so one item covers only part of it —
+    # reading a single item with an out-of-bounds window is what striped the map. Take
+    # ALL tiles of the most-recent map year and mosaic them onto the canonical grid, each
+    # via a window CLAMPED to its real extent (see ru.reproject_window).
+    newest = max(i.properties.get("start_datetime", "") for i in items)
+    tiles = [i for i in items if i.properties.get("start_datetime", "") == newest] or items
 
     lc = np.zeros((H, W), dtype="uint8")
-    reproject(lc_src, lc, src_transform=src_tr, src_crs=scrs,
-              dst_transform=dst_transform, dst_crs=dst_crs, resampling=Resampling.nearest)
+    for it in tiles:
+        with rasterio.open(it.assets["map"].href) as src:
+            arr, mask = ru.reproject_window(src, dst_crs, dst_transform, W, H, aoi_wgs,
+                                            resampling="nearest")
+        if arr is None:
+            continue
+        fill = mask & (lc == 0)                       # first tile to cover a cell wins
+        lc[fill] = np.rint(arr[fill]).astype("uint8")
 
     prof = {"driver": "GTiff", "dtype": "uint8", "count": 1, "height": H, "width": W,
             "crs": dst_crs, "transform": dst_transform, "nodata": 0,

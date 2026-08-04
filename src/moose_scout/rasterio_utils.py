@@ -23,6 +23,56 @@ def target_grid(ctx):
     return dst_crs, from_origin(l, t, res, res), w, h
 
 
+def reproject_window(src, dst_crs, dst_transform, W, H, aoi_wgs84,
+                     band=1, resampling="bilinear"):
+    """Read the part of an open source raster `src` that overlaps the AOI and reproject
+    it onto the canonical (dst_crs, dst_transform, W, H) grid. Returns (float32 array,
+    valid-bool mask), NaN where the source does not cover — so several tiles / scenes
+    can be mosaicked cell-by-cell.
+
+    THE BUG THIS REPLACES: callers built one window with `from_bounds` and did a
+    decimated `src.read(window=win, out_shape=(H, W))` even when the window ran off the
+    edge of the source (the AOI straddling a WorldCover / Sentinel tile boundary — the
+    common case for any box bigger than one tile). rasterio clamps the read but the
+    reconstructed `win.width / W` transform still assumes the full out-of-bounds window,
+    so every tile landed sub-pixel-misregistered and the per-pixel median left regular
+    HORIZONTAL SEAMS across huntability / thermal refuge (invisible on a small AOI that
+    fits one tile, glaring on a 45 km box). Here the window is CLAMPED to the source's
+    real pixels before the decimated read, so the transform matches what was read."""
+    import numpy as np
+    import rasterio
+    from rasterio.enums import Resampling
+    from rasterio.transform import Affine
+    from rasterio.warp import reproject, transform_bounds
+    from rasterio.windows import Window, from_bounds
+
+    rs = getattr(Resampling, resampling)
+    minlon, minlat, maxlon, maxlat = aoi_wgs84
+    l, b, r, t = transform_bounds("EPSG:4326", src.crs, minlon, minlat, maxlon, maxlat)
+    win = from_bounds(l, b, r, t, src.transform)
+    # Clamp to the source's real extent (robust across rasterio versions) — no
+    # out-of-bounds pixels enter the decimated read.
+    c0 = max(0, int(np.floor(win.col_off)))
+    r0 = max(0, int(np.floor(win.row_off)))
+    c1 = min(src.width, int(np.ceil(win.col_off + win.width)))
+    r1 = min(src.height, int(np.ceil(win.row_off + win.height)))
+    if c1 <= c0 or r1 <= r0:
+        return None, None
+    win = Window(c0, r0, c1 - c0, r1 - r0)
+    # Decimate the read so a full 3° tile stays inside a 2 GB VM, but keep it a little
+    # finer than the destination so reproject has detail to resample from.
+    scale = max(1.0, win.width / (W * 1.3), win.height / (H * 1.3))
+    ow = max(1, int(round(win.width / scale)))
+    oh = max(1, int(round(win.height / scale)))
+    arr = src.read(band, window=win, out_shape=(oh, ow), resampling=rs).astype("float32")
+    src_tr = src.window_transform(win) * Affine.scale(win.width / ow, win.height / oh)
+    dst = np.full((H, W), np.nan, dtype="float32")
+    reproject(arr, dst, src_transform=src_tr, src_crs=src.crs,
+              dst_transform=dst_transform, dst_crs=dst_crs,
+              src_nodata=None, dst_nodata=np.nan, resampling=rs)
+    return dst, np.isfinite(dst)
+
+
 def read(path) -> tuple:
     """Return (array float32 with nodata->nan, profile)."""
     import numpy as np

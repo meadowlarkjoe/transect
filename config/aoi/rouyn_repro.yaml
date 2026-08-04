@@ -1,0 +1,16 @@
+# Repro of the user's live Rouyn-Noranda / Lac Simard run (banding + blanket refuge).
+name: rouyn_repro
+title: "Rouyn repro — moose"
+species: moose
+center: { lat: 47.815, lon: -78.456 }
+bbox_halfwidth_km: 45
+zone_hint: "13"
+season:
+  year: 2026
+  target_dates: ["2026-09-12", "2026-09-20"]
+  weapon: rifle
+hunter:
+  residency: quebec_resident
+  extraction_modes: [truck, canoe, atv, backpack]
+  party_size: 2
+notes: "South of 52°N — WorldCover + Sentinel NDVI path. Reproducing banding artifact."

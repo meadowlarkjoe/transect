@@ -13,11 +13,16 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 3
+ENGINE_REVISION = 4
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    4: "Land cover and NDVI now mosaic every tile/scene covering the box with each read "
+       "clamped to its source (fixes horizontal banding that appeared on any AOI larger "
+       "than one satellite tile and pulled focus areas onto the artefact); thermal refuge "
+       "is now specific densely-forested cool slopes instead of washing over the whole "
+       "box.",
     3: "NDVI now mosaics multiple Sentinel-2 scenes and masks nodata (fixes horizontal "
        "coverage-gap banding that suppressed scores); thermal-refuge and calling-site "
        "surfaces soft-combine instead of a brittle product (no more zero sites on "
