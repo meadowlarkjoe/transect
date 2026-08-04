@@ -6,12 +6,20 @@
    BLANK (same document shape, empty arrays) and only load the example when it's asked
    for explicitly: ?example=1, or the button in the empty state. */
 const EXAMPLE = window.TRANSECT_DATA;
+/* Where the map opens before an area is chosen. Montréal: recognisable, central to
+   the zones this build knows, and obviously not a hunt area — so nobody mistakes
+   the starting view for a suggestion. It is a CAMERA POSITION, never a default AOI:
+   draft.center stays null until you search, paste, or drag a box. */
+const DEFAULT_VIEW = {lat:45.5019, lon:-73.5674};
 function blankDoc(){
   const m = (EXAMPLE && EXAMPLE.meta) || {};
   return {
     schema: 'transect/1', blank: true,
+    // A fresh plan must not inherit the EXAMPLE's centre — that seeded every new
+    // user onto Fire Lake, someone else's hunt area, pre-filled as if they had
+    // chosen it. Start on a neutral view and make them pick.
     meta: {aoi:'', title:'No area yet', species:'moose',
-           center: m.center || {lat:52.34, lon:-67.36},
+           center: DEFAULT_VIEW,
            radius_km: 35, target_dates: (m.target_dates||['2026-09-25','2026-10-05']),
            residency:'quebec_resident', extraction_modes:[]},
     legal: {zone:null, north_of_52:false, diy_possible:false, huntable_tenures:[],
@@ -693,7 +701,8 @@ function init(){
   if(_pid) openPlanById(_pid);
   resumeJob();          // rejoin an analysis that outlived the page
   if(DOC.blank || !(DOC.areas||[]).length){
-    map.jumpTo({center:[DOC.meta.center.lon,DOC.meta.center.lat],zoom:7.5});
+    // neutral starting camera; zoomed out enough to read as "pick somewhere"
+    map.jumpTo({center:[DEFAULT_VIEW.lon,DEFAULT_VIEW.lat],zoom:5.5});
   } else {
     map.fitBounds(bbox(DOC.areas),{padding:{top:80,left:400,right:200,bottom:120}});
   }
@@ -1659,7 +1668,8 @@ function hav(a,b){const R=6371,dLat=(b[1]-a[1])*Math.PI/180,dLon=(b[0]-a[0])*Mat
   return 2*R*Math.asin(Math.sqrt(s));}
 
 /* ---------------- Setup (redesigned) ---------------- */
-let draft={center:[DOC.meta.center.lon,DOC.meta.center.lat],radius:DOC.meta.radius_km||50,
+let draft={center: DOC.blank ? null : [DOC.meta.center.lon,DOC.meta.center.lat],
+  radius:DOC.meta.radius_km||50,
   walkAccess:null, walkHunt:null, leaving:'', party:2,
   dates: (USING_EXAMPLE && DOC.meta && DOC.meta.target_dates) ? DOC.meta.target_dates.slice() : []};
 function renderSetup(){
@@ -1678,7 +1688,7 @@ function renderSetup(){
       <div id="searchRes" class="results"></div>
       <button id="dragBox" class="btn btn--secondary btn--block" style="margin-top:8px">▛ Drag a box on the map</button>
       <label class="fld">Or paste coordinates</label>
-      <input id="coord" placeholder="lat, lon" value="${draft.center[1].toFixed(4)}, ${draft.center[0].toFixed(4)}">
+      <input id="coord" placeholder="lat, lon" value="${draft.center?draft.center[1].toFixed(4)+', '+draft.center[0].toFixed(4):''}">
       <label class="fld">${t('setup.dates')}</label>
       <div class="numrow"><input id="dateStart" type="date" required value="${draft.dates[0]||''}">
         <span>→</span><input id="dateEnd" type="date" required value="${draft.dates[1]||''}"></div>
@@ -1884,6 +1894,10 @@ function fmtElapsed(ms){
 }
 function missingSetup(){
   const miss=[];
+  // Without this an unset centre would quietly become whatever the map happened to
+  // be looking at — which is how a new user ended up with someone else's hunt area
+  // pre-filled and could have run an analysis on it.
+  if(!draft.center) miss.push('an area — search a place, paste coordinates, or drag a box');
   if(!(draft.dates && draft.dates.length===2 && draft.dates[0] && draft.dates[1]))
     miss.push('hunt dates');
   else if(new Date(draft.dates[1]) < new Date(draft.dates[0]))
@@ -1957,12 +1971,14 @@ function runAnalysis(){
 
 /* draft AOI box preview on the map (radius → box) */
 function draftBox(){
+  if(!draft.center) return null;
   const [lon,lat]=draft.center, r=draft.radius;
   const dLat=r/111, dLon=r/(111*Math.cos(lat*Math.PI/180));
   return [[lon-dLon,lat+dLat],[lon+dLon,lat+dLat],[lon+dLon,lat-dLat],[lon-dLon,lat-dLat],[lon-dLon,lat+dLat]];
 }
 function drawDraft(){
-  const data=fc([{type:'Feature',geometry:{type:'Polygon',coordinates:[draftBox()]},properties:{}}]);
+  const box=draftBox();
+  const data=box?fc([{type:'Feature',geometry:{type:'Polygon',coordinates:[box]},properties:{}}]):fc([]);
   if(map.getSource('draft')) map.getSource('draft').setData(data);
   else { map.addSource('draft',{type:'geojson',data});
     map.addLayer({id:'draft-line',type:'line',source:'draft',
@@ -2228,7 +2244,7 @@ let CUR_PLAN_ID=null;
 function currentPlan(name, withDoc){
   const p={id:uuid(), name:name||PLAN_NAME||('Plan '+new Date().toLocaleDateString()), savedAt:Date.now(),
     aoi:(DOC.meta&&DOC.meta.title)||'', units:UNITS,
-    setup:{center:draft.center.slice(),radius:draft.radius,walkAccess:draft.walkAccess,walkHunt:draft.walkHunt,party:draft.party,
+    setup:{center:draft.center?draft.center.slice():null,radius:draft.radius,walkAccess:draft.walkAccess,walkHunt:draft.walkHunt,party:draft.party,
       leaving:draft.leaving,watercraft:SETUP.watercraft,huntStyle:SETUP.huntStyle,dates:draft.dates.slice()},
     area:lastSel, annot:JSON.parse(JSON.stringify(drawSaved||[]))};
   // The computed analysis is the expensive part (3–5 min). Store it with the plan so
@@ -2269,7 +2285,8 @@ function applyPlan(p){
   if(!p) return;
   CUR_PLAN_ID=p.id||null;
   const s=p.setup||{};
-  draft.center=(s.center||draft.center).slice(); draft.radius=s.radius||draft.radius;
+  draft.center=(s.center||draft.center||null); if(draft.center) draft.center=draft.center.slice();
+  draft.radius=s.radius||draft.radius;
   draft.walkAccess=s.walkAccess??draft.walkAccess; draft.walkHunt=s.walkHunt??draft.walkHunt;
   draft.party=s.party??draft.party;
   draft.leaving=s.leaving||draft.leaving;
