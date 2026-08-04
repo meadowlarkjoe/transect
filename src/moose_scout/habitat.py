@@ -103,8 +103,14 @@ def run(ctx: Context) -> None:
         browse_n = cover_n = None
 
     if browse_lc is not None and browse_n is not None:
-        browse = 0.6 * browse_lc + 0.4 * browse_n
-        cover = 0.6 * cover_lc + 0.4 * cover_n
+        # NDVI REFINES land-cover, and now may be NaN where no Sentinel scene covered a
+        # cell (a coverage gap — previously a fake 0 that read as barren and striped the
+        # map). Where NDVI is present, blend; where it's absent, fall back to land-cover
+        # alone rather than letting a NaN poison the blend and delete the cell.
+        have_n = np.isfinite(browse_n)
+        browse = np.where(have_n, 0.6 * browse_lc + 0.4 * np.nan_to_num(browse_n), browse_lc)
+        have_c = np.isfinite(cover_n)
+        cover = np.where(have_c, 0.6 * cover_lc + 0.4 * np.nan_to_num(cover_n), cover_lc)
     elif browse_lc is not None:
         browse, cover = browse_lc, cover_lc
     elif browse_n is not None:
