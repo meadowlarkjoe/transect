@@ -1111,6 +1111,10 @@ def _write_brief(ctx, features, cache, outdir, routes_msg):
                   f"- **Stands:** ~{st['stand_minutes']} min · **Movement:** {st['movement']}",
                   f"- **Attractants:** {st['attractants']}",
                   f"- *Why:* {st['why']}"]
+        # The regulatory warning MUST ride with any attractant advice — salines/scents/
+        # urine are regulated and vary by zone (audit #51). Never print the tactic bare.
+        if st.get("scent_warning"):
+            lines += [f"- ⚠️ **{st['scent_warning']}**"]
     except Exception:
         pass
 
@@ -1168,12 +1172,26 @@ def _write_brief(ctx, features, cache, outdir, routes_msg):
             lines.append(f"- {counts[k]} × {name}")
     if routes_msg:
         lines += ["", f"*{routes_msg.strip()}*"]
-    lines += ["", "## Logistics", "",
-              "- **Access:** Route 389 is the only fuel/access spine (Manic-5, "
-              "Relais-Gabriel, Fermont). Near-zero cell — carry a satellite messenger.",
-              "- **Extraction:** water-rich AOI (nowhere >~3 km from water) → canoe "
-              "retrieval is viable for most focus areas; verify put-ins.",
-              "- **Season/SOPFEU/regs:** confirm zone-19 sub-zone (sud/nord), season "
-              "dates and the MWA rule on quebec.ca before travel.", ""]
+    # Driven by the analysis + the AOI's own zone, not hardcoded to one road/zone (audit
+    # #51 — the old text asserted Route 389 / zone 19 for every box). Legal facts are the
+    # stable DIY-critical ones; the season/MWA specifics still say "verify" because they
+    # rotate by year.
+    _zone = str((la.zone if la else None) or getattr(ctx.aoi, "zone_hint", None) or "?")
+    _access_line = (routes_msg.strip() if routes_msg else
+                    "Reachable by road / logging spurs where mapped — plan fuel and check "
+                    "seasonal and washout closures on remote resource roads.")
+    lines += ["", "## Logistics & legal", "",
+              f"- **Access:** {_access_line}",
+              "- **Comms & safety:** little to no cell coverage in remote boreal Québec — "
+              "carry a satellite messenger (InReach/Zoleo), leave a trip plan and a check-in "
+              "schedule, and check SOPFEU fire-access restrictions and road closures before "
+              "you travel. Cold, fast water at crossings is a real fall hazard — see the "
+              "crossing notes on the map.",
+              "- **Legal (stable — but verify seasons):** register the animal within **48 h** "
+              "of leaving the hunt site; transport it whole or in **identifiable quarters** "
+              "with the head (or lower jaw + antlers) and the **transport coupon attached**; "
+              "you must keep all **edible flesh**. Confirm zone " + _zone + " season dates, "
+              "any sub-zone split, and the antlerless (MWA) rule on quebec.ca — these rotate "
+              "by year.", ""]
     outdir.mkdir(parents=True, exist_ok=True)
     (outdir / "brief.md").write_text("\n".join(lines))

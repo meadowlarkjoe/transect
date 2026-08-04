@@ -2203,7 +2203,15 @@ function renderBrief(){
   h+=`<p class="s">Legal: Zone <b>${g.zone}</b> · ${g.diy_possible?'DIY possible':'restricted'} · ${(g.huntable_tenures||[]).join(', ')||'—'}. ${(g.verify||[]).length?'Verify current season/rules before you go.':''}</p>`;
   // ---- day plan ----
   h+=`<h3>Your day plan — ${wps.length} site${wps.length!==1?'s':''}</h3>`+
-    wps.map(w=>`<p><b style="color:${COLORS[w.type]||'#ccc'}">●</b> <b>${LABELS[w.type]||w.type}</b> — ${w.properties.when||(w.properties.optimal_wind||{}).note||''}</p>`).join('');
+    wps.map(w=>{
+      const ow=w.properties.optimal_wind||{};
+      const when=w.properties.when||'';
+      // The approach/wind note was computed per site but dropped here — a hunter needs
+      // to know WHICH WAY to walk in, not just when to sit (audit #51). At first/last
+      // light thermal drainage usually beats the forecast wind (see the Field tab).
+      const app=ow.note?` <span class="s" style="opacity:.85">— ${ow.note}</span>`:'';
+      return `<p><b style="color:${COLORS[w.type]||'#ccc'}">●</b> <b>${LABELS[w.type]||w.type}</b>${when?' — '+when:''}${app}</p>`;
+    }).join('');
   // ---- what the score was built from ----
   const fw=((DOC.methodology||{}).factors_weighted)||[];
   if(fw.length){
