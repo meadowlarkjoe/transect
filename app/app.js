@@ -1031,7 +1031,7 @@ const LAYERS=[
   note:'Fire perimeters by age — browse peaks 15–22 yr after a burn. Strongest single predictor here.',
   hex:'#C97A2B', icon:'flame', on:false, lyr:'burns', count:()=>(DOC.burn_zones||[]).length},
  {k:'funnel', group:'MODEL ZONES', kind:'soft', edge:'none', name:'Funnels / passes',
-  note:'Terrain pinch points — inferred from the DEM, weakly evidenced',
+  note:'Land necks between water/wetland where travelling bulls squeeze through',
   hex:'#FF8C00', icon:'fork', on:false, lyr:'funnel', count:()=>(DOC.funnel_zones||[]).length},
 
  // These were one "Hunt sites" row drawing four different icons — so the map showed

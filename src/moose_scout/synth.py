@@ -349,12 +349,18 @@ def run(ctx: Context) -> None:
         a = np.where(mask & np.isfinite(arr), arr, 0.0)
         return _peaks(a, k, md)
 
-    def add_points_per_area(arr, legend, per_area, extra=None):
+    def add_points_per_area(arr, legend, per_area, extra=None, min_score=0.0):
         """Place features INSIDE each focus area (like annotations inside the
-        expert's loops) so they distribute across all ranked areas."""
+        expert's loops) so they distribute across all ranked areas.
+
+        `min_score` is a floor: a site is only placed where the surface actually
+        carries signal. Without it, the per-area argmax drops a marker even on a
+        near-zero surface — which put "funnels" 4–5 km from any water on a
+        water-sparse AOI (no real neck exists, so none should be shown). Better to
+        place fewer or none than to invent a low-confidence site."""
         for rank, mask in area_masks:
             for (r, c) in _best_in(arr, mask, per_area):
-                if not np.isfinite(arr[r, c]):
+                if not np.isfinite(arr[r, c]) or float(arr[r, c]) < min_score:
                     continue
                 lon, lat = toll((r, c))
                 props = {"legend": legend, "focus_area": rank,
@@ -404,7 +410,9 @@ def run(ctx: Context) -> None:
                         {"when": "midday when it's warm (> ~14 °C) — hunt the cool cover, not the openings"})
     add_points_per_area(feed_surf, "saline_blind", n_feed,
                         {"when": "first & last light — feeding on browse edge / in water (aquatic sodium)"})
-    add_points_per_area(funnel, "funnel", n_funnel, {"when": "travel corridor — any time, best when animals are moving"})
+    add_points_per_area(funnel, "funnel", n_funnel,
+                        {"when": "travel corridor — any time, best when animals are moving"},
+                        min_score=0.12)   # only where a real constriction exists
     add_points_per_area(glass, "glassing", n_glass,
                         {"when": "dawn & dusk — glass the openings from high ground",
                          "pair": "glass in pairs where the crew allows — two sets of eyes on one basin beats two basins half-watched"})

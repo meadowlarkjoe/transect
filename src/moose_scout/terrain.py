@@ -52,16 +52,53 @@ def run(ctx: Context) -> None:
     # TPI in metres below/above the 500 m neighbourhood; slope in degrees.
     wet = ru.normalize(-tpi, lo=-5.0, hi=15.0) * ru.normalize(slope, lo=0.0, hi=15.0, invert=True)
 
-    # --- funnels / passes: Hessian eigenvalues of opposite sign = saddle ---
+    # --- funnels / passes ------------------------------------------------------
+    # A moose funnel is a TRAVEL CONSTRICTION — a neck of passable ground squeezed
+    # between barriers — not merely a topographic saddle. In this boreal country the
+    # dominant barriers are WATER and WETLAND: the classic funnel is the land bridge
+    # between two lakes, or the narrows a travelling bull is forced through. The old
+    # detector was a pure DEM Hessian saddle, which its own comment admitted is
+    # "largely resampling noise" on the <2.5° ground that is most of this landscape —
+    # so it scattered low-confidence funnels over flat terrain. Rebuilt as a
+    # constriction detector on the water/wetland barrier field, with the topographic
+    # saddle kept only as a minor contributor where the ground is actually steep
+    # enough for a pass to mean something.
+    from scipy.ndimage import distance_transform_edt, maximum_filter
+    barrier = np.zeros(dem.shape, bool)
+    for nm in ("water.tif", "wetland.tif"):
+        try:
+            w = ru.read(cache_dir(aoi) / nm)[0]
+        except Exception:
+            w = None
+        if w is not None and w.shape == dem.shape:
+            barrier |= np.nan_to_num(w) > 0
+
+    constriction = np.zeros(dem.shape, "float32")
+    if barrier.any():
+        passable = ~barrier
+        # metres from each passable cell to the nearest barrier
+        db = distance_transform_edt(passable) * res
+        # medial axis: a passable cell that is a local ridge of db (centre of a
+        # corridor). A NECK is a ridge cell whose corridor half-width is small — a
+        # squeezed passage — within a plausible moose-travel width (~40–700 m). The
+        # narrower the neck, the stronger the funnel.
+        ridge = (db >= maximum_filter(db, size=3) - 1e-6) & passable & (db > res)
+        width = np.clip((700.0 - db) / 700.0, 0.0, 1.0)   # narrower ⇒ higher
+        constriction = np.where(ridge & (db < 700.0), width, 0.0).astype("float32")
+        # thicken the ridge a touch so a neck reads as a small zone, not a 1-px line
+        constriction = maximum_filter(constriction, size=max(3, int(round(120 / res)) | 1))
+
+    # topographic saddle — trustworthy ONLY on steep ground; near-zero and noisy on
+    # flats, so gate it hard by slope instead of letting it dominate.
     Hxx, Hxy, Hyy = hessian_matrix(demf, sigma=max(1.0, 60.0 / res), order="rc",
                                    use_gaussian_derivatives=False)
     l1, l2 = hessian_matrix_eigvals([Hxx, Hxy, Hyy])
-    saddle = np.where(l1 * l2 < 0, -(l1 * l2), 0.0)  # opposite signs -> pass
-    # NOTE: saddle magnitude is DEM-curvature-scale dependent, so this one stays a
-    # within-AOI rank. It is the weakest layer in the model (on <2.5° ground the
-    # Hessian is largely resampling noise) and is default-OFF in the app for that
-    # reason — treat funnel zones as a hint, not a measurement.
-    funnel = ru.normalize(saddle) * ru.normalize(slope, lo=0.0, hi=15.0, invert=True)
+    saddle = np.where(l1 * l2 < 0, -(l1 * l2), 0.0)
+    steep_gate = ru.normalize(slope, lo=5.0, hi=20.0)      # 0 below 5°, ramps to 20°
+    topo = ru.normalize(saddle) * steep_gate
+
+    # Constriction is the primary signal; topo passes add where the ground is steep.
+    funnel = np.maximum(constriction, 0.6 * topo).astype("float32")
 
     # --- cool (north-facing) aspect 0..1 for thermal refuge ---
     cool = (np.cos(np.radians(aspect)) + 1) / 2  # 1 at N(0/360), 0 at S(180)
