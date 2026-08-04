@@ -583,10 +583,15 @@ function init(){
   // thermal-drift arrow field (off by default; toggle in tools)
   if(!map.hasImage('thermal-arrow')) map.addImage('thermal-arrow',arrowIcon(),{pixelRatio:2});
   map.addSource('thermal',{type:'geojson',data:fc([])});
-  map.addLayer({id:'thermal',type:'symbol',source:'thermal',
+  // Thermal drift is a FINE-SCALE, per-stand signal — meaningless zoomed out over a
+  // whole AOI. Gate it to close zoom (minzoom) so it appears only when you're reading
+  // individual draws and aspects, and ramp size + opacity with zoom so it fades in
+  // rather than popping. It's also Field-tab only (see setTab).
+  map.addLayer({id:'thermal',type:'symbol',source:'thermal',minzoom:11.5,
     layout:{visibility:'none','icon-image':'thermal-arrow','icon-rotate':['get','brg'],
-      'icon-size':['interpolate',['linear'],['zoom'],8,0.6,11,0.9,14,1.3],'icon-allow-overlap':true,'icon-rotation-alignment':'map'},
-    paint:{'icon-opacity':0.9}});
+      'icon-size':['interpolate',['linear'],['zoom'],11.5,0.5,13,0.9,15,1.4],
+      'icon-allow-overlap':true,'icon-rotation-alignment':'map'},
+    paint:{'icon-opacity':['interpolate',['linear'],['zoom'],11.5,0,12.5,0.85]}});
   // caller/shooter pairs: the shooter sets up ~70 m downwind of each calling
   // station, because a bull circles downwind to scent-check before showing.
   map.addSource('shooterLines',{type:'geojson',data:fc([])});
@@ -1066,8 +1071,7 @@ const LAYERS=[
   note:'Plan extent — a hull we drew, not a surveyed edge', hex:'#CBD5DA', on:true, lyr:'areas',
   count:()=>(DOC.areas||[]).length},
  {k:'thermal', group:'SITES & FEATURES', kind:'line', edge:'dashed', name:'Thermal drift',
-  note:'Modelled slope airflow — an inference, not a measurement',
-  hex:'#CBD5DA', dash:'dashed', on:false, lyr:'thermal', count:()=>'—'},
+  note:'Modelled slope airflow — Field tab, zoom in to read it', hex:'#CBD5DA', dash:'dashed', on:false, lyr:'thermal', count:()=>'—'},
 
  // One "Routes" row used to cover three visually different lines, so the white
  // dashed access leg had no legend entry at all — you could see it and not name it.
@@ -1676,7 +1680,7 @@ function arrowIcon(){const S=30,cv=document.createElement('canvas');cv.width=cv.
 function elevAt(gi,gj){const e=DOC.elev;gi=Math.max(0,Math.min(e.gw-1,gi));gj=Math.max(0,Math.min(e.gh-1,gj));return e.v[gj*e.gw+gi];}
 function buildThermal(){
   const e=DOC.elev,b=DOC.box; if(!e||!map.getSource('thermal'))return;
-  const step=6,pts=[];
+  const step=4,pts=[];   // denser: only shown zoomed-in, so it can be busy
   for(let gj=step;gj<e.gh-step;gj+=step)for(let gi=step;gi<e.gw-step;gi+=step){
     const lon=b.w+(gi+0.5)/e.gw*(b.e-b.w), lat=b.n-(gj+0.5)/e.gh*(b.n-b.s);
     const gx=elevAt(gi+1,gj)-elevAt(gi-1,gj);      // east-west uphill component
@@ -2212,6 +2216,12 @@ function setTab(name){
     enterDeep(lastSel);
   } else {
     exitDeep();
+  }
+  // Thermal drift belongs to the Field tab — where you're planning a specific
+  // approach — not to Overview/Setup/Brief. Force it off when you leave.
+  if(name!=='field'){
+    const tr=LAYERS.find(r=>r.k==='thermal');
+    if(tr&&tr.on){ tr.on=false; setVis(LYR_MAP.thermal,false); }
   }
   if(name==='brief') renderBrief();   // scope the brief to the currently chosen area
   syncDocks(name);
