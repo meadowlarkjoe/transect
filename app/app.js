@@ -692,6 +692,20 @@ function init(){
   map.addLayer({id:'shooters-label',type:'symbol',source:'shooters',minzoom:10,
     layout:{'text-field':'SHOOTER','text-size':11,'text-offset':[0,-1.4],'text-font':['Open Sans Semibold'],'text-allow-overlap':true},
     paint:{'text-color':'#e6e9e3','text-halo-color':'#0b0f0d','text-halo-width':1.5}});
+  // SCENT WICKS (#73) — three points across the downwind arc, short of the shooter.
+  // Wind-dependent like the shooter, so they are derived here, not shipped as geometry.
+  map.addSource('scent',{type:'geojson',data:fc([])});
+  map.addSource('scentArc',{type:'geojson',data:fc([])});
+  map.addLayer({id:'scentArc',type:'line',source:'scentArc',minzoom:11,
+    paint:{'line-color':'#9BD1C4','line-width':1.1,'line-dasharray':[1,2],'line-opacity':0.7}});
+  map.addLayer({id:'scent',type:'circle',source:'scent',minzoom:11,
+    paint:{'circle-radius':['interpolate',['linear'],['zoom'],11,2.4,15,5.5],
+      'circle-color':'#9BD1C4','circle-stroke-color':'#0b0f0d','circle-stroke-width':1,
+      'circle-opacity':0.95}});
+  map.addLayer({id:'scent-label',type:'symbol',source:'scent',minzoom:13.2,
+    filter:['==',['get','mid'],1],
+    layout:{'text-field':'SCENT','text-size':10,'text-offset':[0,1.5],'text-font':['Open Sans Semibold'],'text-allow-overlap':true},
+    paint:{'text-color':'#9BD1C4','text-halo-color':'#0b0f0d','text-halo-width':1.5}});
   const SITE_SZ=['interpolate',['linear'],['zoom'],8,0.7,11,1.05,13,1.45,15,1.9];
   // WIND-FIT RING — per-position + time-scrubbed (#27). Green = the chosen day's forecast
   // wind suits this setup · red = it doesn't · magenta = a first/last-light window where the
@@ -1127,11 +1141,13 @@ const LYR_MAP={feedEdge:['feedEdgeZones','feedEdgeZones-line'],areas:['areas-fil
   roads:['roads','roads-case','roads-track','rail','trans'],
   trails:['trails'],
   boundaries:['boundaries'],
-  shooters:['shooters','shooters-label','shooterLines'],thermal:['thermal'],
-  huntZones:['huntZones','huntZones-line'],
-  refuge:['refugeZones','refugeZones-line'],
-  funnel:['funnelZones','funnelZones-line'],
-  browse:['browseZones','browseZones-line'],
+  shooters:['shooters','shooters-label','shooterLines'],
+  scent:['scent','scent-label','scentArc'],
+  thermal:['thermal'],
+  huntZones:['huntZones'],
+  refuge:['refugeZones'],
+  funnel:['funnelZones'],
+  browse:['browseZones'],
   burns:['burnZones','burnZones-line'],
   cuts:['cutZones','cutZones-line'],
   wetland:['wetlandZones','wetlandZones-line'],beaver:['beaverPonds'],
@@ -1204,6 +1220,11 @@ const LAYERS=[
  {k:'shooters', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Shooter positions',
   note:'Where the SHOOTER sets up — ~70 m downwind of its calling position, because a bull circles downwind to scent-check.', hex:'#FFD400', icon:'target', on:true, lyr:'shooters',
   count:()=>'—'},
+ {k:'scent', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Scent wicks',
+  note:'Where to hang cow scent — across the arc a bull swings downwind to scent-check, short of the shooter so he stops in range. Moves with the wind.',
+  hex:'#9BD1C4', icon:'target', on:false, lyr:'scent',
+  count:()=>{const n=(window._sites||[]).filter(f=>f.properties.type==='rut_calling').length;
+    return n?n*3:'—';}},
  {k:'areas', group:'SITES & FEATURES', kind:'dashed', edge:'dashed', name:'Focus-area outlines',
   note:'Plan extent — a hull we drew, not a surveyed edge', hex:'#CBD5DA', on:true, lyr:'areas',
   count:()=>(DOC.areas||[]).length},
@@ -1435,7 +1456,7 @@ function emphasiseLayer(k,on){
 }
 function applyHuntZoneFilter(){
   const on=LAYERS.filter(r=>r.hz&&r.on).map(r=>r.hz);
-  ['huntZones','huntZones-line'].forEach(id=>map.getLayer(id)&&
+  ['huntZones'].forEach(id=>map.getLayer(id)&&
     map.setFilter(id,['in',['get','cls'],['literal',on.length?on:['__none__']]]));
 }
 /* Each basemap states its actual SOURCE and resolution — you should be able to see
@@ -2137,6 +2158,33 @@ function buildShooters(){
     lines.push({type:'Feature',geometry:{type:'LineString',coordinates:[c,s]},properties:{}});});
   map.getSource('shooters').setData(fc(pts));
   map.getSource('shooterLines').setData(fc(lines));
+  buildScent(wdir,down);
+}
+/* SCENT WICKS (#73). A bull that answers a call swings DOWNWIND to scent-check the
+   cow he heard before he shows himself — that arc is the most predictable thing he
+   does, and it is where the hunt is usually lost, because what he finds there is
+   human scent. Three wicks go across that arc at 45 m (25 m short of the shooter,
+   so he stops in range rather than walking on into the shooter's own scent cone),
+   with two flankers 25 m out either side because a single wick is a thread he can
+   walk past. Geometry comes from the engine (DOC.scent.geometry) so the brief, the
+   map and the tests all quote one source; only the wind is local. */
+function buildScent(wdir,down){
+  if(!map.getSource('scent')) return;
+  const g=(DOC.scent&&DOC.scent.geometry)||{};
+  const wickM=(g.wick_m||45)/1000, flankM=(g.flank_m||25)/1000;
+  const pts=[],arcs=[];
+  (window._sites||[]).filter(f=>f.properties.type==='rut_calling'&&!hideTypes.rut_calling).forEach(f=>{
+    const c=f.geometry.coordinates;
+    const mid=destPoint(c[0],c[1],down,wickM);
+    const a=destPoint(mid[0],mid[1],(down+90)%360,flankM);
+    const b=destPoint(mid[0],mid[1],(down+270)%360,flankM);
+    pts.push({type:'Feature',geometry:{type:'Point',coordinates:mid},properties:{mid:1}});
+    pts.push({type:'Feature',geometry:{type:'Point',coordinates:a},properties:{mid:0}});
+    pts.push({type:'Feature',geometry:{type:'Point',coordinates:b},properties:{mid:0}});
+    arcs.push({type:'Feature',geometry:{type:'LineString',coordinates:[a,mid,b]},properties:{}});
+  });
+  map.getSource('scent').setData(fc(pts));
+  map.getSource('scentArc').setData(fc(arcs));
 }
 /* thermal drift: air drains DOWNSLOPE at night/evening (katabatic) and rises
    UPSLOPE through a warming day (anabatic). Arrow field from the elevation grid. */
@@ -3900,6 +3948,16 @@ const IDENTIFY = [
                                              :'where you leave the truck'},
   {lyr:'shooters',     row:'shooters', title:()=>'Shooter position',
                        sub:()=>'~70 m downwind of the caller'},
+  // A wick is useless without its refresh interval, and the interval depends on the
+  // day you have scrubbed to — so the hover says both.
+  {lyr:'scent',        row:'scent', title:p=>p.mid?'Scent wick — centre':'Scent wick — flank',
+                       sub:()=>{
+                         const g=(DOC.scent&&DOC.scent.geometry)||{};
+                         const cad=((DOC.scent&&DOC.scent.cadence)||[])
+                           .find(c=>selectedDay&&c.date===selectedDay.date);
+                         const geo=`${g.wick_m||45} m downwind of the call · hang ${(g.height_m||[1,1.5])[0]}–${(g.height_m||[1,1.5])[1]} m`;
+                         return cad ? `${geo} · refresh every ${cad.refresh_hours} h${cad.rain_reset?' · re-apply after rain':''}` : geo;
+                       }},
   {lyr:'crossings',    row:'crossings',
                        title:p=>CROSS_LABEL[p.kind]||CROSS_LABEL.boat,
                        chip:p=>CROSS_CHIP[p.kind]||CROSS_CHIP.boat,

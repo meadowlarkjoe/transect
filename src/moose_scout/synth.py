@@ -1356,6 +1356,39 @@ def calling_sequence(ctx) -> dict:
     }
 
 
+def scent_section(ctx, sc) -> dict:
+    """Scent/lure as a brief section (#73) — placement, refresh cadence, handling, and
+    the legal position, which for cervid urine is the part that can end a hunt."""
+    if not sc:
+        return {}
+    items = [sc["placement"]] + list(sc.get("handling", []))
+    cad = sc.get("cadence") or []
+    if cad:
+        worst = max(c["refresh_hours"] for c in cad)
+        best = min(c["refresh_hours"] for c in cad)
+        rainy = [c["date"] for c in cad if c.get("rain_reset")]
+        line = (f"**Refresh every {best} h** on your coldest, calmest day and "
+                f"**every {worst} h** on the warmest or windiest."
+                if best != worst else f"**Refresh every {best} h** across your hunt window.")
+        if rainy:
+            line += (" Rain is forecast on " + ", ".join(rainy[:3]) +
+                     " — re-apply once it passes; a wet wick is a dead wick.")
+        items.append(line)
+    lg = sc.get("legality")
+    note = None
+    if lg:
+        note = f"**Legal — {lg['status'].replace('_', ' ')}.** {lg['text']} {lg['verify']} ({lg['why']})"
+    return {
+        "title": "Scent & lure placement",
+        "intro": ("Calling puts a cow in his ears; scent is what he checks before he "
+                  "believes it. A bull that answers swings **downwind of the call** to "
+                  "verify her — that arc is the most predictable move he makes, and it is "
+                  "where the hunt is usually lost, because what he finds there is you."),
+        "items": items,
+        "note": note,
+    }
+
+
 def day_plan(ctx, n_area: int) -> dict:
     """An ORDERED plan across the target dates (#67): locate, rotate by wind, pack-out
     buffer. Grounded in the computed area count + phase + hunt style."""

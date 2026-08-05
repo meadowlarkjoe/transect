@@ -595,6 +595,15 @@ def build(ctx: Context) -> dict:
         doc["rut"] = rut_timing.summary(ctx, weather_days=wthr.get("days"))
     except Exception:
         doc["rut"] = None
+    # SCENT / LURE (#73). Placement depends on the wind on the day, so the engine ships
+    # the doctrine and per-day refresh cadence; the client places the wicks live off the
+    # wind scrubber, the same way it derives shooter positions.
+    try:
+        from . import scent as _scent
+        doc["scent"] = _scent.plan(ctx, wthr)
+    except Exception as e:
+        print(f"[contract] scent plan unavailable: {e}")
+        doc["scent"] = None
     try:
         from . import confidence as _conf
         doc["confidence"] = _conf.overall(ctx, cache)
@@ -619,6 +628,9 @@ def build(ctx: Context) -> dict:
             "calling_sequence": _synth.calling_sequence(ctx),
             "day_plan": _synth.day_plan(ctx, len(area_out)),
             "ground_truth": _synth.ground_truth_checklist(ctx, n_gt),
+            # Scent is a calling tactic, so it belongs beside the calling script rather
+            # than in a corner of its own (#73).
+            "scent": _synth.scent_section(ctx, doc.get("scent")),
         }
     except Exception:
         doc["field_plan"] = None

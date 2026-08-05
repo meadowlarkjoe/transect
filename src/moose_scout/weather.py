@@ -17,7 +17,10 @@ ARCHIVE = "https://archive-api.open-meteo.com/v1/archive"
 FORECAST = "https://api.open-meteo.com/v1/forecast"
 _SSL = ssl.create_default_context()
 _DAILY = ("temperature_2m_max,temperature_2m_min,"
-          "wind_speed_10m_max,wind_direction_10m_dominant,sunrise,sunset")
+          "wind_speed_10m_max,wind_direction_10m_dominant,sunrise,sunset,"
+          # rain washes a scent wick out entirely, so the lure refresh cadence (#73)
+          # needs precipitation, not just temperature and wind.
+          "precipitation_sum")
 
 
 def _get(url: str, params: dict) -> dict:
@@ -73,6 +76,7 @@ def for_dates(lat: float, lon: float, dates: list[str], today: str | None = None
             "wind_from_deg": wf,
             "wind_from_compass": compass(wf) if wf is not None else None,
             "wind_kmh": d.get("wind_speed_10m_max", [None])[i],
+            "precip_mm": d.get("precipitation_sum", [None] * len(d["time"]))[i],
             "sunrise": d.get("sunrise", [None])[i],
             "sunset": d.get("sunset", [None])[i],
         })

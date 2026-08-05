@@ -156,6 +156,7 @@ legend:
   - {key: camps2,    group: "SITES & FEATURES", name: "Base camp", note: "Where you sleep. Spike hunts only — a vehicle hunt has no camp."}
   - {key: staging,   group: "SITES & FEATURES", name: "Staging / parking", note: "Where you leave the truck — one per focus area, at its nearest road"}
   - {key: shooters,  group: "SITES & FEATURES", name: "Shooter positions", note: "Where the SHOOTER sets up — about 70 m downwind of its calling position, because a bull circles downwind to scent-check before he shows. The calling position is its own layer."}
+  - {key: scent,     group: "SITES & FEATURES", name: "Scent wicks", note: "Where to hang cow scent — three wicks across the arc a bull swings downwind to scent-check, 45 m out and 25 m short of the shooter so he stops in range. Moves with the wind. Québec allows MOOSE urine only; deer urine is prohibited (CWD)."}
   - {key: areas,     group: "SITES & FEATURES", name: "Focus-area outlines", note: "Plan extent — a hull we drew, not a surveyed edge"}
   - {key: thermal,   group: "SITES & FEATURES", name: "Thermal drift", note: "Modelled slope airflow — Field tab, zoom in to read it"}
   - {key: routes,    group: "ACCESS & HYDRO", name: "Hunt lines", note: "The best line to walk in on, from camp to the stand"}

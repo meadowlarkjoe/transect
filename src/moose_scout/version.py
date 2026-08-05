@@ -13,11 +13,22 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 15
+ENGINE_REVISION = 16
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    16: "Adds SCENT placement to every calling setup. A bull that answers a call swings "
+        "downwind to scent-check the cow before he shows himself — the plan now marks "
+        "where to hang wicks across that arc (45 m downwind of the call, 25 m either "
+        "side, deliberately short of the shooter so he stops in range instead of "
+        "walking on into your own scent). The wicks move with the wind as you scrub "
+        "days. Refresh cadence comes off the forecast: every 2 h warm or windy, 4 h "
+        "cold and calm, and re-applied after rain, which the plan now pulls in. Also "
+        "states the Québec legal position — natural cervid urine is prohibited for "
+        "hunting with MOOSE the stated exception, so a moose hunter may use moose urine "
+        "while deer urine is out entirely — and flags that the exception is under "
+        "review for the next moose management plan.",
     15: "Reads Québec's OFFICIAL road network (AQréseau+/MRNF) instead of OpenStreetMap "
         "alone. OSM does not map most logging roads out here — a camp sitting on a forest "
         "road was being reported as roadless — and distance-to-road drives reachability, "
