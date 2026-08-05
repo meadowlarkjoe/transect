@@ -657,7 +657,7 @@ function init(){
       'icon-size':['interpolate',['linear'],['zoom'],9,0.55,12,0.8,15,1]},
     paint:{'icon-opacity':0.95}});
   map.addLayer({id:'shooters-label',type:'symbol',source:'shooters',minzoom:10,
-    layout:{'text-field':'SHOOTER','text-size':10,'text-offset':[0,-1.4],'text-font':['Open Sans Bold'],'text-allow-overlap':true},
+    layout:{'text-field':'SHOOTER','text-size':10,'text-offset':[0,-1.4],'text-font':['Open Sans Semibold'],'text-allow-overlap':true},
     paint:{'text-color':'#e6e9e3','text-halo-color':'#0b0f0d','text-halo-width':1.5}});
   const SITE_SZ=['interpolate',['linear'],['zoom'],8,0.7,11,1.05,13,1.45,15,1.9];
   // WIND-FIT RING — per-position + time-scrubbed (#27). Green = the chosen day's forecast
@@ -675,10 +675,10 @@ function init(){
     layout:{'icon-image':'parking','icon-size':['interpolate',['linear'],['zoom'],8,0.8,11,1.15,15,2],'icon-allow-overlap':true}});
   map.addLayer({id:'camps',type:'symbol',source:'camps',
     layout:{'icon-image':'base_camp','icon-size':['interpolate',['linear'],['zoom'],8,0.9,11,1.25,15,2],'icon-allow-overlap':true,
-      'text-field':['get','id'],'text-offset':[0,1.4],'text-size':12,'text-font':['Open Sans Bold']},
+      'text-field':['get','id'],'text-offset':[0,1.4],'text-size':12,'text-font':['Open Sans Semibold']},
     paint:{'text-color':'#e6c98a','text-halo-color':'#0b0f0d','text-halo-width':1.5}});
   map.addLayer({id:'area-badges',type:'symbol',source:'areaLabels',
-    layout:{'text-field':['to-string',['get','rank']],'text-size':15,'text-font':['Open Sans Bold'],'text-allow-overlap':true},
+    layout:{'text-field':['to-string',['get','rank']],'text-size':15,'text-font':['Open Sans Semibold'],'text-allow-overlap':true},
     paint:{'text-color':'#fff','text-halo-color':['case',['get','top'],'#127a2e','#111'],'text-halo-width':2.5}});
   // river crossings on routes — red = river (needs a boat), amber = fordable stream
   // A crossing is a decision point, so it gets the same badge treatment as every
@@ -1755,7 +1755,7 @@ function _addAnnotLayers(){
       'circle-color':['case',['==',['get','grab'],1],'#ffffff',SC],
       'circle-stroke-color':'#08131a','circle-stroke-width':2.2}});
   map.addLayer({id:'annot-label',type:'symbol',source:'annot',filter:['has','label'],
-    layout:{'text-field':['get','label'],'text-size':12,'text-offset':[0,-1.2],'text-font':['Open Sans Bold'],'text-allow-overlap':true},
+    layout:{'text-field':['get','label'],'text-size':12,'text-offset':[0,-1.2],'text-font':['Open Sans Semibold'],'text-allow-overlap':true},
     paint:{'text-color':'#ffe6a8','text-halo-color':'#0b0f0d','text-halo-width':2}});
 }
 // THE render fix, GPU-pixel-verified (queryRenderedFeatures and screenshots both lied here; only
@@ -2467,7 +2467,7 @@ function drawDraft(){
       paint:{'line-color':'#e2c044','line-width':2,'line-dasharray':[3,2]}});
     map.addLayer({id:'draft-camp',type:'symbol',source:'draft',filter:['==',['get','camp'],1],
       layout:{'icon-image':'base_camp','icon-size':['interpolate',['linear'],['zoom'],8,0.9,11,1.25,15,2],'icon-allow-overlap':true,
-        'text-field':'CAMP','text-offset':[0,1.4],'text-size':11,'text-font':['Open Sans Bold']},
+        'text-field':'CAMP','text-offset':[0,1.4],'text-size':11,'text-font':['Open Sans Semibold']},
       paint:{'text-color':'#e6c98a','text-halo-color':'#0b0f0d','text-halo-width':1.5}}); }
 }
 let _boxCleanup=null;
