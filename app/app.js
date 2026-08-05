@@ -1723,35 +1723,9 @@ function ringKm2(ring){ // spherical polygon area
   return Math.abs(s*R*R/2);
 }
 function areaFmt(km2){ return UNITS==='imperial'?(km2*0.386102).toFixed(2)+' mi²':km2.toFixed(2)+' km²'; }
-function setupDraw(){
-  // REBUILD the annotation sources + layers FRESH every time. THE key fix: a geojson source
-  // created before the style was fully ready — or carried across a basemap style reload — winds
-  // up in a state where LINE features never paint (points still do), so the drawing outline was
-  // invisible. Removing and re-adding the source is the only reliable cure, verified live. Map
-  // event handlers are wired ONCE (re-wiring would stack duplicate click handlers).
-  ['annot-fill','annot-line-case','annot-line','annot-pt','annot-label'].forEach(l=>{ if(map.getLayer(l)) map.removeLayer(l); });
-  if(map.getSource('annot')) map.removeSource('annot');
-  if(map.getSource('annotFill')) map.removeSource('annotFill');
-  // PRIME the source with a LineString. An EMPTY-initialised geojson source never builds its
-  // line render bucket, so LINE features later set on it never paint (points do) — that was
-  // the invisible-outline bug the whole time. A degenerate line at null island (off every real
-  // AOI) primes it; renderAnnot keeps one present so the bucket never dies.
-  map.addSource('annot',{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:_PRIME},properties:{prime:1}}});
-  // Area FILLS live in their OWN source (a polygon beside the lines/points once looked like it
-  // broke them; kept split for safety — the outline + vertices are what the hunter must see).
-  map.addSource('annotFill',{type:'geojson',data:fc([])});
-  // Data-driven paint: every drawing carries its own stroke/fill/opacity (the click-to-edit
-  // panel writes them), with sane fallbacks. A dark CASING under the bright line so the
-  // drawing reads on ANY background — a thin white line was lost on satellite + the overlay.
-  map.addLayer({id:'annot-fill',type:'fill',source:'annotFill',filter:['==','$type','Polygon'],
-    paint:{'fill-color':['coalesce',['get','fill'],'#4de1ff'],'fill-opacity':['coalesce',['get','fo'],0.16]}});
-  // Width is per-drawing (data-driven `lw`). STYLE (solid/dashed/dotted) can't be data-driven
-  // for line-dasharray, so the outline is split into three layers filtered on the `style`
-  // property; a drawing routes to whichever matches (default solid). Dark casing under all.
-  // ONE line layer over a dark casing — the structure proven to render (fill + line coexist).
-  // Width/colour/opacity are per-drawing (data-driven); STYLE (dash) is applied by swapping
-  // this layer's line-dasharray to match the SELECTED drawing when the editor changes it —
-  // simpler and reliable vs. per-feature dash (which isn't data-driven and needs layer splits).
+// The four annot layers (over the `annot` source). Factored so _rebuildAnnot can recreate
+// them after recreating the source. Width/colour/opacity are per-drawing (data-driven).
+function _addAnnotLayers(){
   const _lw=['coalesce',['get','lw'],2.6], _lc=['coalesce',['get','stroke'],'#5fe6ff'], _lo=['coalesce',['get','lo'],1];
   map.addLayer({id:'annot-line-case',type:'line',source:'annot',filter:['==','$type','LineString'],
     paint:{'line-color':'#08131a','line-width':['+',_lw,2.4],'line-opacity':['*',0.6,_lo]}});
@@ -1764,6 +1738,30 @@ function setupDraw(){
   map.addLayer({id:'annot-label',type:'symbol',source:'annot',filter:['has','label'],
     layout:{'text-field':['get','label'],'text-size':12,'text-offset':[0,-1.2],'text-font':['Open Sans Bold'],'text-allow-overlap':true},
     paint:{'text-color':'#ffe6a8','text-halo-color':'#0b0f0d','text-halo-width':2}});
+}
+// THE outline fix. An empty-initialised geojson source never builds its LINE render bucket,
+// so lines set on it later never paint (points do) — the invisible-outline bug. Recreating
+// the source CARRYING the actual in-AOI line data builds the bucket in the right tiles, and
+// setData keeps working afterwards (both verified live). renderAnnot calls this the first
+// time a line appears (and _annotLinesLive resets on a fresh setupDraw / style reload).
+function _rebuildAnnot(data){
+  ['annot-line-case','annot-line','annot-pt','annot-label'].forEach(l=>{ if(map.getLayer(l)) map.removeLayer(l); });
+  if(map.getSource('annot')) map.removeSource('annot');
+  map.addSource('annot',{type:'geojson',data});
+  _addAnnotLayers();
+  window._annotLinesLive=true;
+}
+function setupDraw(){
+  ['annot-fill','annot-line-case','annot-line','annot-pt','annot-label'].forEach(l=>{ if(map.getLayer(l)) map.removeLayer(l); });
+  if(map.getSource('annot')) map.removeSource('annot');
+  if(map.getSource('annotFill')) map.removeSource('annotFill');
+  window._annotLinesLive=false;   // force a rebuild-with-data on the next line
+  map.addSource('annot',{type:'geojson',data:fc([])});
+  // Area FILLS live in their OWN source (kept split for safety); setData works fine for fills.
+  map.addSource('annotFill',{type:'geojson',data:fc([])});
+  map.addLayer({id:'annot-fill',type:'fill',source:'annotFill',filter:['==','$type','Polygon'],
+    paint:{'fill-color':['coalesce',['get','fill'],'#4de1ff'],'fill-opacity':['coalesce',['get','fo'],0.16]}});
+  _addAnnotLayers();
   if(!window._annotWired){
     window._annotWired=true;
     map.on('click',onDrawClick);
@@ -1779,10 +1777,6 @@ function setupDraw(){
     });
   }
 }
-// Cure the source ONCE the map is fully idle — a rebuild done cleanly after the style is
-// ready is what makes lines render (doing it mid-init or on every styledata thrashes it).
-try{ map.on('idle',()=>{ if(window._annotCured) return; window._annotCured=true;
-  try{ setupDraw(); if(drawSaved&&drawSaved.length) renderAnnot(); }catch(e){} }); }catch(e){}
 // Per-drawing editable style. Every committed drawing carries its own id, type, colours
 // and opacities so the click-to-edit panel can recolour just that one, and so a type can
 // be hidden wholesale from the legend. Defaults per tool; the user overrides them.
@@ -1866,8 +1860,9 @@ function renderAnnot(){
     }
     drawPts.forEach(p=>feats.push(_vertFeat(p,st)));
   }
-  feats.push({type:'Feature',geometry:{type:'LineString',coordinates:_PRIME},properties:{prime:1}});   // keep the line bucket alive
-  map.getSource('annot').setData(fc(feats));
+  const hasLines=feats.some(f=>f.geometry&&f.geometry.type==='LineString');
+  if(hasLines && !window._annotLinesLive) _rebuildAnnot(fc(feats));   // first in-AOI line: build the bucket with real data
+  else { const s=map.getSource('annot'); if(s) s.setData(fc(feats)); }
   const fsrc=map.getSource('annotFill'); if(fsrc) fsrc.setData(fc(fills));
   renderDrawManager();
 }
