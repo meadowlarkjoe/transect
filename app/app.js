@@ -1722,15 +1722,13 @@ function ringKm2(ring){ // spherical polygon area
   return Math.abs(s*R*R/2);
 }
 function areaFmt(km2){ return UNITS==='imperial'?(km2*0.386102).toFixed(2)+' mi²':km2.toFixed(2)+' km²'; }
-// ONE `annot` source, created once, mutated only with setData — the simple model that always
-// worked. Colour / weight / opacity are per-drawing (data-driven from feature properties, so
-// the editor recolours just the one object). Outline STYLE (solid/dashed/dotted) can't be
-// data-driven — line-dasharray is a constant — so there is ONE line layer per style, each
-// filtered on the `style` property. All filters are PURE expression syntax (mixing legacy
-// `$type` with `['get',…]` inside one filter is what silently broke the layers before).
-function setupDraw(){
-  if(map.getSource('annot')) return;                 // idempotent
-  map.addSource('annot',{type:'geojson',data:fc([])});
+// ONE `annot` source. Colour / weight / opacity are per-drawing (data-driven from feature
+// properties, so the editor recolours just the one object). Outline STYLE (solid/dashed/dotted)
+// can't be data-driven — line-dasharray is a constant — so there is ONE line layer per style,
+// filtered on the `style` property. Filters are PURE expression syntax throughout (mixing legacy
+// `$type` with `['get',…]` inside one filter is what silently broke the layers once).
+const _ANNOT_LAYERS=['annot-fill','annot-line-case','annot-line-solid','annot-line-dash','annot-line-dot','annot-pt','annot-label'];
+function _addAnnotLayers(){
   const LW=['coalesce',['get','lw'],2.6], SC=['coalesce',['get','stroke'],'#5fe6ff'], LO=['coalesce',['get','lo'],1];
   const isLine=['==',['geometry-type'],'LineString'];
   const styleIs=v=>['all',isLine,['==',['coalesce',['get','style'],'solid'],v]];
@@ -1756,6 +1754,32 @@ function setupDraw(){
   map.addLayer({id:'annot-label',type:'symbol',source:'annot',filter:['has','label'],
     layout:{'text-field':['get','label'],'text-size':12,'text-offset':[0,-1.2],'text-font':['Open Sans Bold'],'text-allow-overlap':true},
     paint:{'text-color':'#ffe6a8','text-halo-color':'#0b0f0d','text-halo-width':2}});
+}
+// THE render fix, GPU-verified. A geojson source created EMPTY (as setupDraw must, at map load,
+// to wire click handlers before any drawing exists) never builds its tile buckets, so features
+// set on it later with setData do NOT paint — confirmed by reading canvas pixels, while
+// queryRenderedFeatures lied and reported them "rendered". The cure is to RECREATE the source
+// CARRYING real data the first time there is any (buckets build in the right tiles); after that
+// one recreate, setData paints every update forever (also pixel-verified). Re-prime whenever the
+// drawing set goes empty, so a redraw-after-clear is always safe.
+function _recreateAnnot(data){
+  _ANNOT_LAYERS.forEach(l=>{ if(map.getLayer(l)) map.removeLayer(l); });
+  if(map.getSource('annot')) map.removeSource('annot');
+  map.addSource('annot',{type:'geojson',data});
+  _addAnnotLayers();
+  window._annotPrimed=true;
+}
+function _annotWrite(data){
+  const has=!!(data.features && data.features.length);
+  if(!has){ const s=map.getSource('annot'); if(s) s.setData(data); window._annotPrimed=false; return; }
+  if(!window._annotPrimed) _recreateAnnot(data);
+  else { const s=map.getSource('annot'); if(s) s.setData(data); else _recreateAnnot(data); }
+}
+function setupDraw(){
+  if(map.getSource('annot')) return;                 // idempotent
+  map.addSource('annot',{type:'geojson',data:fc([])});
+  window._annotPrimed=false;                          // empty source: force a recreate on first data
+  _addAnnotLayers();
   if(!window._annotWired){
     window._annotWired=true;
     map.on('click',onDrawClick);
@@ -1815,8 +1839,7 @@ function renderAnnot(){
   // before the data layers are added, so the drawings would otherwise paint UNDERNEATH the
   // satellite + model layers. Raise EVERY render (cheap) in this exact order so fill < outline
   // < vertices < labels always holds and nothing covers the outline.
-  ['annot-fill','annot-line-case','annot-line-solid','annot-line-dash','annot-line-dot','annot-pt','annot-label']
-    .forEach(l=>{ try{ if(map.getLayer(l)) map.moveLayer(l); }catch(e){} });
+  _ANNOT_LAYERS.forEach(l=>{ try{ if(map.getLayer(l)) map.moveLayer(l); }catch(e){} });
   // Offer "Recalculate" once the hunter has drawn a focus area to re-plan inside.
   const rb=document.getElementById('rescopeBtn');
   if(rb){ const hasPoly=(drawSaved||[]).some(f=>f.geometry&&f.geometry.type==='Polygon');
@@ -1847,7 +1870,7 @@ function renderAnnot(){
     }
     drawPts.forEach(p=>feats.push(_vertFeat(p,st)));
   }
-  map.getSource('annot').setData(fc(feats));
+  _annotWrite(fc(feats));
   renderDrawManager();
 }
 function setDrawTool(t){
