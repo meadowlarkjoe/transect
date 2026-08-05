@@ -13,11 +13,18 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 13
+ENGINE_REVISION = 14
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    14: "Focus areas are now gated on YOUR kit. Ground you cannot reach with the "
+        "transport you listed — water-locked with no boat, or past the distance you said "
+        "you'd cover — is no longer offered as a recommendation. It is still shown, ranked "
+        "behind the viable areas and outlined in RED with the reason it is out, so you can "
+        "judge whether bringing a canoe or an ATV is worth it. The areas you CAN work are "
+        "promoted into its place, and stands/routes are computed only for those. The model "
+        "also stopped crediting 'canoe extraction' as a plus to hunters who have no boat.",
     13: "Reads the MRNF GRHQ hydrography. Mapped WETLANDS (marsh/bog/fen) now form the "
         "land-bridge funnels and slow the walk-in, so funnels appear on lake-and-bog ground "
         "the terrain proxy missed. BEAVER PONDS (GRHQ flowages) are scored as a RUT HUB — a "

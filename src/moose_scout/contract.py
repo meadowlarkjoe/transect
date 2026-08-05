@@ -494,6 +494,12 @@ def build(ctx: Context) -> dict:
                          # ground you can't get to is worse than showing it.
                          "reachable": p.get("reachable", True),
                          "unreachable_why": p.get("unreachable_why"),
+                         # CAPABILITY GATE: 'ok' areas are the formal recommendations
+                         # (sites + routes computed); 'excluded' ones are shown ranked
+                         # behind them with the reason they're out, so the hunter can
+                         # judge whether different kit is worth bringing.
+                         "status": p.get("status", "ok"),
+                         "excluded_reason": p.get("excluded_reason"),
                          "walk_in_km": p.get("walk_in_km"),
                          "crew": p.get("crew"),
                          "geometry": a["geometry"]})

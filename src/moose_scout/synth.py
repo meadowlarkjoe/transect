@@ -230,9 +230,14 @@ def _explain_area(sel, L, res, med, hunter=None):
     f_browse = _lc_frac(L["lc"], sel, [20, 30]) + _lc_frac(L["lc"], sel, [90])
     f_cover = _lc_frac(L["lc"], sel, [10])
 
+    kit = _hunter_kit(hunter)
     pros, cons = [], []
     if dw is not None and dw < 300:
-        pros.append(f"water within ~{int(dw)} m (aquatic feed + canoe extraction)")
+        # Never sell water as an extraction route to a hunter who has no boat — that
+        # was the model crediting a retrieval path the hunter can't use (user-caught).
+        pros.append(f"water within ~{int(dw)} m ("
+                    + ("aquatic feed + boat extraction" if kit["boat"] else "riparian browse & travel")
+                    + ")")
     if f_browse > 0.25:
         pros.append(f"{int(f_browse*100)}% open browse/wetland (regen & riparian forage)")
     if 0.25 < f_cover < 0.85:
@@ -294,6 +299,52 @@ def _explain_area(sel, L, res, med, hunter=None):
             "stats": {"dist_water_m": None if dw is None else int(dw),
                       "dist_road_m": None if dr is None else int(dr),
                       "mean_slope_deg": None if slp is None else round(slp, 1)}}
+
+
+def _hunter_kit(hunter):
+    """What the hunter actually brought. `transport` is the multi-select from Setup;
+    `watercraft` is the older single field, kept in sync — either may carry the boat."""
+    tr = dict(getattr(hunter, "transport", {}) or {})
+    wc = getattr(hunter, "watercraft", "none")
+    return {"boat": bool(tr.get("canoe") or tr.get("motor") or wc in ("canoe", "motor")),
+            "motor": bool(tr.get("motor") or wc == "motor"),
+            "atv": bool(tr.get("atv"))}
+
+
+def _reach_km(hunter, kit):
+    """How far from a road this hunter can realistically work, on their own terms.
+    Spike/camp hunts add the road→camp leg to the camp→hunt leg; a vehicle hunt has
+    only the one. An ATV multiplies it along tracks (the ride/walk split is #69)."""
+    style = getattr(hunter, "hunt_style", "spike")
+    access = float(getattr(hunter, "walk_access_km", 6.0) or 6.0)
+    hunt_km = float(getattr(hunter, "walk_hunt_km", 3.0) or 3.0)
+    reach = hunt_km if style == "vehicle" else (access + hunt_km)
+    if kit["atv"]:
+        reach = reach * 2.5 + 5.0
+    return reach
+
+
+def _capability_gate(dr, hunter, kit):
+    """Can this hunter actually GET here and get an animal OUT, given what they told
+    us they have? Returns (ok, reason). A "no" is not a judgement about the ground —
+    the area still ships, flagged, so the hunter can decide whether the kit is worth
+    bringing (user: 'interesting to know they're there ... but not helpful to formally
+    suggest sites the hunter cannot access')."""
+    if dr is None:
+        return True, None
+    reach = _reach_km(hunter, kit)
+    # 5e5 is the barrier sentinel: no walkable path to a road at all (water-locked).
+    if dr >= 5e5:
+        if not kit["boat"]:
+            return False, ("No boat — this ground is cut off from every road by water. "
+                           "A canoe or boat would open it.")
+        return True, None
+    if dr > reach * 1000:
+        return False, (f"Beyond your range — ~{dr/1000:.1f} km from the nearest road, past the "
+                       f"~{reach:.0f} km you said you'd cover"
+                       + (" (even by ATV)." if kit["atv"] else
+                          ". An ATV or a boat would bring it in range."))
+    return True, None
 
 
 def _manual_focus_areas(manual_areas, hunt, prof, res):
@@ -416,6 +467,38 @@ def run(ctx: Context, manual_areas=None) -> None:
             if sel is not None:
                 f["properties"].update(_explain_area(sel, Lyr, res, None, ctx.aoi.hunter))
                 f["properties"]["conf"] = _conf.area_confidence(sel, Lyr)
+
+    # ---- CAPABILITY GATE ------------------------------------------------------
+    # Ground the hunter cannot reach with the kit they told us about is not a
+    # recommendation — it's a note. Gate every area, then RE-RANK so the areas they
+    # can actually hunt take ranks 1..n (this is the "search down the ranking for
+    # viable alternates" step: extraction is uncapped, so the lower-scoring areas
+    # that DO fit are already found and simply get promoted). Excluded areas keep
+    # their order behind them and carry the reason instead of a recommendation.
+    _kit = _hunter_kit(ctx.aoi.hunter)
+    _areas = [f for f in features if f["properties"]["legend"] == "focus_area"]
+    for f in _areas:
+        st = (f["properties"].get("stats") or {})
+        ok, why_not = _capability_gate(st.get("dist_road_m"), ctx.aoi.hunter, _kit)
+        f["properties"]["status"] = "ok" if ok else "excluded"
+        f["properties"]["excluded_reason"] = why_not
+    _ok = [f for f in _areas if f["properties"]["status"] == "ok"]
+    _ex = [f for f in _areas if f["properties"]["status"] != "ok"]
+    _remap = {}
+    for new_rank, f in enumerate(_ok + _ex, 1):
+        _remap[f["properties"]["rank"]] = new_rank
+    for f in _areas:
+        f["properties"]["rank"] = _remap[f["properties"]["rank"]]
+    # Sites/routes are placed ONLY inside areas the hunter can work — no compute
+    # spent detailing ground the plan can't send them to.
+    area_masks = [(_remap[rank], sel) for rank, sel in area_masks
+                  if _remap.get(rank) is not None
+                  and _remap[rank] <= len(_ok)]
+    area_masks.sort(key=lambda t: t[0])
+    mask_by_rank = {rank: sel for rank, sel in area_masks}
+    if _ex:
+        print(f"[synth] capability gate: {len(_ex)} of {len(_areas)} focus areas excluded; "
+              f"{len(_ok)} viable areas promoted to ranks 1..{len(_ok)}")
 
     def _best_in(arr, mask, k):
         """Top-k peaks of arr restricted to a focus-area mask."""

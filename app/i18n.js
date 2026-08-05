@@ -48,6 +48,9 @@
       // ---- setup ----
       'setup.title': 'Scout setup',
       'setup.sSpecies': 'Species & dates',
+      'ov.excluded': 'EXCLUDED',
+      'ov.exclDefault': 'Out of reach with the equipment you listed.',
+      'ov.exclHint': 'No stands or routes computed here. Open it to run a field analysis anyway.',
       'setup.sRes': 'Processing detail',
       'setup.resLbl': 'Grid resolution',
       'setup.resAuto': 'auto',
@@ -186,6 +189,9 @@
 
       'setup.title': 'Configuration',
       'setup.sSpecies': 'Espèce et dates',
+      'ov.excluded': 'EXCLU',
+      'ov.exclDefault': 'Hors de portée avec l\'équipement que vous avez indiqué.',
+      'ov.exclHint': 'Aucun poste ni trajet calculé ici. Ouvrez-le pour lancer une analyse terrain quand même.',
       'setup.sRes': 'Niveau de détail',
       'setup.resLbl': 'Résolution de la grille',
       'setup.resAuto': 'auto',

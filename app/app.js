@@ -420,7 +420,10 @@ let hideTypes = {};           // per-type show/hide
 
 function buildSources(){
   const areas=fc(DOC.areas.map(a=>({type:'Feature',geometry:a.geometry,
-    properties:{rank:a.rank,camp:a.camp,hunt:a.huntability,dr:(a.stats||{}).dist_road_m||0}})));
+    properties:{rank:a.rank,camp:a.camp,hunt:a.huntability,dr:(a.stats||{}).dist_road_m||0,
+      // EXCLUDED areas (capability gate) draw red — good ground this hunter's kit
+      // can't reach. Shown, not hidden, with the reason on hover/click.
+      excl:(a.status==='excluded')?1:0, why_out:a.excluded_reason||''}})));
   const areaLabels=fc(DOC.areas.map(a=>({type:'Feature',geometry:{type:'Point',coordinates:a.centroid},
     properties:{rank:a.rank,top:a.rank<=2}})));
   // camps from contract (grouped, sited at access) → drawn as base camps
@@ -621,9 +624,12 @@ function init(){
 
   // edge:'dashed', NEVER filled — this hull is our own drawing, and says so
   map.addLayer({id:'areas-fill',type:'fill',source:'areas',
-    paint:{'fill-color':'#CBD5DA','fill-opacity':0}});
+    paint:{'fill-color':['case',['==',['get','excl'],1],'#C9564A','#CBD5DA'],'fill-opacity':0}});
+  // White = a formal recommendation. RED = excluded by the capability gate: real ground,
+  // but not reachable with the kit you told us about (the reason rides on the feature).
   map.addLayer({id:'areas-line',type:'line',source:'areas',
-    paint:{'line-color':'#CBD5DA','line-width':1.5,'line-opacity':.9,'line-dasharray':[3,2]}});
+    paint:{'line-color':['case',['==',['get','excl'],1],'#C9564A','#CBD5DA'],
+      'line-width':1.5,'line-opacity':.9,'line-dasharray':[3,2]}});
   // REAL routes from the engine (terrain/water-cost following, hundreds of points).
   // These were computed and exported but never drawn — the map used to show a
   // straight camp→centroid dash instead, which is exactly the wrong line to trust
@@ -907,8 +913,24 @@ function buildPanel(){
 function areaCard(a){
   const dr=(a.stats||{}).dist_road_m||0;
   const boat=a.boat_required;
+  const excl=a.status==='excluded';
   const far=boat || (SETUP.huntStyle==='vehicle' && dr>reachKm()*1000);
   const po=packout(a);
+  // An EXCLUDED area is not a recommendation: it leads with WHY IT'S OUT instead of
+  // why it scored, and carries no sites/routes (the engine didn't compute any). The
+  // habitat evidence stays visible so the hunter can judge whether different kit is
+  // worth bringing, and can still run a field analysis on it on demand.
+  if(excl) return `<div class="card excluded" data-rank="${a.rank}"
+      style="border-color:#5a2b26;background:linear-gradient(0deg,rgba(201,86,74,.05),rgba(201,86,74,.05))">
+    <div class="top"><div class="badge" style="background:#3a1c19;color:#e29a92;border-color:#5a2b26">${a.rank}</div>
+      <div class="ttl">Area ${a.rank}</div><div class="val">${a.area_km2} km²</div></div>
+    <div class="metaline"><span style="color:#e29a92;letter-spacing:.04em;font-size:11px">${t('ov.excluded','EXCLUDED')}</span>
+      <span>${km(dr/1000)} to road</span>${a.conf?`<span>conf ${Math.round(a.conf.score*100)}%</span>`:''}</div>
+    <div class="callout" data-kind="danger"><span class="mark">✕</span><div class="body">${a.excluded_reason||t('ov.exclDefault','Out of reach with the equipment you listed.')}</div></div>
+    <div class="why">${(a.why||'').slice(0,160)}</div>
+    ${(a.pros||[]).slice(0,2).map(p=>`<div class="ev" data-kind="pro"><span class="op">+</span><span class="txt">${p}</span></div>`).join('')}
+    <div class="t-micro" style="margin-top:6px;opacity:.75">${t('ov.exclHint','No stands or routes computed here. Open it to run a field analysis anyway.')}</div>
+  </div>`;
   // Evidence lines: six saturated green pills read as one green block; a hairline row
   // with a single coloured operator scans far faster.
   const ev=[]
