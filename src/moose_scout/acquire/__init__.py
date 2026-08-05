@@ -147,6 +147,7 @@ def run(ctx: Context) -> dict[str, str]:
     # mirror that accepts the connection then hangs, defeating the request timeout)
     # must NOT freeze the whole job. Each source runs in its own worker; if it blows
     # the budget we abandon it and press on with a degraded-but-complete result.
+    import time
     from concurrent.futures import ThreadPoolExecutor
     from concurrent.futures import TimeoutError as _FTimeout
     # Scale the budget with the box: a 134 km-wide AOI asks Overpass for vastly more
@@ -162,9 +163,13 @@ def run(ctx: Context) -> dict[str, str]:
         # it gets a longer leash than the other sources — the user chose full stands over
         # speed. Its own wall-clock budget (ECOFOR_BUDGET_S) still bounds it.
         this_timeout = max(src_timeout, 900) if name == "ecoforestiere" else src_timeout
+        _t0 = time.time()
         try:
             pool.submit(fn, ctx).result(timeout=this_timeout)
-            status[name] = "ok"
+            # Report the seconds. Without this, "everything says ok" hides which source
+            # is still going to the network on a warm cache — which is exactly the
+            # question the geography cache (#79) exists to answer.
+            status[name] = f"ok ({time.time() - _t0:.0f}s)"
         except _FTimeout:
             status[name] = "timeout"       # stalled source can no longer hang the job
         except NotImplementedError:
