@@ -122,12 +122,37 @@ input::placeholder{color:var(--text-4)}
 .pcard{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden}
 .pcard:hover{border-color:var(--line-2)}
 .pthumb{height:118px;background:#11181c;position:relative;display:grid;place-items:center;
-  border-bottom:1px solid var(--line)}
+  overflow:hidden;border-bottom:1px solid var(--line)}
 .pthumb .chip{position:absolute;top:9px;right:9px;font:600 8.5px/1 var(--mono);letter-spacing:.12em;
   padding:4px 6px;border-radius:var(--r-sm)}
 .chip.computed{background:var(--good-bg);color:var(--good-fg)}
 .chip.stale{background:var(--warn-bg);color:var(--warn)}
 .chip.notrun{background:var(--surface-3);color:var(--text-3)}
+.chip.uncached{background:var(--surface-3);color:var(--warn)}
+/* the preview is the plan's own focus-area geometry, drawn as inline SVG */
+.pthumb .tsvg{position:absolute;inset:0;width:100%;height:100%}
+/* keep the species/zone strip readable over whatever geometry lands under it */
+.pthumb:has(.tsvg)::after{content:"";position:absolute;left:0;right:0;bottom:0;height:46px;
+  background:linear-gradient(to top,rgba(10,14,16,.86),rgba(10,14,16,0));pointer-events:none}
+.pthumb .nothumb{color:var(--text-4);font:500 10px/1 var(--mono);letter-spacing:.14em}
+.pbody .nmrow{display:flex;align-items:flex-start;gap:6px;margin-bottom:5px;min-height:19px}
+.pbody .nmrow .nm{margin:0;flex:1;cursor:text}
+.pbody .nmedit{width:100%;font:600 14px/1.3 var(--sans);padding:2px 6px;
+  background:var(--surface-2);border:1px solid var(--accent);border-radius:var(--r-sm);color:var(--text)}
+.iconbtn{background:none;border:0;color:var(--text-4);cursor:pointer;font-size:12px;line-height:1;
+  padding:3px 4px;border-radius:var(--r-sm)}
+.iconbtn:hover{color:var(--text);background:var(--surface-3)}
+.pfoot{position:relative}
+.pfoot .pbtn{padding:7px 10px;font-size:11px}
+.sheet{position:absolute;right:10px;bottom:calc(100% + 6px);z-index:40;width:236px;
+  background:var(--surface-2);border:1px solid var(--line-2);border-radius:var(--r-md);
+  box-shadow:0 14px 34px rgba(0,0,0,.44);overflow:hidden}
+.sheet button{display:block;width:100%;text-align:left;background:none;border:0;cursor:pointer;
+  padding:9px 12px;color:var(--text);font:500 12.5px/1.3 var(--sans);border-bottom:1px solid var(--line)}
+.sheet button:last-child{border-bottom:0}
+.sheet button:hover:not([disabled]){background:var(--surface-3)}
+.sheet button[disabled]{opacity:.45;cursor:default}
+.sheet small{display:block;margin-top:3px;font:400 10.5px/1.4 var(--sans);color:var(--text-4)}
 .pthumb .meta{position:absolute;bottom:8px;left:10px;right:10px;display:flex;justify-content:space-between;
   font:500 9px/1 var(--mono);letter-spacing:.1em;color:var(--text-3)}
 .pbody{padding:13px 14px}

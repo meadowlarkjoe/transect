@@ -76,34 +76,63 @@ function ago(ts){
   if(d<30) return 'SAVED '+d+' DAYS AGO';
   const m=Math.floor(d/30); return 'SAVED '+(m===1?'LAST MONTH':m+' MONTHS AGO');
 }
-/* A plan is only as good as its cached analysis: COMPUTED if it carries a result,
-   NOT RUN if it never has, STALE if the hunt dates have already passed. */
+/* WHAT A PLAN'S STATE ACTUALLY IS (#74).
+   This used to ask `plan.areas` — a key that has never existed. The analysis lives at
+   plan.doc, and a signed-out plan has no doc at all, so every card read NOT RUN even
+   for plans that had been run. Two independent facts, and the card owes you both:
+
+     ran?    — plan.sum, stamped by the engine run. Survives localStorage.
+     cached? — plan.doc, the full contract. Server-side plans only (it is megabytes).
+
+   So: NOT RUN · COMPUTED (ran + cached → reopens instantly) · RE-RUN NEEDED (ran, but
+   the result is not stored on this account) · STALE (hunt dates have passed). */
 function status(p){
-  const s=p.data||p;
-  if(!s.areas || !s.areas.length) return {k:'notrun',t:'NOT RUN'};
+  const s=p.data||p, sum=s.sum;
+  if(!sum || !sum.areas) return {k:'notrun',t:'NOT RUN',
+    tip:'Setup saved. The analysis has not been run yet.'};
   const d=(s.setup&&s.setup.dates)||[];
-  if(d.length && new Date(d[d.length-1]) < new Date()) return {k:'stale',t:'STALE'};
-  return {k:'computed',t:'COMPUTED'};
+  if(d.length && new Date(d[d.length-1]) < new Date()) return {k:'stale',t:'STALE',
+    tip:'These hunt dates have passed. Re-run with new dates — the rut phase and weather drive the plan.'};
+  if(!s.doc) return {k:'uncached',t:'RE-RUN NEEDED',
+    tip:'This plan was analysed, but the result was not stored (sign in to keep results with the plan). Reopening it needs a fresh run.'};
+  return {k:'computed',t:'COMPUTED',
+    tip:'Analysed and cached — opens instantly, no engine time.'};
+}
+/* The preview is the plan's own focus areas, drawn from the path data the run stamped
+   into plan.sum — no tiles, no map library, no network. Green = recommended,
+   red = capability-excluded (the areas you cannot reach with the kit you listed). */
+function thumb(sum){
+  const t=sum&&sum.thumb;
+  if(!t || !(t.ok||[]).length && !(t.ex||[]).length)
+    return `<span class="nothumb">NO PREVIEW</span>`;
+  const w=(t.water||[]).map(d=>`<path d="${d}" fill="#1d3a4a" stroke="none"/>`).join('');
+  const ok=(t.ok||[]).map(d=>`<path d="${d}" fill="rgba(126,196,124,.22)" stroke="#7ec47c" stroke-width=".8"/>`).join('');
+  const ex=(t.ex||[]).map(d=>`<path d="${d}" fill="rgba(224,110,96,.14)" stroke="#e06e60" stroke-width=".8" stroke-dasharray="2 1.6"/>`).join('');
+  return `<svg class="tsvg" viewBox="0 0 100 62" preserveAspectRatio="xMidYMid slice" aria-hidden="true">${w}${ok}${ex}</svg>`;
 }
 function card(p){
-  const s=p.data||p, su=s.setup||{}, st=status(p);
+  const s=p.data||p, su=s.setup||{}, st=status(p), sum=s.sum||{};
   const c=su.center||[], dates=(su.dates||[]).join(' → ');
-  const areas=(s.areas&&s.areas.length)||0;
+  const n=sum.areas||0, ex=sum.excluded||0;
   return `<div class="pcard" data-id="${esc(p.id)}">
     <div class="pthumb">
-      <span class="chip ${st.k}">${st.t}</span>
-      <span style="color:var(--text-4);font:500 10px/1 var(--mono);letter-spacing:.14em">NO PREVIEW</span>
-      <span class="meta"><span>${esc((s.meta&&s.meta.species)||'moose').toUpperCase()}${s.legal&&s.legal.zone?' · ZONE '+esc(s.legal.zone):''}</span>
-        <span>${areas?areas+' AREAS':''}</span></span>
+      ${thumb(sum)}
+      <span class="chip ${st.k}" title="${esc(st.tip)}">${st.t}</span>
+      <span class="meta"><span>${esc(sum.species||(s.meta&&s.meta.species)||'moose').toUpperCase()}${sum.zone?' · ZONE '+esc(sum.zone):''}</span>
+        <span>${n?(n-ex)+((n-ex)===1?' AREA':' AREAS')+(ex?' · '+ex+' EXCL':''):''}</span></span>
     </div>
     <div class="pbody">
-      <div class="nm">${esc(p.name||'Untitled plan')}</div>
+      <div class="nmrow">
+        <div class="nm" data-nm="${esc(p.id)}" title="Click to rename">${esc(p.name||'Untitled plan')}</div>
+        <button class="iconbtn" data-ren="${esc(p.id)}" title="Rename" aria-label="Rename plan">✎</button>
+      </div>
       <div class="co">${c.length?(+c[1]).toFixed(4)+', '+(+c[0]).toFixed(4):''}${su.radius?' · r'+Math.round(su.radius)+' km':''}${dates?' · '+esc(dates):''}</div>
     </div>
     <div class="pfoot">
       <span class="saved">${ago(p.updated?p.updated*1000:(s.savedAt||0))}</span>
-      <a class="btn btn--secondary btn--sm" style="padding:7px 11px;font-size:11px" href="app?plan=${encodeURIComponent(p.id)}">Open</a>
-      <button class="btn btn--ghost btn--sm" data-del="${esc(p.id)}" style="padding:7px 9px;font-size:11px">✕</button>
+      <button class="btn btn--ghost btn--sm pbtn" data-share="${esc(p.id)}" title="Share or export">Share</button>
+      <a class="btn btn--secondary btn--sm pbtn" href="app?plan=${encodeURIComponent(p.id)}">Open</a>
+      <button class="btn btn--ghost btn--sm pbtn" data-del="${esc(p.id)}">✕</button>
     </div></div>`;
 }
 function render(){
@@ -133,6 +162,9 @@ function render(){
       ? 'No saved plans yet. Draw a box in the app and save it — it will show up here on every device you sign in from.'
       : 'No plans in this browser yet. <a href="signin">Sign in</a> to sync plans across devices, or just start one in the app.';
   }
+  $('grid').querySelectorAll('[data-ren]').forEach(b=>b.onclick=()=>startRename(b.dataset.ren));
+  $('grid').querySelectorAll('[data-nm]').forEach(b=>b.onclick=()=>startRename(b.dataset.nm));
+  $('grid').querySelectorAll('[data-share]').forEach(b=>b.onclick=e=>{e.stopPropagation();openShare(b);});
   $('grid').querySelectorAll('[data-del]').forEach(b=>b.onclick=async e=>{
     e.preventDefault();
     const id=b.dataset.del;
@@ -144,6 +176,95 @@ function render(){
     PLANS=PLANS.filter(p=>p.id!==id); render();
   });
 }
+/* ---- rename (in place, persists) ---- */
+/* Write a plan back to WHERE IT CAME FROM. Being signed in does not mean every plan
+   on screen is a server plan — the local store is the fallback when the account has
+   none, and pushing those to the server on a rename would be a silent migration. */
+async function persist(p){
+  if(!p._local && tok() && API){
+    const r=await fetch(API+'/plans',{method:'PUT',
+      headers:{'Content-Type':'application/json',Authorization:'Bearer '+tok()},
+      body:JSON.stringify({id:p.id,name:p.name,data:p.data||p})});
+    if(!r.ok) throw new Error('server said '+r.status);
+  }else{
+    const local=JSON.parse(localStorage.getItem('transect_plans')||'[]');
+    const i=local.findIndex(x=>x.id===p.id);
+    if(i>=0){ local[i]=Object.assign({},local[i],{name:p.name}); localStorage.setItem('transect_plans',JSON.stringify(local)); }
+  }
+}
+function startRename(id){
+  const p=PLANS.find(x=>x.id===id); if(!p) return;
+  const row=$('grid').querySelector(`.pcard[data-id="${CSS.escape(id)}"] .nmrow`); if(!row) return;
+  const old=p.name||'Untitled plan';
+  row.innerHTML=`<input class="nmedit" value="${esc(old)}" maxlength="90">`;
+  const inp=row.querySelector('input'); inp.focus(); inp.select();
+  let done=false;
+  const finish=async commit=>{
+    if(done) return; done=true;
+    const v=(inp.value||'').trim();
+    if(commit && v && v!==old){
+      p.name=v;
+      if(p.data) p.data.name=v;
+      try{ await persist(p); }
+      catch(e){ p.name=old; alert('Could not rename: '+e.message); }
+    }
+    render();
+  };
+  inp.onkeydown=e=>{ if(e.key==='Enter'){e.preventDefault();finish(true);} if(e.key==='Escape'){e.preventDefault();finish(false);} };
+  inp.onblur=()=>finish(true);
+}
+
+/* ---- share / export ----
+   There is no public-link feature, so this does not pretend there is one. What it can
+   honestly do: hand you the plan as a file, and give you the link that reopens it on
+   your own signed-in devices. */
+function dl(name, mime, text){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([text],{type:mime}));
+  a.download=name; document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},400);
+}
+function slug(s){ return (s||'plan').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,50)||'plan'; }
+function gpx(p){
+  const s=p.data||p, doc=s.doc; if(!doc) return null;
+  const x=v=>String(v==null?'':v).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  const wp=(doc.waypoints||[]).map(w=>
+    `  <wpt lat="${w.lat}" lon="${w.lon}"><name>${x((w.properties&&w.properties.name)||w.type)}</name>`+
+    `<desc>${x((w.properties&&w.properties.note)||w.type)}</desc><sym>Flag, Blue</sym></wpt>`).join('\n');
+  const rt=(doc.routes||[]).map((r,i)=>
+    `  <trk><name>${x(r.type||('route '+(i+1)))}</name><trkseg>`+
+    (r.coords||[]).map(c=>`<trkpt lat="${c[1]}" lon="${c[0]}"/>`).join('')+
+    `</trkseg></trk>`).join('\n');
+  if(!wp && !rt) return null;
+  return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="Transect" xmlns="http://www.topografix.com/GPX/1/1">\n`+
+    `  <metadata><name>${x(p.name||'Transect plan')}</name></metadata>\n${wp}\n${rt}\n</gpx>\n`;
+}
+let SHEET=null;
+function closeShare(){ if(SHEET){SHEET.remove();SHEET=null;} }
+document.addEventListener('click',closeShare);
+function openShare(btn){
+  closeShare();
+  const id=btn.dataset.share, p=PLANS.find(x=>x.id===id); if(!p) return;
+  const s=p.data||p, hasDoc=!!s.doc, g=hasDoc?gpx(p):null;
+  const link=location.origin+location.pathname.replace(/plans(\.html)?$/,'app')+'?plan='+encodeURIComponent(id);
+  const m=document.createElement('div'); m.className='sheet'; SHEET=m;
+  m.innerHTML=
+    `<button data-a="link">Copy link<small>Reopens on your own signed-in devices</small></button>`+
+    `<button data-a="json">Download plan file<small>.json — setup, drawings${hasDoc?' and the full analysis':''}</small></button>`+
+    `<button data-a="gpx" ${g?'':'disabled'}>Download waypoints<small>${g?'.gpx — waypoints + routes for OnX/Garmin':'Needs a cached analysis'}</small></button>`;
+  m.onclick=e=>{
+    e.stopPropagation();
+    const a=(e.target.closest('button')||{}).dataset;
+    if(!a||!a.a) return;
+    if(a.a==='link'){ navigator.clipboard.writeText(link).then(()=>{
+      btn.textContent='Copied'; setTimeout(()=>{btn.textContent='Share';},1400); },()=>prompt('Copy this link',link)); }
+    if(a.a==='json') dl(slug(p.name)+'.transect.json','application/json',JSON.stringify(p.data||p,null,1));
+    if(a.a==='gpx'&&g) dl(slug(p.name)+'.gpx','application/gpx+xml',g);
+    closeShare();
+  };
+  btn.closest('.pfoot').appendChild(m);
+}
+
 $('q').oninput=render;
 document.querySelectorAll('[data-sort]').forEach(b=>b.onclick=()=>{
   sortBy=b.dataset.sort;
@@ -160,7 +281,33 @@ $('out').onclick=()=>{ try{localStorage.removeItem('transect_tok');localStorage.
       if(r.ok){ const d=await r.json(); PLANS=d.plans||[]; }
     }catch(e){}
   }
-  if(!PLANS.length){ try{ PLANS=JSON.parse(localStorage.getItem('transect_plans')||'[]'); }catch(e){ PLANS=[]; } }
+  if(!PLANS.length){ try{ PLANS=JSON.parse(localStorage.getItem('transect_plans')||'[]');
+    PLANS.forEach(p=>{p._local=true;}); }catch(e){ PLANS=[]; } }
+  // Plans saved before the summary existed still carry a full doc — derive enough of a
+  // summary from it so they report COMPUTED and draw a preview instead of NOT RUN.
+  PLANS.forEach(p=>{
+    const s=p.data||p;
+    if(s.sum || !s.doc) return;
+    const d=s.doc, a=d.areas||[], b=d.box;
+    const paths=(rings,mr,mp)=>{ const out=[];
+      for(const r of (rings||[]).slice(0,mr)){ if(!r||r.length<3) continue;
+        const st=Math.max(1,Math.ceil(r.length/mp)); let q='';
+        for(let i=0;i<r.length;i+=st){
+          const x=((r[i][0]-b.w)/((b.e-b.w)||1))*100, y=((b.n-r[i][1])/((b.n-b.s)||1))*62;
+          if(isFinite(x)&&isFinite(y)) q+=(q?'L':'M')+x.toFixed(1)+' '+y.toFixed(1); }
+        if(q) out.push(q+'Z'); }
+      return out; };
+    const ring=x=>{const g=x.geometry||{};
+      return g.type==='Polygon'?g.coordinates[0]:g.type==='MultiPolygon'?(g.coordinates[0]||[])[0]:null;};
+    s.sum={ranAt:(p.updated?p.updated*1000:s.savedAt)||0, areas:a.length,
+      excluded:a.filter(x=>x.status==='excluded').length,
+      species:(d.meta&&d.meta.species)||'', zone:(d.legal&&d.legal.zone)||'',
+      waypoints:(d.waypoints||[]).length};
+    if(b&&a.length) s.sum.thumb={
+      ok:paths(a.filter(x=>x.status!=='excluded').map(ring).filter(Boolean),8,40),
+      ex:paths(a.filter(x=>x.status==='excluded').map(ring).filter(Boolean),4,28),
+      water:paths(((d.hydro&&d.hydro.lakes)||[]),30,18)};
+  });
   render();
 })();
 </script>

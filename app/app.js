@@ -3073,13 +3073,63 @@ function setPlanName(n,saved){
   const el=document.getElementById('planName'), d=document.getElementById('saveDot');
   if(el){ el.textContent=PLAN_NAME; el.title='Click to rename'; el.style.cursor='text';
     el.onclick=()=>{ const v=prompt('Rename this plan',PLAN_NAME); if(v&&v.trim()) setPlanName(v.trim(),false); }; }
-  if(d){ d.dataset.s=PLAN_SAVED?'saved':'unsaved'; d.textContent=PLAN_SAVED?'SAVED':'UNSAVED'; }
+  if(d){ d.dataset.s=PLAN_SAVED?'saved':'unsaved'; d.textContent=PLAN_SAVED?'SAVED':'UNSAVED';
+    // UNSAVED is now a button, not just a verdict: click it and the plan is saved,
+    // analysis or not.
+    d.style.cursor=PLAN_SAVED?'default':'pointer';
+    d.title=PLAN_SAVED?'This plan is saved':'Click to save this plan now';
+    d.onclick=PLAN_SAVED?null:()=>{ d.textContent='SAVING…'; savePlanNow(true)
+      .then(()=>{ if(!PLAN_SAVED) setPlanName(PLAN_NAME,false); }); }; }
 }
 
 /* ---------------- saved hunt plans (UUID + local storage) ----------------
    A plan captures your Setup, chosen area, and map drawings — saved under a UUID
    in this browser. (Cross-device accounts come with the durable server.) */
 function uuid(){ return (crypto&&crypto.randomUUID)?crypto.randomUUID():'p-'+Date.now()+'-'+Math.random().toString(16).slice(2); }
+/* PLAN SUMMARY (#74). The dashboard used to ask the plan itself whether it had areas —
+   but the analysis lives at plan.doc, and signed-out plans have no doc at all, so every
+   card read NOT RUN whether or not it had ever been computed. A run now stamps a small
+   summary onto the plan: it is a couple of KB, so it survives localStorage, and it is
+   the honest record of "this was analysed" separate from "the result is cached here".
+   The thumbnail is SVG path data in a unit box — no tiles, no map, no network. */
+function _thumbPaths(rings, box, maxRings, maxPts){
+  const W=100, H=62, out=[];
+  const dx=(box.e-box.w)||1, dy=(box.n-box.s)||1;
+  for(const r of (rings||[]).slice(0,maxRings)){
+    if(!r || r.length<3) continue;
+    const step=Math.max(1,Math.ceil(r.length/maxPts));
+    let d='';
+    for(let i=0;i<r.length;i+=step){
+      const x=((r[i][0]-box.w)/dx)*W, y=((box.n-r[i][1])/dy)*H;
+      if(!isFinite(x)||!isFinite(y)) continue;
+      d+=(d?'L':'M')+x.toFixed(1)+' '+y.toFixed(1);
+    }
+    if(d) out.push(d+'Z');
+  }
+  return out;
+}
+function planSummary(doc){
+  if(!doc || doc.blank) return null;
+  const areas=doc.areas||[], box=doc.box;
+  const s={ranAt:doc._ranAt||Date.now(), areas:areas.length,
+    species:(doc.meta&&doc.meta.species)||'', zone:(doc.legal&&doc.legal.zone)||'',
+    title:(doc.meta&&doc.meta.title)||'', rev:(doc.meta&&doc.meta.engine_revision)||null,
+    excluded:areas.filter(a=>a.status==='excluded').length,
+    waypoints:(doc.waypoints||[]).length};
+  if(box && areas.length){
+    const ring=a=>{ const g=a.geometry||{};
+      return g.type==='Polygon'?g.coordinates[0]
+           : g.type==='MultiPolygon'?(g.coordinates[0]||[])[0] : null; };
+    // budgeted deliberately: a 118px-tall card needs no more detail than this, and the
+    // whole summary has to fit in localStorage alongside every other plan (~5 KB worst case).
+    s.thumb={
+      ok:_thumbPaths(areas.filter(a=>a.status!=='excluded').map(ring).filter(Boolean), box, 6, 32),
+      ex:_thumbPaths(areas.filter(a=>a.status==='excluded').map(ring).filter(Boolean), box, 4, 24),
+      water:_thumbPaths(((doc.hydro&&doc.hydro.lakes)||[]), box, 20, 14)
+    };
+  }
+  return s;
+}
 function loadPlans(){ try{return JSON.parse(localStorage.getItem('transect_plans')||'[]');}catch(e){return [];} }
 function savePlans(a){ try{localStorage.setItem('transect_plans',JSON.stringify(a));}catch(e){alert('Could not save (storage full).');} }
 /* The plan currently on screen, if it came from (or was saved to) the store. Keeps
@@ -3123,6 +3173,9 @@ function currentPlan(name, withDoc){
   // reopening is instant — but only server-side, where there's room for it.
   if(withDoc && DOC && !DOC.blank) p.doc = DOC;
   p.cached = !!p.doc;
+  // …and the small summary rides along either way, so the dashboard can tell a plan
+  // that was analysed from one that never has, and can draw a preview of it.
+  p.sum = planSummary(DOC);
   return p;
 }
 /* AUTOSAVE ON COMPLETION.
@@ -3134,9 +3187,14 @@ function currentPlan(name, withDoc){
    Signed in, the whole computed analysis goes with it so reopening is instant and
    costs no engine time. Signed out, we keep the setup locally (there is no room in
    localStorage for a full contract) and say so. */
-async function autosavePlan(){
+async function autosavePlan(){ return savePlanNow(false); }
+/* force=true saves whatever is on screen — including a Setup you have not run yet.
+   A plan that only exists once it has cost five minutes of engine time is a plan you
+   lose every time you close the tab mid-setup. */
+async function savePlanNow(force){
   try{
-    if(!DOC || DOC.blank || !(DOC.areas||[]).length) return;
+    if(!force && (!DOC || DOC.blank || !(DOC.areas||[]).length)) return;
+    if(force && !draft.center) return;
     const authed=isAuthed();
     const p=currentPlan(PLAN_NAME||'', authed);
     if(CUR_PLAN_ID) p.id=CUR_PLAN_ID;          // re-running replaces, never piles up
@@ -3182,6 +3240,9 @@ function applyPlan(p){
   renderSetup();
   const pl=document.getElementById('plans'); if(pl) pl.classList.add('hidden');
   if(p.doc){                                   // cached analysis → no recompute needed
+    // keep the ORIGINAL run time — re-saving a reopened plan must not pretend it
+    // was just analysed.
+    p.doc._ranAt = (p.sum && p.sum.ranAt) || p.savedAt || Date.now();
     applyDoc(p.doc);
     setPlanName(p.name||planTitle(), true);
     setTab('overview');
