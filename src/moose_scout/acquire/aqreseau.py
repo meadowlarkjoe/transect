@@ -104,6 +104,54 @@ def _road_class(props):
     return "track"
 
 
+# Bridges — POINTS, with status. This is the highest-value non-road layer here:
+# contract.py's crossing classifier otherwise leans on OSM `bridge=yes` and admits
+# most of its calls are the weak, inferred kind. An official bridge turns "assume a
+# boat" into "you drive over it" (which can un-exclude a focus area), and a CLOSED
+# bridge is the opposite — a route that looks drivable but isn't.
+BRIDGE_LAYERS = [(1, "open"), (2, "unknown"), (3, "closed")]
+
+# Motorised trails — NOT roads, a different thing: you can't take a truck down them,
+# but an ATV/SxS rides them (#69) and on foot they beat bushwhacking. Kept in their own
+# layer so nothing downstream can mistake one for drivable access.
+TRAIL_LAYERS = [(112, "snowmobile"), (115, "quad")]
+
+# Rail — also not a road. Relevant twice over: moose and other wildlife travel rail
+# corridors, and a rail grade is a fast, open walking line through country that would
+# otherwise be a bushwhack.
+RAIL_LAYERS = [(20, "rail")]
+
+
+def _fetch_simple(layers, bbox, t0, out_path, kind_field):
+    """Pull a set of (layer, kind) into one gpkg. Returns the feature count."""
+    import geopandas as gpd
+    from shapely.geometry import LineString, MultiLineString, Point
+
+    rows, geoms = [], []
+    for layer, kind in layers:
+        for f in _query_layer(layer, bbox, t0):
+            g = f.get("geometry") or {}
+            gt, co = g.get("type"), g.get("coordinates")
+            if not co:
+                continue
+            try:
+                geom = (Point(co) if gt == "Point"
+                        else LineString(co) if gt == "LineString"
+                        else MultiLineString(co))
+            except Exception:
+                continue
+            p = f.get("properties") or {}
+            geoms.append(geom)
+            rows.append({kind_field: kind, "name": p.get("NomRte") or "",
+                         "no": p.get("NoRte") or "",
+                         "status": p.get("Stat_Pont") or "",
+                         "capacity": p.get("Cap_Port") or ""})
+    if not rows:
+        return 0
+    gpd.GeoDataFrame(rows, geometry=geoms, crs="EPSG:4326").to_file(out_path, driver="GPKG")
+    return len(rows)
+
+
 def fetch(ctx, cache) -> str:
     """Pull AQréseau+ for the AOI and write cache/aqreseau.gpkg (WGS84 lines).
 
@@ -141,10 +189,29 @@ def fetch(ctx, cache) -> str:
                          "cls_chefor": p.get("Cls_CheFor") or "",
                          "cls_rte": p.get("ClsRte") or "",
                          "multi": p.get("Che_Multi") or ""})
+    # Bridges + motorised trails ride along on the same service — each guarded so a
+    # failure costs only that layer, never the roads.
+    n_br = n_tr = 0
+    try:
+        n_br = _fetch_simple(BRIDGE_LAYERS, bbox, t0, cache / "aq_bridges.gpkg", "state")
+    except Exception as ex:
+        print(f"[aqreseau] bridges skipped: {ex}")
+    try:
+        n_tr = _fetch_simple(TRAIL_LAYERS, bbox, t0, cache / "aq_trails.gpkg", "mode")
+    except Exception as ex:
+        print(f"[aqreseau] trails skipped: {ex}")
+    n_rl = 0
+    try:
+        n_rl = _fetch_simple(RAIL_LAYERS, bbox, t0, cache / "aq_rail.gpkg", "mode")
+    except Exception as ex:
+        print(f"[aqreseau] rail skipped: {ex}")
+
     if not rows:
         return "absent: AQréseau+ returned no segments for this box"
     gdf = gpd.GeoDataFrame(rows, geometry=geoms, crs="EPSG:4326")
     gdf.to_file(out, driver="GPKG")
     drivable = int((gdf["drive"] == "yes").sum())
-    print(f"[aqreseau] {len(gdf)} segments ({drivable} drivable) -> {out.name}")
-    return f"ok: {len(gdf)} segments ({drivable} drivable)"
+    print(f"[aqreseau] {len(gdf)} segments ({drivable} drivable), "
+          f"{n_br} bridges, {n_tr} motorised trails, {n_rl} rail")
+    return (f"ok: {len(gdf)} segments ({drivable} drivable), {n_br} bridges, "
+            f"{n_tr} trails, {n_rl} rail")

@@ -13,11 +13,21 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 14
+ENGINE_REVISION = 15
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    15: "Reads Québec's OFFICIAL road network (AQréseau+/MRNF) instead of OpenStreetMap "
+        "alone. OSM does not map most logging roads out here — a camp sitting on a forest "
+        "road was being reported as roadless — and distance-to-road drives reachability, "
+        "hunter pressure, pack-out cost and staging, so the whole plan shifts. Forest-road "
+        "CLASS is read too (a class-1 haul road is not a class-5 spur). Official BRIDGES "
+        "now settle water crossings: an open bridge means you drive over it (which can "
+        "bring a focus area back into range), a CLOSED one is flagged before you trust the "
+        "route. Quad/snowmobile TRAILS and RAIL grades are read as their own thing — never "
+        "drivable, but far faster than bushwhacking on foot and the corridors moose "
+        "themselves travel.",
     14: "Focus areas are now gated on YOUR kit. Ground you cannot reach with the "
         "transport you listed — water-locked with no boat, or past the distance you said "
         "you'd cover — is no longer offered as a recommendation. It is still shown, ranked "

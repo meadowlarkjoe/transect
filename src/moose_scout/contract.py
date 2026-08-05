@@ -868,8 +868,37 @@ def build(ctx: Context) -> dict:
 
         _grhq_cache = {}
 
+        # OFFICIAL bridges (AQréseau+ point layer, with status). This outranks every
+        # other signal: a mapped open bridge means you drive over the water, and a
+        # mapped CLOSED one means a route that looks drivable isn't. Without it most
+        # calls here rest on the OSM waterway class alone — the weakest evidence we
+        # have — which is how a bridged river came back as "assume a boat" and could
+        # exclude a perfectly reachable focus area.
+        aq_open = aq_closed = None
+        try:
+            import geopandas as _gpd
+            _bp = cache / "aq_bridges.gpkg"
+            if _bp.exists():
+                _b = _gpd.read_file(_bp)
+                if _b.crs and _b.crs.to_epsg() != 4326:
+                    _b = _b.to_crs(4326)
+                _o = _b[_b["state"] == "open"] if "state" in _b.columns else _b
+                _c = _b[_b["state"] == "closed"] if "state" in _b.columns else _b.iloc[0:0]
+                if len(_o):
+                    aq_open = _uu(list(_o.geometry))
+                if len(_c):
+                    aq_closed = _uu(list(_c.geometry))
+        except Exception:
+            aq_open = aq_closed = None
+
         def _classify(pt, weak_kind):
             """weak_kind is what the waterway class alone would say."""
+            _tol = BRIDGE_M / m_per_deg
+            if aq_closed is not None and _PT(pt).distance(aq_closed) <= _tol:
+                return ("boat", "AQréseau+: the bridge here is CLOSED — do not count on "
+                                "driving it; plan another way in", "measured")
+            if aq_open is not None and _PT(pt).distance(aq_open) <= _tol:
+                return "bridge", "AQréseau+: mapped bridge, open", "measured"
             if bridges is not None:
                 ptb = _PT(pt).buffer(BRIDGE_M / m_per_deg)
                 local = bridges.intersection(ptb)

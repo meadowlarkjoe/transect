@@ -861,7 +861,17 @@ def _walk_cost(ctx, cache, roads_free=True):
     if wg is not None:
         cost = cost + np.where(np.nan_to_num(wg) > 0, 3.0, 0.0)
 
+    # TRAILS + RAIL are NOT roads and must never be costed as one — you cannot take a
+    # truck down a quad trail or a rail grade. But both beat bushwhacking badly: a
+    # cleared trail or an open rail grade is a fast walking line (and an ATV rides the
+    # trail outright), which is also why moose use them as travel corridors. Their own
+    # tier, between road (0.05) and open bush (~1+).
+    _lin = _linear_cost_layer(cache, cost.shape)
+    if _lin is not None:
+        cost = np.where(_lin, 0.35, cost)
+
     # roads: near-free travel. This is what makes a route look like a route.
+    # Applied AFTER trails so a genuine road always wins where the two overlap.
     if roads_free:
         rd = _opt(cache / "roads.tif")
         if rd is not None:
@@ -882,6 +892,40 @@ def _walk_cost(ctx, cache, roads_free=True):
     if lake is not None:
         cost = np.where(lake, WATER, cost)
     return cost.astype("float64")
+
+
+def _linear_cost_layer(cache, shape):
+    """Rasterize motorised TRAILS (quad/snowmobile) and RAIL grades onto the analysis
+    grid as a boolean 'easy walking line' mask. Deliberately separate from roads.tif:
+    these are not drivable in a truck, so nothing may treat them as vehicle access —
+    they only make walking (and, for #69, riding) cheaper than bushwhacking, and they
+    are the linear corridors wildlife moves along. None if neither layer is present."""
+    import numpy as _np
+    paths = [cache / "aq_trails.gpkg", cache / "aq_rail.gpkg"]
+    paths = [p for p in paths if p.exists()]
+    if not paths:
+        return None
+    try:
+        import geopandas as gpd
+        from rasterio.features import rasterize
+        prof = ru.read(cache / "dem.tif")[1]
+        geoms = []
+        for p in paths:
+            g = gpd.read_file(p)
+            if not len(g):
+                continue
+            if g.crs and str(g.crs) != str(prof["crs"]):
+                g = g.to_crs(prof["crs"])
+            geoms += [gm for gm in g.geometry if gm is not None and not gm.is_empty]
+        if not geoms:
+            return None
+        arr = rasterize([(gm, 1) for gm in geoms], out_shape=shape,
+                        transform=prof["transform"], fill=0, dtype="uint8",
+                        all_touched=True)      # a narrow trail must not vanish on a coarse grid
+        return arr.astype(bool) if arr.any() else None
+    except Exception as ex:
+        print(f"[synth] trail/rail cost layer skipped: {ex}")
+        return None
 
 
 def _lake_barrier(cache, shape):
