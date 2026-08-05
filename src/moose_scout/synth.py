@@ -1280,7 +1280,26 @@ def _add_routes(ctx, features, cache, prof, access, toll, camp_of_area=None):
                 for dest in [camp_by_area.get(rank) or _area_dest(features, rank, lonlat_to_rc)]
                 if dest]
         if not legs and camp_rc:
-            legs = [(None, road_start, s) for s in camp_rc]
+            # NO STAGING PIN — which is the normal case for a camp the hunter placed:
+            # you drove to your cabin, so there is no separate parking to walk from.
+            # The access leg is then "how you get IN to camp", and it has to start at the
+            # road NEAREST THE CAMP. The old fallback started at road_start — the single
+            # globally most accessible cell in the whole box — which on a real 9 km AOI
+            # put the origin in a far corner and drew a 21 km "access route" to a cabin
+            # you drive to. That is the same one-shared-origin mistake the comment above
+            # warns about, just reached by a different path.
+            _res_m = float(getattr(ctx.model, "raster_resolution_m", 40.0) or 40.0)
+            _near = np.isfinite(access) & (access <= max(60.0, _res_m))
+            _rr, _cc = np.nonzero(_near)
+
+            def _road_near(rc):
+                if _rr.size == 0:
+                    return road_start
+                d = (_rr - rc[0]) ** 2 + (_cc - rc[1]) ** 2
+                i = int(np.argmin(d))
+                return (int(_rr[i]), int(_cc[i]))
+
+            legs = [(None, _road_near(s), s) for s in camp_rc]
         for rank, start, dest in legs:
             if start == dest:
                 continue
