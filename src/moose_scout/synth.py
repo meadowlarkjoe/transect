@@ -1138,7 +1138,9 @@ def _add_routes(ctx, features, cache, prof, access, toll):
         coords = [list(toll((r, c))) for r, c in path]
         props = {"legend": legend, "focus_area": rank}
         if _ride_mask is not None and len(path) > 1:
-            step_km = res / 1000.0
+            # NB: `res` lives in run(), not here — reading it threw a NameError that the
+            # best-effort routing try/except swallowed, dropping EVERY route on an ATV run.
+            step_km = float(ctx.model.raster_resolution_m) / 1000.0
             ride = [bool(_ride_mask[r, c]) for (r, c) in path]
             # smooth 1-cell flickers so the legs read as real segments, not confetti
             for i in range(1, len(ride) - 1):
