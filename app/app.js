@@ -1751,23 +1751,19 @@ function _addAnnotLayers(){
 // THE render fix, GPU-pixel-verified (queryRenderedFeatures and screenshots both lied here; only
 // reading canvas pixels told the truth). A geojson source created EMPTY at map load never builds
 // its tile buckets, so NOTHING set on it later with setData paints — not fills, not lines, not
-// even points (the user saw exactly that: every tool blank). The one operation that always
-// paints is RECREATING the source carrying the real data, which builds the buckets in the right
-// tiles and re-adds the layers on top. So write == recreate. Coalesce through requestAnimationFrame
-// so rapid updates (colour/weight sliders, vertex drag) do at most one recreate per frame with the
-// latest data, instead of churning the source synchronously.
-let _annotRAF=0, _annotPending=null;
+// even points (the user saw exactly that: every tool blank). The one operation that always paints
+// is RECREATING the source carrying the real data SYNCHRONOUSLY — it builds the buckets in the
+// right tiles and re-adds the layers on top. It must be synchronous: deferring the recreate into a
+// requestAnimationFrame callback collides with MapLibre's own render loop and the new tiles never
+// load (verified — rAF recreate stayed blank, the identical synchronous recreate painted). So
+// write == recreate, right now. setData is never used (it does not paint on this source).
 function _recreateAnnot(data){
   _ANNOT_LAYERS.forEach(l=>{ if(map.getLayer(l)) map.removeLayer(l); });
   if(map.getSource('annot')) map.removeSource('annot');
   map.addSource('annot',{type:'geojson',data});
   _addAnnotLayers();                                  // re-added on top, in fill<line<pt<label order
 }
-function _annotWrite(data){
-  _annotPending=data;
-  if(_annotRAF) return;
-  _annotRAF=requestAnimationFrame(()=>{ _annotRAF=0; const d=_annotPending; _annotPending=null; try{ _recreateAnnot(d); }catch(e){} });
-}
+function _annotWrite(data){ try{ _recreateAnnot(data); }catch(e){} }
 function setupDraw(){
   if(map.getSource('annot')) return;                 // idempotent
   map.addSource('annot',{type:'geojson',data:fc([])});
