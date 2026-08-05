@@ -164,6 +164,15 @@ def fetch(ctx, cache) -> str:
     from shapely.geometry import LineString, MultiLineString
 
     out = cache / "aqreseau.gpkg"
+    # ALREADY HAVE IT. This module had no cached-skip at all, so it re-queried the MRNF
+    # service — ~20k segments over a Rouyn-sized box, minutes of paging — on every run
+    # over ground we had already pulled, and it defeated the geography cache (#79) that
+    # had just handed us the exact same file.
+    sidecars = [cache / n for n in ("aq_bridges.gpkg", "aq_trails.gpkg", "aq_rail.gpkg")]
+    if out.exists() and out.stat().st_size > 0 and all(p.exists() for p in sidecars):
+        print("[aqreseau] cached — skipping the network")
+        return "cached"
+
     bbox = ctx.aoi.bbox_wgs84()          # (minlon, minlat, maxlon, maxlat)
     t0 = time.time()
     rows, geoms = [], []

@@ -145,7 +145,53 @@
       'w.pickday': 'Pick a day → sites turn green when the forecast wind fits their approach',
       'x.title': "Export this plan's waypoints, routes & areas:",
       'x.gpx': 'GPX — OnX / Garmin', 'x.kml': 'KML — Google Earth', 'x.zones': 'include model zones',
-      'lang.label': 'Language'
+      'lang.label': 'Language',
+      /* dialogs (#75) — every one of these replaced a native alert()/confirm(), which
+         printed English regardless of the language chip. */
+      'dlg.ok': 'Got it',
+      'dlg.cancel': 'Cancel',
+      'dlg.notnow': 'Not now',
+      'dlg.readyTitle': '“{name}” is ready to run',
+      'dlg.readyRun': 'Run analysis',
+      'dlg.readySetup': 'Review setup',
+      'dlg.readyBody': 'Your box, dates, hunt style and drawings are restored below — nothing to re-enter. What is not stored is the computed analysis itself.',
+      'dlg.readyCached': 'Results are kept with the plan on your account, so the next open is instant.',
+      'dlg.readyLocal': 'Signed out, only the setup is stored in this browser. Sign in and results ride along with the plan.',
+      'dlg.revTitle': 'The engine has improved since this plan was computed',
+      'dlg.revBody': 'This plan still works exactly as it did — nothing about it is broken or gone.',
+      'dlg.revKeep': 'Keep this plan',
+      'dlg.revRun': 'Re-analyse',
+      'dlg.rerunTitle': 'Replace the current analysis?',
+      'dlg.rerunGo': 'Run new analysis',
+      'dlg.rerunAnyway': 'Run anyway',
+      'dlg.rerunSave': 'Save, then run',
+      'dlg.rerunSaved': 'This plan is saved, so the current results stay on the saved copy until the new run finishes.',
+      'dlg.rerunUnsaved': 'This plan is UNSAVED. Save it first if you want to keep the current results — otherwise they are gone.',
+      'dlg.signinTitle': 'Sign in to run an analysis',
+      'dlg.signinBody': 'A run costs real engine time, so it needs an account. Your setup is kept — sign in and come straight back to it.',
+      'dlg.signinGo': 'Go to sign in',
+      'dlg.jobTitle': 'This plan has a run still going',
+      'dlg.jobWatch': 'Reconnect',
+      'dlg.jobDrop': 'Abandon it',
+      'dlg.lostTitle': 'Lost contact with the engine',
+      'dlg.lostBody': 'Nothing has answered for three minutes. Your analysis is most likely still running — reloading reconnects to it automatically rather than starting over.',
+      'dlg.lostReload': 'Reload and reconnect',
+      'dlg.lostStay': 'Stay here',
+      'dlg.failTitle': 'The analysis failed',
+      'dlg.stoppedTitle': 'That run was stopped',
+      'dlg.stoppedBody': 'The engine cancels an analysis when the tab that started it goes away, so it is never computing for nobody. Nothing is lost but the time — run it again when you are ready.',
+      'dlg.restartTitle': 'The engine restarted mid-run',
+      'dlg.restartBody': 'Your setup survived; the run did not. Hit RUN ANALYSIS to start it again.',
+      'dlg.offlineTitle': 'The engine is not answering',
+      'dlg.offlineBody': 'Nothing was lost — your setup is exactly as you left it. RUN ANALYSIS needs the engine online; try again in a moment.',
+      'dlg.storageTitle': 'This browser is out of storage',
+      'dlg.storageBody': 'The plan could not be saved locally. Signing in stores plans on your account instead, which also keeps the computed analysis with them.',
+      /* scent wicks (#73) */
+      'scent.mid': 'Scent wick — centre',
+      'scent.flank': 'Scent wick — flank',
+      'scent.geo': '{m} m downwind of the call · hang {a}–{b} m',
+      'scent.refresh': 'refresh every {h} h',
+      'scent.rain': 're-apply after rain'
     },
 
     fr: {
@@ -281,7 +327,50 @@
       'w.pickday': 'Choisissez une journée → les sites passent au vert quand le vent prévu convient à leur approche',
       'x.title': 'Exporter les points, trajets et secteurs de ce plan :',
       'x.gpx': 'GPX — OnX / Garmin', 'x.kml': 'KML — Google Earth', 'x.zones': 'inclure les zones du modèle',
-      'lang.label': 'Langue'
+      'lang.label': 'Langue',
+      'dlg.ok': 'Compris',
+      'dlg.cancel': 'Annuler',
+      'dlg.notnow': 'Pas maintenant',
+      'dlg.readyTitle': '« {name} » est prêt à être lancé',
+      'dlg.readyRun': 'Lancer l’analyse',
+      'dlg.readySetup': 'Revoir la configuration',
+      'dlg.readyBody': 'Votre zone, vos dates, votre style de chasse et vos tracés sont restaurés ci-dessous — rien à ressaisir. Ce qui n’est pas conservé, c’est l’analyse calculée elle-même.',
+      'dlg.readyCached': 'Les résultats sont conservés avec le plan dans votre compte : la prochaine ouverture est instantanée.',
+      'dlg.readyLocal': 'Hors session, seule la configuration est gardée dans ce navigateur. Connectez-vous et les résultats suivront le plan.',
+      'dlg.revTitle': 'Le moteur s’est amélioré depuis le calcul de ce plan',
+      'dlg.revBody': 'Ce plan fonctionne exactement comme avant — rien n’est brisé ni perdu.',
+      'dlg.revKeep': 'Garder ce plan',
+      'dlg.revRun': 'Réanalyser',
+      'dlg.rerunTitle': 'Remplacer l’analyse actuelle ?',
+      'dlg.rerunGo': 'Lancer une nouvelle analyse',
+      'dlg.rerunAnyway': 'Lancer quand même',
+      'dlg.rerunSave': 'Enregistrer, puis lancer',
+      'dlg.rerunSaved': 'Ce plan est enregistré : les résultats actuels restent sur la copie enregistrée jusqu’à la fin du nouveau calcul.',
+      'dlg.rerunUnsaved': 'Ce plan n’est PAS ENREGISTRÉ. Enregistrez-le d’abord pour garder les résultats actuels — sinon ils sont perdus.',
+      'dlg.signinTitle': 'Connectez-vous pour lancer une analyse',
+      'dlg.signinBody': 'Un calcul consomme du temps machine réel : il faut un compte. Votre configuration est conservée — connectez-vous et revenez-y directement.',
+      'dlg.signinGo': 'Aller à la connexion',
+      'dlg.jobTitle': 'Un calcul est encore en cours pour ce plan',
+      'dlg.jobWatch': 'Se reconnecter',
+      'dlg.jobDrop': 'L’abandonner',
+      'dlg.lostTitle': 'Contact perdu avec le moteur',
+      'dlg.lostBody': 'Rien ne répond depuis trois minutes. Votre analyse tourne fort probablement encore — recharger s’y reconnecte automatiquement au lieu de tout recommencer.',
+      'dlg.lostReload': 'Recharger et se reconnecter',
+      'dlg.lostStay': 'Rester ici',
+      'dlg.failTitle': 'L’analyse a échoué',
+      'dlg.stoppedTitle': 'Ce calcul a été arrêté',
+      'dlg.stoppedBody': 'Le moteur annule une analyse quand l’onglet qui l’a lancée disparaît, pour ne jamais calculer pour personne. Rien n’est perdu sauf le temps — relancez quand vous serez prêt.',
+      'dlg.restartTitle': 'Le moteur a redémarré en cours de calcul',
+      'dlg.restartBody': 'Votre configuration a survécu, pas le calcul. Appuyez sur LANCER L’ANALYSE pour recommencer.',
+      'dlg.offlineTitle': 'Le moteur ne répond pas',
+      'dlg.offlineBody': 'Rien n’a été perdu — votre configuration est intacte. LANCER L’ANALYSE exige que le moteur soit en ligne ; réessayez dans un instant.',
+      'dlg.storageTitle': 'Ce navigateur n’a plus d’espace',
+      'dlg.storageBody': 'Le plan n’a pas pu être enregistré localement. En vous connectant, les plans sont stockés dans votre compte, avec l’analyse calculée.',
+      'scent.mid': 'Tampon d’odeur — centre',
+      'scent.flank': 'Tampon d’odeur — flanc',
+      'scent.geo': 'à {m} m sous le vent de l’appel · suspendre à {a}–{b} m',
+      'scent.refresh': 'rafraîchir aux {h} h',
+      'scent.rain': 'réappliquer après la pluie'
     }
   };
 
@@ -312,6 +401,14 @@
       if (DICT.en[key] != null) return DICT.en[key];
       return key;
     },
+    /* Same as t(), with {placeholders} filled from `vars`. Needed because several
+       strings carry a number or a plan name mid-sentence, and splitting them into
+       fragments to concatenate is how you get word order that only works in English. */
+    tf(key, vars, fallback) {
+      const s = I18N.t(key, fallback);
+      return String(s).replace(/\{(\w+)\}/g, (m, k) =>
+        (vars && vars[k] != null) ? String(vars[k]) : m);
+    },
     set(lang) {
       if (!DICT[lang]) return;
       LANG = lang;
@@ -335,4 +432,5 @@
   try { document.documentElement.setAttribute('lang', LANG); } catch (e) { /* ignore */ }
   global.I18N = I18N;
   global.t = I18N.t;
+  global.tf = I18N.tf;
 })(typeof window !== 'undefined' ? window : globalThis);

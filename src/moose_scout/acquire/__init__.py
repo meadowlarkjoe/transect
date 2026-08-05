@@ -117,12 +117,18 @@ def run(ctx: Context) -> dict[str, str]:
     reused = []
     try:
         reused = geocache.restore(ctx, cache)
+        k = geocache.key(ctx)
         if reused:
-            print(f"[acquire] geocache HIT {geocache.key(ctx)} — reused {len(reused)} "
-                  f"layers, skipping their downloads: {', '.join(sorted(reused)[:8])}"
+            print(f"[acquire] geocache HIT {k} — reused {len(reused)} layers, skipping "
+                  f"their downloads: {', '.join(sorted(reused)[:8])}"
                   f"{'…' if len(reused) > 8 else ''}")
+        elif geocache.slot(ctx).is_dir():
+            # restore() links nothing when the job already HAS every layer. Reporting
+            # that as a MISS was a lie that sent me hunting a cache bug that was not
+            # there — the store was fine, the job dir was simply already complete.
+            print(f"[acquire] geocache {k} — job cache already complete, nothing to restore")
         else:
-            print(f"[acquire] geocache MISS {geocache.key(ctx)} — fetching this box cold")
+            print(f"[acquire] geocache MISS {k} — fetching this box cold")
     except Exception as e:  # noqa: BLE001
         print(f"[acquire] geocache restore skipped: {e}")
 

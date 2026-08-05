@@ -34,9 +34,14 @@ JS_FILES = ("app.js",)              # the only file that renders UI via t()
 
 # Ratchet baselines: the CURRENT debt, frozen. LOWER these as debt is paid down
 # (#28 wiring); never raise them. The gate's job is to stop the patchiness GROWING.
-ORPHAN_BASELINE = 95                # dictionary keys defined but not yet wired to the UI
+ORPHAN_BASELINE = 84                # dictionary keys defined but not yet wired to the UI
 HTML_TEXT_BASELINE = 85             # untranslated HTML text nodes (mostly public pages)
-HTML_ATTR_BASELINE = 3             # untranslated title/placeholder attributes
+HTML_ATTR_BASELINE = 3              # untranslated title/placeholder attributes
+
+# How far the real number may sit below its baseline before the gate insists you write
+# the new one down. Small, so slack cannot quietly accumulate into room for new debt;
+# non-zero, so a one-key wobble does not fail the build.
+SLACK = 2
 
 # Not user copy: brand, language chips, the domain, export-format acronyms.
 HTML_SKIP = {"TRANSECT", "EN", "FR", "transect.joejmeadows.com",
@@ -51,7 +56,10 @@ def _dict_keys(block):
 
 def _referenced_keys(js, html):
     used = set()
-    for m in re.finditer(r"\bt\(\s*'([^']*)'", js):
+    # BOTH helpers. tf() interpolates {placeholders}; missing it here meant every key
+    # only ever used through tf() looked ORPHANED, which is the gate quietly lying
+    # about debt it cannot see.
+    for m in re.finditer(r"\b(?:t|tf)\(\s*'([^']*)'", js):
         used.add(m.group(1))
     used |= set(re.findall(r'data-i18n="([^"]+)"', html))
     used |= set(re.findall(r'data-i18n-ph="([^"]+)"', html))
@@ -59,9 +67,9 @@ def _referenced_keys(js, html):
 
 
 def _bad_shape_keys(js):
-    """t() first args that are not dotted-lower keys — i.e. raw English shoved through t()."""
+    """t()/tf() first args that are not dotted-lower keys — raw English shoved through."""
     bad = []
-    for m in re.finditer(r"\bt\(\s*'((?:[^'\\]|\\.)*)'", js):
+    for m in re.finditer(r"\b(?:t|tf)\(\s*'((?:[^'\\]|\\.)*)'", js):
         k = m.group(1)
         if not KEY_RE.match(k):
             bad.append(k)
@@ -131,6 +139,23 @@ def check():
         errors.append(f"untranslated HTML attrs grew past baseline {HTML_ATTR_BASELINE}: now {len(attr)}")
     elif attr:
         warnings.append(f"{len(attr)} untranslated HTML attrs (baseline {HTML_ATTR_BASELINE}, not growing)")
+
+    # 6. THE RATCHET MUST ACTUALLY RATCHET.
+    #
+    # A baseline that only ever blocks growth still leaves SLACK: pay down 11 keys and
+    # the gate will silently absorb the next 11 new untranslated strings without a
+    # word. That is how the debt stopped shrinking last time. So once the real number
+    # drops meaningfully below its baseline, the check FAILS and tells you to write the
+    # new number down — the baseline can only travel one way.
+    for label, actual, baseline, const in (
+            ("orphaned keys", len(orphans), ORPHAN_BASELINE, "ORPHAN_BASELINE"),
+            ("untranslated HTML text", len(text), HTML_TEXT_BASELINE, "HTML_TEXT_BASELINE"),
+            ("untranslated HTML attrs", len(attr), HTML_ATTR_BASELINE, "HTML_ATTR_BASELINE")):
+        if actual < baseline - SLACK:
+            errors.append(
+                f"{label} is down to {actual} but {const} still says {baseline} — "
+                f"lower it to {actual} in scripts/i18n_check.py so the gap cannot be "
+                f"refilled silently.")
 
     stats = {"en": len(en), "fr": len(fr), "used": len(used),
              "orphans": len(orphans), "html_text": len(text), "html_attr": len(attr)}

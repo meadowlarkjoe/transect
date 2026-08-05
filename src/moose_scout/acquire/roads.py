@@ -99,8 +99,25 @@ def fetch(ctx: Context) -> None:
 
     cache = cache_dir(ctx.aoi.name)
 
+    # EVERY OUTPUT ALREADY ON DISK → nothing to do. Without this the module re-ran the
+    # whole OSM + AQréseau+ pull on each run even when the geography cache (#79) had
+    # just restored all of it, which is where the "cached" run was still spending
+    # minutes. Each sub-pull below is also guarded individually, so a partial cache
+    # only re-fetches the pieces that are actually missing.
+    _outs = ("rail.gpkg", "trails.gpkg", "waterways.gpkg", "waterbodies.gpkg",
+             "roads.gpkg", "roads.tif", "aqreseau.gpkg")
+    if all((cache / n).exists() for n in _outs):
+        print("[roads] cached — skipping OSM and AQréseau+")
+        return
+
+    def _have(name):
+        p = cache / name
+        return p.exists() and p.stat().st_size > 0
+
     # rail (best-effort — QNS&L / Fire Lake mine line etc.)
     try:
+        if _have("rail.gpkg"):
+            raise StopIteration
         from . import osm_local as _L
         r = _osm(ctx, RAIL_TAGS, local=_L.rail)
         r = r[r.geometry.type.isin(["LineString", "MultiLineString"])] if len(r) else r
@@ -112,6 +129,8 @@ def fetch(ctx: Context) -> None:
     # foot trails (path/footway/bridleway) — walk-in access, NOT drivable (#32). Kept in
     # its own layer so access never mistakes a footpath for a truck road.
     try:
+        if _have("trails.gpkg"):
+            raise StopIteration
         from . import osm_local as _L
         tr = _osm(ctx, TRAIL_TAGS, local=_L.trails)
         tr = tr[tr.geometry.type.isin(["LineString", "MultiLineString"])] if len(tr) else tr
@@ -123,6 +142,8 @@ def fetch(ctx: Context) -> None:
 
     # vector waterways (rivers/streams) + waterbodies (lakes) — exact geometry
     try:
+        if _have("waterways.gpkg"):
+            raise StopIteration
         from . import osm_local as _L
         wl = _osm(ctx, WATER_LINE_TAGS, local=_L.waterways)
         wl = wl[wl.geometry.type.isin(["LineString", "MultiLineString"])] if len(wl) else wl
@@ -132,6 +153,8 @@ def fetch(ctx: Context) -> None:
     except Exception:
         pass
     try:
+        if _have("waterbodies.gpkg"):
+            raise StopIteration
         from . import osm_local as _L
         wp = _osm(ctx, WATER_POLY_TAGS, local=_L.waterbodies)
         wp = wp[wp.geometry.type.isin(["Polygon", "MultiPolygon"])] if len(wp) else wp

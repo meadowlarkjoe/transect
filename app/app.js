@@ -2645,15 +2645,15 @@ function missingSetup(){
 async function runAnalysis(){
   if(hasResult()){
     const est=estimateMinutes(draft.radius,draft.resM);
-    const a=await askModal({kind:'warn', title:'Replace the current analysis?',
+    const a=await askModal({kind:'warn', title:t('dlg.rerunTitle'),
       body:`The areas, zones, sites and brief on screen now will be cleared and recomputed
         for the box you have set. About ${est.lo}–${est.hi} min.
         ${PLAN_SAVED
-          ? '<span class="note">This plan is saved, so the current results stay on the saved copy until the new run finishes.</span>'
-          : '<span class="note"><b>This plan is UNSAVED.</b> Save it first if you want to keep the current results — otherwise they are gone.</span>'}`,
+          ? `<span class="note">${t('dlg.rerunSaved')}</span>`
+          : `<span class="note">${t('dlg.rerunUnsaved')}</span>`}`,
       actions:PLAN_SAVED
-        ? [{id:'no',label:'Cancel'},{id:'go',label:'Run new analysis',primary:true}]
-        : [{id:'no',label:'Cancel'},{id:'save',label:'Save, then run'},{id:'go',label:'Run anyway',danger:true}]});
+        ? [{id:'no',label:t('dlg.cancel')},{id:'go',label:t('dlg.rerunGo'),primary:true}]
+        : [{id:'no',label:t('dlg.cancel')},{id:'save',label:t('dlg.rerunSave')},{id:'go',label:t('dlg.rerunAnyway'),danger:true}]});
     if(a==='save'){ await savePlanNow(true); }
     else if(a!=='go') return;
   }
@@ -2711,10 +2711,9 @@ function _runAnalysis(){
   fetch(API_URL+'/scout',{method:'POST',headers:_ah,body:JSON.stringify(req)})
     .then(async r=>{
       if(r.status===401){ stop(); setBtn('RUN ANALYSIS →',false);
-        askModal({title:'Sign in to run an analysis',
-          body:`A run costs real engine time, so it needs an account. Your setup is kept —
-            sign in and come straight back to it.`,
-          actions:[{id:'no',label:'Not now'},{id:'go',label:'Go to sign in',primary:true}]})
+        askModal({title:t('dlg.signinTitle'),
+          body:t('dlg.signinBody'),
+          actions:[{id:'no',label:t('dlg.notnow')},{id:'go',label:t('dlg.signinGo'),primary:true}]})
           .then(a=>{ if(a==='go') location.href='signin?next=app'; });
         throw new Error('auth'); }
       return r.json();
@@ -2731,9 +2730,8 @@ function _runAnalysis(){
     })
     .catch(e=>{ if(e && e.message==='auth') return;      // already handled above
       setBtn('RUN ANALYSIS →',false);
-      tellModal('The engine is not answering',
-        `Nothing was lost — your setup is exactly as you left it. RUN ANALYSIS needs the
-         engine online; try again in a moment.`,'warn');
+      tellModal(t('dlg.offlineTitle'),
+        t('dlg.offlineBody'),'warn');
       setTab('overview'); });
 }
 
@@ -3214,9 +3212,8 @@ function planSummary(doc){
 }
 function loadPlans(){ try{return JSON.parse(localStorage.getItem('transect_plans')||'[]');}catch(e){return [];} }
 function savePlans(a){ try{localStorage.setItem('transect_plans',JSON.stringify(a));}
-  catch(e){ tellModal('This browser is out of storage',
-    `The plan could not be saved locally. Signing in stores plans on your account instead,
-     which also keeps the computed analysis with them.`,'warn'); } }
+  catch(e){ tellModal(t('dlg.storageTitle'),
+    t('dlg.storageBody'),'warn'); } }
 /* The plan currently on screen, if it came from (or was saved to) the store. Keeps
    a re-run updating that plan instead of spawning a duplicate every time. */
 let CUR_PLAN_ID=null;
@@ -3349,15 +3346,12 @@ function applyPlan(p){
     setPlanName(p.name||planTitle(), true);
     setTab('setup');
     const est=estimateMinutes(draft.radius,draft.resM);
-    askModal({title:'“'+escHtml(p.name||'This plan')+'” is ready to run',
-      body:`Your box, dates, hunt style and drawings are restored below — nothing to re-enter.
-        What is not stored is the computed analysis itself.
-        <ul><li><b>Run it now</b> — about ${est.lo}–${est.hi} min for this ${Math.round(draft.radius)} km box.</li>
-        <li><b>Review the setup first</b> — change dates, radius or detail, then hit RUN ANALYSIS.</li></ul>
-        <span class="note">${isAuthed()
-          ? 'Results are kept with the plan on your account, so the next open is instant.'
-          : 'Signed out, only the setup is stored in this browser. Sign in and results ride along with the plan.'}</span>`,
-      actions:[{id:'setup',label:'Review setup'},{id:'run',label:'Run analysis',primary:true}]
+    askModal({title:tf('dlg.readyTitle',{name:escHtml(p.name||'This plan')}),
+      body:`${t('dlg.readyBody')}
+        <ul><li><b>${t('dlg.readyRun')}</b> — ~${est.lo}–${est.hi} min · ${Math.round(draft.radius)} km</li>
+        <li><b>${t('dlg.readySetup')}</b></li></ul>
+        <span class="note">${isAuthed()?t('dlg.readyCached'):t('dlg.readyLocal')}</span>`,
+      actions:[{id:'setup',label:t('dlg.readySetup')},{id:'run',label:t('dlg.readyRun'),primary:true}]
     }).then(a=>{ if(a==='run') runAnalysis(); });
   }
 }
@@ -3757,19 +3751,17 @@ function pollJob(jid,headers,STAGE,stop,setBtn,line,onHead){
           autosavePlan();
         } else if(s.status==='error'){
           stop(); forgetJob(); setBtn('RUN ANALYSIS →',false);
-          tellModal('The analysis failed',
+          tellModal(t('dlg.failTitle'),
             `The engine reported: <b>${escHtml(s.error||'unknown error')}</b><br>
              Your setup is untouched — nothing to re-enter before trying again.`,'danger');
         } else if(s.status==='cancelled'){
           stop(); forgetJob(); setBtn('RUN ANALYSIS →',false);
-          if(s.orphaned) tellModal('That run was stopped',
-            `The engine cancels an analysis when the tab that started it goes away, so it is
-             never computing for nobody. Nothing is lost but the time — run it again when
-             you are ready.`,'warn');
+          if(s.orphaned) tellModal(t('dlg.stoppedTitle'),
+            t('dlg.stoppedBody'),'warn');
         } else if(s.status==='unknown'){
           stop(); forgetJob(); setBtn('RUN ANALYSIS →',false);
-          tellModal('The engine restarted mid-run',
-            `Your setup survived; the run did not. Hit RUN ANALYSIS to start it again.`,'warn');
+          tellModal(t('dlg.restartTitle'),
+            t('dlg.restartBody'),'warn');
         } else {
           const st=s.stage||'', nm=STAGE[st]||st;
           // acquire has no sub-progress to report, so say what it's doing, not 0%
@@ -3784,10 +3776,9 @@ function pollJob(jid,headers,STAGE,stop,setBtn,line,onHead){
         const out=now-failedSince;
         if(out>POLL_GIVEUP_MS){
           stop(); setBtn('RUN ANALYSIS →',false);
-          askModal({kind:'warn', title:'Lost contact with the engine',
-            body:`Nothing has answered for three minutes. Your analysis is most likely still
-              running — reloading reconnects to it automatically rather than starting over.`,
-            actions:[{id:'stay',label:'Stay here'},{id:'reload',label:'Reload and reconnect',primary:true}]
+          askModal({kind:'warn', title:t('dlg.lostTitle'),
+            body:t('dlg.lostBody'),
+            actions:[{id:'stay',label:t('dlg.lostStay')},{id:'reload',label:t('dlg.lostReload'),primary:true}]
           }).then(a=>{ if(a==='reload') location.reload(); });
           return;
         }
@@ -3838,7 +3829,7 @@ function askModal(o){
 }
 /* a plain replacement for alert(): one dialog, one button, still non-blocking */
 function tellModal(title,body,kind){
-  return askModal({title,body,kind:kind||'info',actions:[{id:'ok',label:'Got it',primary:true}]});
+  return askModal({title,body,kind:kind||'info',actions:[{id:'ok',label:t('dlg.ok'),primary:true}]});
 }
 
 /* ENGINE REVISION — a saved plan is never broken by an engine update, but it must
@@ -3861,13 +3852,13 @@ async function checkEngineRevision(){
     const lines=String(note).split('\n').map(s=>s.replace(/^[-•*]\s*/,'').trim()).filter(Boolean);
     const est=estimateMinutes(draft.radius,draft.resM);
     const a=await askModal({kind:'warn',
-      title:'The engine has improved since this plan was computed',
-      body:`This plan still works exactly as it did — nothing about it is broken or gone.
-        It was computed under engine revision <b>${was}</b>; the live engine is <b>${LIVE_REVISION}</b>.
+      title:t('dlg.revTitle'),
+      body:`${t('dlg.revBody')}
+        <b>rev ${was}</b> → <b>rev ${LIVE_REVISION}</b>.
         ${lines.length?'<ul>'+lines.slice(0,6).map(l=>'<li>'+escHtml(l)+'</li>').join('')+'</ul>':''}
         <span class="note">Re-analysing takes about ${est.lo}–${est.hi} min and replaces the current
         areas, sites and brief. Your drawings and notes are kept either way.</span>`,
-      actions:[{id:'keep',label:'Keep this plan'},{id:'run',label:'Re-analyse',primary:true}]});
+      actions:[{id:'keep',label:t('dlg.revKeep')},{id:'run',label:t('dlg.revRun'),primary:true}]});
     if(a==='run') runAnalysis();
     else DOC._revisionDismissed=true;         // don't nag on every tab switch
   }catch(e){ /* never let a version check break opening a plan */ }
@@ -3911,11 +3902,11 @@ function resumeJob(){
       return;
     }
     setTab('setup');
-    askModal({title:'This plan has a run still going',
+    askModal({title:t('dlg.jobTitle'),
       body:`An analysis you started for this plan is still working on the engine
         ${s.pct!=null?`(<b>${Math.round(s.pct)}%</b> done)`:''}. Reconnect and it finishes where it is;
         abandon it and that engine time is spent for nothing.`,
-      actions:[{id:'drop',label:'Abandon it'},{id:'watch',label:'Reconnect',primary:true}]
+      actions:[{id:'drop',label:t('dlg.jobDrop')},{id:'watch',label:t('dlg.jobWatch'),primary:true}]
     }).then(a=>{
       if(a!=='watch'){ forgetJob(); return; }
       _watchJob(jid,hdr);
@@ -3950,13 +3941,15 @@ const IDENTIFY = [
                        sub:()=>'~70 m downwind of the caller'},
   // A wick is useless without its refresh interval, and the interval depends on the
   // day you have scrubbed to — so the hover says both.
-  {lyr:'scent',        row:'scent', title:p=>p.mid?'Scent wick — centre':'Scent wick — flank',
+  {lyr:'scent',        row:'scent', title:p=>p.mid?t('scent.mid'):t('scent.flank'),
                        sub:()=>{
                          const g=(DOC.scent&&DOC.scent.geometry)||{};
                          const cad=((DOC.scent&&DOC.scent.cadence)||[])
                            .find(c=>selectedDay&&c.date===selectedDay.date);
-                         const geo=`${g.wick_m||45} m downwind of the call · hang ${(g.height_m||[1,1.5])[0]}–${(g.height_m||[1,1.5])[1]} m`;
-                         return cad ? `${geo} · refresh every ${cad.refresh_hours} h${cad.rain_reset?' · re-apply after rain':''}` : geo;
+                         const h=g.height_m||[1,1.5];
+                         const geo=tf('scent.geo',{m:g.wick_m||45,a:h[0],b:h[1]});
+                         return cad ? `${geo} · ${tf('scent.refresh',{h:cad.refresh_hours})}`
+                           + (cad.rain_reset?' · '+t('scent.rain'):'') : geo;
                        }},
   {lyr:'crossings',    row:'crossings',
                        title:p=>CROSS_LABEL[p.kind]||CROSS_LABEL.boat,
