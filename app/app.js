@@ -1748,6 +1748,26 @@ function _addAnnotLayers(){
     layout:{'text-field':['get','label'],'text-size':12,'text-offset':[0,-1.2],'text-font':['Open Sans Bold'],'text-allow-overlap':true},
     paint:{'text-color':'#ffe6a8','text-halo-color':'#0b0f0d','text-halo-width':2}});
 }
+// THE render fix, GPU-pixel-verified (queryRenderedFeatures and screenshots both lied here; only
+// reading canvas pixels told the truth). A geojson source created EMPTY at map load never builds
+// its tile buckets, so NOTHING set on it later with setData paints — not fills, not lines, not
+// even points (the user saw exactly that: every tool blank). The one operation that always
+// paints is RECREATING the source carrying the real data, which builds the buckets in the right
+// tiles and re-adds the layers on top. So write == recreate. Coalesce through requestAnimationFrame
+// so rapid updates (colour/weight sliders, vertex drag) do at most one recreate per frame with the
+// latest data, instead of churning the source synchronously.
+let _annotRAF=0, _annotPending=null;
+function _recreateAnnot(data){
+  _ANNOT_LAYERS.forEach(l=>{ if(map.getLayer(l)) map.removeLayer(l); });
+  if(map.getSource('annot')) map.removeSource('annot');
+  map.addSource('annot',{type:'geojson',data});
+  _addAnnotLayers();                                  // re-added on top, in fill<line<pt<label order
+}
+function _annotWrite(data){
+  _annotPending=data;
+  if(_annotRAF) return;
+  _annotRAF=requestAnimationFrame(()=>{ _annotRAF=0; const d=_annotPending; _annotPending=null; try{ _recreateAnnot(d); }catch(e){} });
+}
 function setupDraw(){
   if(map.getSource('annot')) return;                 // idempotent
   map.addSource('annot',{type:'geojson',data:fc([])});
@@ -1807,11 +1827,8 @@ function renderAnnot(){
   // while the map stayed blank) — the measure/line/route/area bug. Idempotent.
   if(!map.getSource('annot')){ try{ setupDraw(); }catch(e){} }
   if(!map.getSource('annot')) return;
-  // ...and make sure the annotation layers sit ON TOP. setupDraw() runs during map load,
-  // before the data layers are added, so the drawings would otherwise paint UNDERNEATH the
-  // satellite + model layers. Raise EVERY render (cheap) in this exact order so fill < outline
-  // < vertices < labels always holds and nothing covers the outline.
-  _ANNOT_LAYERS.forEach(l=>{ try{ if(map.getLayer(l)) map.moveLayer(l); }catch(e){} });
+  // No moveLayer raise here: _annotWrite recreates the source and RE-ADDS the annot layers on top
+  // every render, so they always sit above the satellite + model layers by construction.
   // Offer "Recalculate" once the hunter has drawn a focus area to re-plan inside.
   const rb=document.getElementById('rescopeBtn');
   if(rb){ const hasPoly=(drawSaved||[]).some(f=>f.geometry&&f.geometry.type==='Polygon');
@@ -1842,7 +1859,7 @@ function renderAnnot(){
     }
     drawPts.forEach(p=>feats.push(_vertFeat(p,st)));
   }
-  map.getSource('annot').setData(fc(feats));
+  _annotWrite(fc(feats));
   renderDrawManager();
 }
 function setDrawTool(t){
