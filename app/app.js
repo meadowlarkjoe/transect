@@ -2253,7 +2253,7 @@ function renderSetup(){
       <label class="fld">${t('setup.resLbl','Grid resolution')} — <b class="mono" id="resVal"></b></label>
       <input id="resSlider" type="range" step="1">
       <div class="t-micro" style="display:flex;justify-content:space-between;margin-top:4px">
-        <span>${t('setup.resFine','finer · more detail · slower')}</span><span>${t('setup.resCoarse','coarser · faster')}</span></div>
+        <span>${t('setup.resCoarse','coarser · faster')}</span><span>${t('setup.resFine','finer · more detail · slower')}</span></div>
       <div class="s" id="resNote" style="margin-top:6px"></div>
     </div>
 
@@ -2376,14 +2376,20 @@ function renderSetup(){
 
   const rad=document.getElementById('radius');
   rad.oninput=()=>{draft.radius=fromU(+rad.value);document.getElementById('radVal').textContent=(+rad.value)+' '+unitBig();
-    draft.resM=null; _syncResUI();          // area changed => resolution defaults re-derive
+    // Area changed: a manually-chosen resolution is KEPT (clamped into the new bounds);
+    // only auto mode re-derives. The res slider's bounds follow the new area.
+    if(draft.resM!=null){ const b=resBounds(draft.radius);
+      draft.resM=Math.max(b.fine,Math.min(b.coarse,draft.resM)); }
+    _syncResUI();
     drawDraft();};
-  // processing-detail slider
+  // processing-detail slider — RIGHT = more detail (finer grid). The slider carries an
+  // inverted value so the metre number falls as the thumb moves right.
   const rsl=document.getElementById('resSlider');
-  rsl.oninput=()=>{ const v=+rsl.value, a=autoResM(draft.radius);
-    draft.resM=(Math.abs(v-a)<=2)?null:v;    // snap back to auto near the default
-    _syncResUI(); };
-  _syncResUI();
+  rsl.oninput=()=>{ const b=resBounds(draft.radius), a=autoResM(draft.radius);
+    const res=b.fine+b.coarse-(+rsl.value);
+    draft.resM=(Math.abs(res-a)<=2)?null:res;    // snap back to auto near the default
+    _syncResUI(); _syncRadiusBounds(); };
+  _syncResUI(); _syncRadiusBounds();
   document.getElementById('uMetric').onclick=()=>setUnits('metric');
   document.getElementById('uImperial').onclick=()=>setUnits('imperial');
   document.getElementById('runBtn').onclick=()=>runAnalysis();
@@ -2397,7 +2403,7 @@ function _syncResUI(){
   const b=resBounds(draft.radius), auto=autoResM(draft.radius);
   sl.min=b.fine; sl.max=b.coarse;
   const res=Math.max(b.fine,Math.min(b.coarse,draft.resM||auto));
-  sl.value=res;
+  sl.value=b.fine+b.coarse-res;              // inverted: thumb RIGHT = finer grid = more detail
   const pxSide=Math.round(2*Math.max(3,draft.radius)*1000/res);
   const vEl=document.getElementById('resVal');
   if(vEl) vEl.textContent=res+' m'+(draft.resM==null?' · '+t('setup.resAuto','auto'):'');
@@ -2410,6 +2416,21 @@ function _syncResUI(){
                    : t('setup.resWarn','You\'re pushing the engine — expect a slow, memory-heavy run. There\'s a hard ceiling just past this.'))
       +`</div></div>`;
     note.innerHTML=html;
+  }
+}
+/* Two-way coupling: a manually-chosen FINE grid caps how big the area can be (the
+   ~3200 px/side memory ceiling => radius <= res * 1.6 km). Shrink the radius slider's
+   max to match, and pull the current radius down if it now exceeds it — WITHOUT
+   touching the user's chosen resolution. Auto mode leaves the full radius range. */
+function _syncRadiusBounds(){
+  const rad=document.getElementById('radius'); if(!rad) return;
+  const maxKm = draft.resM!=null ? Math.max(5, Math.min(120, Math.floor(draft.resM*1.6))) : 120;
+  rad.max=Math.round(toU(maxKm));
+  if(draft.radius>maxKm){
+    draft.radius=maxKm;
+    rad.value=Math.round(toU(maxKm));
+    const rv=document.getElementById('radVal'); if(rv) rv.textContent=Math.round(toU(maxKm))+' '+unitBig();
+    drawDraft();
   }
 }
 function addSite(ll,label){
