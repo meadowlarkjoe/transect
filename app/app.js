@@ -38,6 +38,7 @@ const _q0 = new URLSearchParams(location.search);
 const USING_EXAMPLE = _q0.get('example') === '1';
 let DOC = USING_EXAMPLE ? EXAMPLE : blankDoc();
 let selectedDay = null;
+let selectedHour = 6.5;   // #27 — the scrubbed hour drives the per-position wind read
 // Live engine API (Setup → RUN ANALYSIS recomputes for a new species/area/radius).
 // URL + key come from config.js (deployed, not in the repo); ?api= overrides for tests.
 const API_URL = (new URLSearchParams(location.search).get('api')) ||
@@ -396,8 +397,15 @@ function bbox(areas){let a=180,b=90,c=-180,d=-90;
 
 /* optimal wind fit for a waypoint on the selected day */
 function angDiff(a,b){return Math.abs(((a-b+180)%360)-180);}
+// #27 — the wind read is PER-POSITION and TIME-SCRUBBED, not one map-wide daily arrow.
+// At the first/last-light windows the katabatic THERMAL DRIFT (cold air draining downhill)
+// dominates the synoptic forecast wind, so the forecast verdict is unreliable then and the
+// site flips to a "drift governs" state — read the Thermal-drift layer and approach from
+// below. Midday, the forecast wind governs and the green/red fit verdict applies.
+function isThermalWindow(h){ return h!=null && (h < 8.0 || h > 16.5); }   // dawn / dusk drainage
 function windState(w){
   if(selectedDay==null) return 0;
+  if(isThermalWindow(selectedHour)) return 2;   // thermal drift rules this hour, not forecast
   // the site feature carries the optimal bearing as `opt` (buildSources), NOT as a
   // nested optimal_wind object — reading the wrong key is why the promised wind ring
   // never rendered.
@@ -645,13 +653,14 @@ function init(){
     layout:{'text-field':'SHOOTER','text-size':10,'text-offset':[0,-1.4],'text-font':['Open Sans Bold'],'text-allow-overlap':true},
     paint:{'text-color':'#e6e9e3','text-halo-color':'#0b0f0d','text-halo-width':1.5}});
   const SITE_SZ=['interpolate',['linear'],['zoom'],8,0.7,11,1.05,13,1.45,15,1.9];
-  // WIND-FIT RING — the legend has promised this since day one and no layer ever
-  // read `windok`. Green = the chosen day's wind suits this setup, red = it doesn't.
+  // WIND-FIT RING — per-position + time-scrubbed (#27). Green = the chosen day's forecast
+  // wind suits this setup · red = it doesn't · magenta = a first/last-light window where the
+  // local THERMAL DRIFT governs, not the forecast (read the Thermal-drift layer, come from below).
   map.addLayer({id:'sites-wind',type:'circle',source:'sites',
     filter:['!=',['get','windok'],0],
     paint:{'circle-radius':['interpolate',['linear'],['zoom'],9,9,12,14,15,20],
       'circle-color':'rgba(0,0,0,0)','circle-stroke-width':2.4,
-      'circle-stroke-color':['case',['==',['get','windok'],1],'#3FBF6E','#C9564A'],
+      'circle-stroke-color':['case',['==',['get','windok'],1],'#3FBF6E',['==',['get','windok'],2],'#FF00C8','#C9564A'],
       'circle-stroke-opacity':0.95}});
   map.addLayer({id:'sites',type:'symbol',source:'sites',
     layout:{'icon-image':['get','type'],'icon-size':SITE_SZ,'icon-allow-overlap':true}});
@@ -990,9 +999,9 @@ function buildWeather(){
     html+=`<div class="hourrow"><input id="hour" type="range" min="4" max="21" step="0.5" value="6.5">
       <span id="hourlbl" class="s"></span></div>`;
   }
-  html+=`<div class="note">Pick a day → sites turn <b style="color:#2fbf5b">green</b> when the forecast wind fits their approach`+
+  html+=`<div class="note">Pick a day, then <b>scrub the hour</b>: each site rings <b style="color:#2fbf5b">green</b> when that day's forecast wind fits its approach, <b style="color:#C9564A">red</b> when it fights you`+
     (w.days[0].is_proxy?' — but this is a <b>prior-year proxy</b> (hunt is months out), treat as rough':' (forecast — verify on the ground)')+
-    `. At <b>first &amp; last light the thermal drift usually wins</b>, not the forecast wind — use the Thermal-drift layer for those windows.</div>`;
+    `. Scrub into <b>first or last light</b> and the rings turn <b style="color:#FF00C8">magenta</b>: the <b>thermal drift wins</b> those windows, not the forecast — read the Thermal-drift layer and come in from below.</div>`;
   el.innerHTML=html;
   el.querySelectorAll('.day').forEach(del=>del.onclick=()=>{
     el.querySelectorAll('.day').forEach(x=>x.classList.remove('sel')); del.classList.add('sel');
@@ -1011,6 +1020,10 @@ function applyWind(){
    BEFORE dusk (GAMM on 622 GPS-collared moose), not at last light — so "be in position
    by early afternoon" is the actionable correction over the usual last-light advice. */
 function updateHour(h){
+  selectedHour=h;
+  // #27 — scrubbing time re-evaluates every site: into the dawn/dusk drift windows the
+  // rings flip to "thermal governs", midday they read the forecast-wind fit.
+  if(selectedDay!=null && window._sites) applyWind();
   const lbl=document.getElementById('hourlbl');
   const em=(DOC.behavior&&DOC.behavior.expected_midday)||{};
   const warm=(em.refuge_weight||0)>=0.5;
