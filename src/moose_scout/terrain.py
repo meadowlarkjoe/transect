@@ -155,15 +155,25 @@ def run(ctx: Context) -> None:
         pinch = np.clip((db_local - db) / (db_local + 1e-6), 0.0, 1.0)
         strength = narrow * (0.35 + 0.65 * pinch)
         constriction = np.where(ridge & (full_w < NECK_M), strength, 0.0).astype("float32")
-        # thicken the 1-px centreline so a neck reads as a small zone, not a hairline
-        constriction = maximum_filter(constriction, size=max(3, int(round(120 / res)) | 1))
+        # THICKEN ENOUGH TO SURVIVE THE POLYGONIZER. The medial axis is a 1-px line; 120 m
+        # made it ~3 px at 40 m, and _polygonize opens with 3 iterations — which erodes
+        # 3 px before dilating and therefore deleted the entire ribbon. Measured: 7,444
+        # cells scored, 7,223 survived smoothing, 0 survived the opening. Every funnel
+        # the map has ever shown was a broad topo blob, because those were the only shapes
+        # fat enough to live through it — which is precisely why they looked wrong on the
+        # ground.
+        #
+        # 280 m is not a fudge to beat the morphology: a neck's zone of influence really
+        # is a couple of hundred metres either side of the centreline — that is where you
+        # would sit to watch it.
+        constriction = maximum_filter(constriction, size=max(3, int(round(280 / res)) | 1))
         # PERSIST THE MEASUREMENT, not just the score. "Funnel / pass · 0.1 km²" tells a
         # hunter nothing about whether to believe it; "a 180 m neck" is checkable against
         # the map in front of them. Width is the honest unit for a constriction, and it
         # is the number that makes a bad funnel obviously bad.
         funnel_w = np.where(constriction > 0, full_w, np.nan).astype("float32")
         funnel_w = maximum_filter(np.nan_to_num(funnel_w, nan=0.0),
-                                  size=max(3, int(round(120 / res)) | 1))
+                                  size=max(3, int(round(280 / res)) | 1))
         funnel_w = np.where(constriction > 0, funnel_w, np.nan).astype("float32")
         ru.write(cache_dir(aoi) / "funnel_width.tif", funnel_w, prof)
         # How much of the barrier is WETLAND rather than open water. WorldCover barely
