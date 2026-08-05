@@ -128,6 +128,11 @@ class ScoutReq(BaseModel):
     party_size: int = 2
     fixed_camp: list[float] | None = None   # [lat, lon] — hunt-from-camp mode
     hunt_radius_km: float | None = None
+    # Optional analysis-grid override (metres). None = auto (sized to the AOI so the
+    # grid stays ~TARGET_PX per side). User-chosen values are clamped so a fine grid
+    # on a big box can never OOM the droplet: never more than ~3200 px per side, and
+    # never coarser than 500 m.
+    resolution_m: float | None = None
 
 
 def _clean_transport(t) -> dict:
@@ -184,8 +189,16 @@ def _run(job_id: str, req: ScoutReq) -> None:
         import math
         model = load_model()
         TARGET_PX = 2400
-        res = max(float(model.raster_resolution_m),
-                  math.ceil(2 * aoi.bbox_halfwidth_km * 1000 / TARGET_PX))
+        auto_res = max(float(model.raster_resolution_m),
+                       math.ceil(2 * aoi.bbox_halfwidth_km * 1000 / TARGET_PX))
+        if req.resolution_m:
+            # User override from the Setup slider: finer = more detail but slower.
+            # Clamp so the grid can never exceed ~3200 px/side (OOM guard) nor go
+            # coarser than 500 m (below that the model is meaningless).
+            finest = max(20.0, math.ceil(2 * aoi.bbox_halfwidth_km * 1000 / 3200))
+            res = max(finest, min(500.0, float(req.resolution_m)))
+        else:
+            res = auto_res
         if res != model.raster_resolution_m:
             try:
                 model = model.model_copy(update={"raster_resolution_m": res})

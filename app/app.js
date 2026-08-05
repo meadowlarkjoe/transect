@@ -2143,6 +2143,7 @@ let draft={center: DOC.blank ? null : [DOC.meta.center.lon,DOC.meta.center.lat],
   radius:DOC.meta.radius_km||50,
   walkAccess:null, walkHunt:null, party:2, fixedCampMode:false, huntRadius:null,
   siteMode:'find',                 // 'find' = model finds sites in a box · 'known' = hunter names up to 4 sites
+  resM:null,                       // analysis-grid override (m); null = auto (sized to the area)
   sites:[],                        // known-site centres [[lon,lat],...] (max 4); sites[0] mirrors draft.center
   dates: (USING_EXAMPLE && DOC.meta && DOC.meta.target_dates) ? DOC.meta.target_dates.slice() : []};
 /* The hunt style is one 3-way choice: a HUNTING CAMP (cabin — a fixed camp you drive to),
@@ -2243,6 +2244,17 @@ function renderSetup(){
       <input id="radius" type="range" min="${UNITS==='imperial'?3:5}" max="${UNITS==='imperial'?75:120}" step="1" value="${Math.round(toU(draft.radius))}">
       <div class="t-micro" style="display:flex;justify-content:space-between;margin-top:4px">
         <span>${UNITS==='imperial'?3:5}</span><span>${t('setup.radiushint','~20 km+ resolves focus areas')}</span></div>
+    </div>
+
+    <!-- 05 PROCESSING DETAIL — the analysis grid. Auto-sized to the area; the hunter can
+         trade detail for speed. Finer grid = more data, slower run. -->
+    <div class="sec">
+      <div class="sechead"><span class="num">05</span><h3>${t('setup.sRes','Processing detail')}</h3></div>
+      <label class="fld">${t('setup.resLbl','Grid resolution')} — <b class="mono" id="resVal"></b></label>
+      <input id="resSlider" type="range" step="10">
+      <div class="t-micro" style="display:flex;justify-content:space-between;margin-top:4px">
+        <span>${t('setup.resFine','finer · more detail · slower')}</span><span>${t('setup.resCoarse','coarser · faster')}</span></div>
+      <div class="s" id="resNote" style="margin-top:6px"></div>
     </div>
 
     <div class="sec">
@@ -2363,11 +2375,40 @@ function renderSetup(){
       addSite([e.lngLat.lng,e.lngLat.lat],null); }); }
 
   const rad=document.getElementById('radius');
-  rad.oninput=()=>{draft.radius=fromU(+rad.value);document.getElementById('radVal').textContent=(+rad.value)+' '+unitBig();drawDraft();};
+  rad.oninput=()=>{draft.radius=fromU(+rad.value);document.getElementById('radVal').textContent=(+rad.value)+' '+unitBig();
+    draft.resM=null; _syncResUI();          // area changed => resolution defaults re-derive
+    drawDraft();};
+  // processing-detail slider
+  const rsl=document.getElementById('resSlider');
+  rsl.oninput=()=>{ const v=+rsl.value; draft.resM=(v===autoResM(draft.radius))?null:v; _syncResUI(); };
+  _syncResUI();
   document.getElementById('uMetric').onclick=()=>setUnits('metric');
   document.getElementById('uImperial').onclick=()=>setUnits('imperial');
   document.getElementById('runBtn').onclick=()=>runAnalysis();
   drawDraft(); applyHunt();
+}
+/* Keep the resolution slider honest against the current area: bounds, default marker,
+   live time estimate, and a WARNING when the grid is pushing the engine's memory
+   ceiling (the server clamps at ~3200 px/side regardless — that's the hard limit). */
+function _syncResUI(){
+  const sl=document.getElementById('resSlider'); if(!sl) return;
+  const b=resBounds(draft.radius), auto=autoResM(draft.radius);
+  sl.min=b.fine; sl.max=b.coarse;
+  const res=Math.max(b.fine,Math.min(b.coarse,draft.resM||auto));
+  sl.value=res;
+  const pxSide=Math.round(2*Math.max(3,draft.radius)*1000/res);
+  const vEl=document.getElementById('resVal');
+  if(vEl) vEl.textContent=res+' m'+(draft.resM==null?' · '+t('setup.resAuto','auto'):'');
+  const est=estimateMinutes(draft.radius,res);
+  const note=document.getElementById('resNote');
+  if(note){
+    let html=t('setup.resEst','Estimated processing')+` <b>~${est.lo}–${est.hi} min</b> · ${pxSide}×${pxSide} px`;
+    if(pxSide>2600) html+=`<div class="callout" data-kind="warn" style="margin-top:6px"><span class="mark">!</span><div class="body">`
+      +(res<=b.fine? t('setup.resHard','This is the ceiling for an area this size — the engine refuses finer grids so a run can\'t exhaust its memory. Shrink the area to go finer.')
+                   : t('setup.resWarn','You\'re pushing the engine — expect a slow, memory-heavy run. There\'s a hard ceiling just past this.'))
+      +`</div></div>`;
+    note.innerHTML=html;
+  }
 }
 function addSite(ll,label){
   if(draft.sites.length>=4) return;
@@ -2436,15 +2477,27 @@ function applyDoc(newDoc){        // re-bind the whole map + panels to fresh eng
    Sentinel-2 and burn tiles for the box). The raster stages don't blow up with area
    because the API caps the grid at ~2400 px/side by coarsening resolution.
    Calibrated against measured runs: r=16 km ≈ 3.5 min, r=18 km ≈ 4.2 min. */
-function estimateMinutes(radiusKm){
+/* The engine's own auto grid: never finer than the model's 40 m, coarsened so the
+   grid stays ~2400 px/side on big boxes. Mirrored here so the Setup slider can show
+   the default and the bounds without a round-trip. */
+function autoResM(radiusKm){ return Math.max(40, Math.ceil(2*Math.max(3,radiusKm)*1000/2400)); }
+function resBounds(radiusKm){
+  return { fine: Math.max(20, Math.ceil(2*Math.max(3,radiusKm)*1000/3200)),   // OOM guard px cap
+           coarse: Math.min(500, Math.max(120, autoResM(radiusKm)*4)) };
+}
+function estimateMinutes(radiusKm, resM){
   const sideKm = 2 * Math.max(3, radiusKm);
   const areaKm2 = sideKm * sideKm;
   // Calibrated against measured runs — and the headline is that runtime is much FLATTER
   // in area than you'd expect: r=16 km took 3.5 min, r=18 km 4.2 min, r=67 km 4.4 min.
   // Most of the cost is a fixed pipeline of sequential Overpass/STAC queries, and the
   // raster stages can't blow up because the API caps the grid at ~2400 px/side by
-  // coarsening resolution. So: big constant, gentle area term.
-  const mins = 3.2 + areaKm2 / 18000;
+  // coarsening resolution. So: big constant, gentle area term. A finer user-chosen
+  // grid scales the raster term by pixels — (auto/chosen)² — the fixed download cost
+  // doesn't change.
+  const auto=autoResM(radiusKm), res=resM||auto;
+  const factor=(auto/res)*(auto/res);
+  const mins = 3.2 + (areaKm2 / 18000) * factor;
   const lo = Math.max(2, Math.round(mins * 0.85));
   const hi = Math.max(lo + 1, Math.round(mins * 1.6));
   return {lo, hi, mins};
@@ -2488,7 +2541,7 @@ function runAnalysis(){
   }
   const btn=document.getElementById('runBtn');
   const setBtn=(t,dis)=>{if(btn){btn.textContent=t;btn.disabled=!!dis;}};
-  const est=estimateMinutes(draft.radius), t0=Date.now();
+  const est=estimateMinutes(draft.radius,draft.resM), t0=Date.now();
   const line=(head)=>`${head}\n${fmtElapsed(Date.now()-t0)} elapsed · ~${est.lo}–${est.hi} min for this ${Math.round(draft.radius)} km box`;
   const req={species:'moose',lat:draft.center[1],lon:draft.center[0],
     radius_km:Math.max(3,Math.min(120,draft.radius)),
@@ -2508,7 +2561,9 @@ function runAnalysis(){
     party_size:draft.party||2,
     // Hunt-from-camp: the AOI centre IS the camp; the analysis narrows to hunt radius.
     fixed_camp:(draft.fixedCampMode && draft.center)?[draft.center[1],draft.center[0]]:null,
-    hunt_radius_km:(draft.fixedCampMode?(draft.huntRadius||draft.walkHunt||5):null)};
+    hunt_radius_km:(draft.fixedCampMode?(draft.huntRadius||draft.walkHunt||5):null),
+    // Analysis-grid override from the processing-detail slider; null = engine auto.
+    resolution_m:draft.resM||null};
   // In fixed-camp mode the box only needs to cover the hunt radius + a data margin,
   // so a tight radius doesn't force a huge (slow) acquire.
   if(req.fixed_camp) req.radius_km=Math.max(6,Math.min(120,(req.hunt_radius_km||5)+4));
