@@ -1695,6 +1695,18 @@ function syncDocks(tab){
 /* the draw/measure strip is now part of the persistent right rail (buildTools) */
 /* ---- OnX-style field tools: distance / line / area / route / waypoint ---- */
 let drawTool=null, drawPts=[], drawWpts=[], drawSaved=[];
+let drawEditId=null;                       // id of the drawing whose vertices are being dragged
+const hiddenDrawTypes=new Set();           // drawing TYPES hidden from the legend (area/line/…)
+function _styledLine(coords,src){ return {type:'Feature',geometry:{type:'LineString',coordinates:coords},
+  properties:{id:src.id,stroke:src.stroke,lo:src.lo!=null?src.lo:1,label:src.label||''}}; }
+function _vertFeat(ll,src){ return {type:'Feature',geometry:{type:'Point',coordinates:ll},
+  properties:{vertex:1,id:src.id,stroke:src.stroke||'#5fe6ff'}}; }
+function _vertsOf(f){ const g=f.geometry;
+  if(g.type==='Point') return [g.coordinates];
+  if(g.type==='LineString') return g.coordinates.slice();
+  if(g.type==='Polygon') return (g.coordinates[0]||[]).slice(0,-1);   // drop the closing dup
+  return []; }
+function _drawById(id){ return drawSaved.find(f=>f.properties&&f.properties.id===id); }
 function polyKm(pts){let d=0;for(let i=1;i<pts.length;i++)d+=hav(pts[i-1],pts[i]);return d;}
 function ringKm2(ring){ // spherical polygon area
   if(ring.length<3)return 0; const R=6371,d2r=Math.PI/180; let s=0;
@@ -1706,35 +1718,64 @@ function areaFmt(km2){ return UNITS==='imperial'?(km2*0.386102).toFixed(2)+' mi�
 function setupDraw(){
   if(map.getSource('annot')) return;   // idempotent: chromeFallback() may have built it already
   map.addSource('annot',{type:'geojson',data:fc([])});
+  // Data-driven paint: every drawing carries its own stroke/fill/opacity (the click-to-edit
+  // panel writes them), with sane fallbacks. A dark CASING under the bright line so the
+  // drawing reads on ANY background — a thin white line was lost on satellite + the overlay.
   map.addLayer({id:'annot-fill',type:'fill',source:'annot',filter:['==','$type','Polygon'],
-    paint:{'fill-color':'#4de1ff','fill-opacity':0.16}});
-  // A dark CASING under a bright line so the drawing reads on ANY background — a thin white
-  // dashed line was lost against satellite + the analysis overlay (user couldn't see it).
-  map.addLayer({id:'annot-line-case',type:'line',source:'annot',filter:['!=','$type','Point'],
-    paint:{'line-color':'#08131a','line-width':5,'line-opacity':0.6}});
-  map.addLayer({id:'annot-line',type:'line',source:'annot',filter:['!=','$type','Point'],
-    paint:{'line-color':'#5fe6ff','line-width':2.6,'line-dasharray':[2,1.4]}});
+    paint:{'fill-color':['coalesce',['get','fill'],'#4de1ff'],'fill-opacity':['coalesce',['get','fo'],0.16]}});
+  map.addLayer({id:'annot-line-case',type:'line',source:'annot',filter:['==','$type','LineString'],
+    paint:{'line-color':'#08131a','line-width':5,'line-opacity':['*',0.6,['coalesce',['get','lo'],1]]}});
+  map.addLayer({id:'annot-line',type:'line',source:'annot',filter:['==','$type','LineString'],
+    paint:{'line-color':['coalesce',['get','stroke'],'#5fe6ff'],'line-width':2.6,'line-dasharray':[2,1.4],'line-opacity':['coalesce',['get','lo'],1]}});
   map.addLayer({id:'annot-pt',type:'circle',source:'annot',filter:['==','$type','Point'],
-    paint:{'circle-radius':6,'circle-color':'#5fe6ff','circle-stroke-color':'#08131a','circle-stroke-width':2.2}});
+    paint:{'circle-radius':['case',['==',['get','vertex'],1],5,6],'circle-color':['coalesce',['get','stroke'],'#5fe6ff'],
+      'circle-stroke-color':'#08131a','circle-stroke-width':2.2}});
   map.addLayer({id:'annot-label',type:'symbol',source:'annot',filter:['has','label'],
     layout:{'text-field':['get','label'],'text-size':12,'text-offset':[0,-1.2],'text-font':['Open Sans Bold'],'text-allow-overlap':true},
     paint:{'text-color':'#ffe6a8','text-halo-color':'#0b0f0d','text-halo-width':2}});
   map.on('click',onDrawClick);
   map.on('dblclick',e=>{ if(drawTool&&drawTool!=='waypoint'){ e.preventDefault(); finishDraw(); } });
+  // Click a finished drawing (when no tool is armed) to open its editor. Vertex drag is
+  // wired in enterDrawEdit(). The boundary lines + vertices carry the parent id, so a click
+  // anywhere on the drawing resolves to it.
+  ['annot-fill','annot-line','annot-pt'].forEach(l=>{
+    map.on('click',l,e=>{ if(drawTool||drawEditId) return;
+      const id=e.features&&e.features[0]&&e.features[0].properties.id;
+      if(id!=null&&id!==''){ if(e.originalEvent)e.originalEvent.stopPropagation(); openDrawEditor(+id); } });
+    map.on('mouseenter',l,()=>{ if(!drawTool&&!drawEditId) map.getCanvas().style.cursor='pointer'; });
+    map.on('mouseleave',l,()=>{ if(!drawTool&&!drawEditId) map.getCanvas().style.cursor=''; });
+  });
+}
+// Per-drawing editable style. Every committed drawing carries its own id, type, colours
+// and opacities so the click-to-edit panel can recolour just that one, and so a type can
+// be hidden wholesale from the legend. Defaults per tool; the user overrides them.
+const DRAW_STYLE={
+  area :{stroke:'#5fe6ff',fill:'#4de1ff',fo:0.16,lo:1},
+  line :{stroke:'#ffd24d',fill:'#ffd24d',fo:0,   lo:1},
+  route:{stroke:'#7bd47b',fill:'#7bd47b',fo:0,   lo:1},
+  dist :{stroke:'#ffd24d',fill:'#ffd24d',fo:0,   lo:1},
+  pin  :{stroke:'#ff5da2',fill:'#ff5da2',fo:0,   lo:1},
+};
+let _drawId=1;
+function _drawFeat(geom,dtype,label){
+  const s=DRAW_STYLE[dtype]||DRAW_STYLE.area;
+  return {type:'Feature',geometry:geom,properties:{id:_drawId++,dtype,label:label||'',
+    stroke:s.stroke,fill:s.fill,fo:s.fo,lo:s.lo,hidden:false}};
 }
 function onDrawClick(e){
-  if(!drawTool) return;
+  if(!drawTool || drawEditId) return;      // in vertex-edit mode, clicks drag, not add
   const ll=[e.lngLat.lng,e.lngLat.lat];
-  if(drawTool==='waypoint'){ drawSaved.push({type:'Feature',geometry:{type:'Point',coordinates:ll},
-      properties:{label:'WP'+(drawSaved.filter(f=>f.geometry.type==='Point').length+1)}}); renderAnnot(); return; }
+  if(drawTool==='waypoint'){
+    drawSaved.push(_drawFeat({type:'Point',coordinates:ll},'pin','WP'+(drawSaved.filter(f=>f.geometry.type==='Point').length+1)));
+    renderAnnot(); return; }
   drawPts.push(ll); renderAnnot();
 }
 function finishDraw(){
   if(drawPts.length>=2){
     if(drawTool==='area'){ const ring=drawPts.concat([drawPts[0]]);
-      drawSaved.push({type:'Feature',geometry:{type:'Polygon',coordinates:[ring]},properties:{label:areaFmt(ringKm2(drawPts))}});}
-    else { drawSaved.push({type:'Feature',geometry:{type:'LineString',coordinates:drawPts.slice()},
-      properties:{label:(drawTool==='route'?'Route ':'')+km(polyKm(drawPts))}});}
+      drawSaved.push(_drawFeat({type:'Polygon',coordinates:[ring]},'area',areaFmt(ringKm2(drawPts))));}
+    else { const dt=drawTool==='route'?'route':(drawTool==='dist'?'dist':'line');
+      drawSaved.push(_drawFeat({type:'LineString',coordinates:drawPts.slice()},dt,(dt==='route'?'Route ':'')+km(polyKm(drawPts))));}
   }
   drawPts=[]; renderAnnot();
 }
@@ -1761,28 +1802,35 @@ function renderAnnot(){
   // refreshed on hovering the rail button, so clicking points on the map produced a
   // running total nobody could see. That is why the tools felt dead.
   if(drawTool) showRailTip(drawTool);
-  const feats=drawSaved.slice();
-  if(drawPts.length){
-    const isArea=drawTool==='area';
-    const geom=isArea&&drawPts.length>=3?{type:'Polygon',coordinates:[drawPts.concat([drawPts[0]])]}
-      :{type:'LineString',coordinates:drawPts};
-    const lab=isArea?(drawPts.length>=3?areaFmt(ringKm2(drawPts)):'')
-      :(drawPts.length>=2?km(polyKm(drawPts)):'');
-    feats.push({type:'Feature',geometry:geom,properties:lab?{label:lab}:{}});
-    drawPts.forEach(p=>feats.push({type:'Feature',geometry:{type:'Point',coordinates:p},properties:{}}));
-  }
-  // A `line` layer does NOT reliably paint polygon RINGS, so an area's outline vanished the
-  // instant the 3rd point turned the geometry into a Polygon (only the faint fill remained —
-  // user-reported "lines disappear"). Emit an explicit LineString boundary for every polygon
-  // (in-progress and committed) so the outline is always drawn by annot-line.
-  feats.slice().forEach(f=>{
-    if(f.geometry && f.geometry.type==='Polygon')
-      (f.geometry.coordinates||[]).forEach(ring=>feats.push({type:'Feature',geometry:{type:'LineString',coordinates:ring},properties:{}}));
+  // Build the render set: committed drawings (skip any hidden per-object or per-TYPE), plus
+  // the in-progress geometry. Every polygon ALSO emits an explicit CLOSED-RING LineString in
+  // the SAME colour, because a `line` layer won't paint polygon rings — that's why the area
+  // outline (and its closing edge back to point 1) kept vanishing. The ring is closed from
+  // the moment there are ≥2 points, so an area always reads as a shape while you draw it.
+  const feats=[];
+  const vis=f=>!(f.properties&&(f.properties.hidden||hiddenDrawTypes.has(f.properties.dtype)));
+  drawSaved.filter(vis).forEach(f=>{
+    feats.push(f);
+    if(f.geometry.type==='Polygon')   // boundary carries NO label (the polygon already has it)
+      (f.geometry.coordinates||[]).forEach(ring=>feats.push(_styledLine(ring,{id:f.properties.id,stroke:f.properties.stroke,lo:f.properties.lo})));
+    if(drawEditId && f.properties.id===drawEditId) _vertsOf(f).forEach(v=>feats.push(_vertFeat(v,f.properties)));
   });
+  if(drawPts.length){
+    const st=DRAW_STYLE[drawTool]||DRAW_STYLE.area;
+    if(drawTool==='area' && drawPts.length>=2){
+      const ring=drawPts.concat([drawPts[0]]);                 // ALWAYS closed while drawing
+      if(drawPts.length>=3) feats.push({type:'Feature',geometry:{type:'Polygon',coordinates:[ring]},properties:{fill:st.fill,fo:st.fo}});
+      feats.push(_styledLine(ring,{stroke:st.stroke,lo:st.lo,label:drawPts.length>=3?areaFmt(ringKm2(drawPts)):''}));
+    } else {
+      feats.push(_styledLine(drawPts.slice(),{stroke:st.stroke,lo:st.lo,label:drawPts.length>=2?km(polyKm(drawPts)):''}));
+    }
+    drawPts.forEach(p=>feats.push(_vertFeat(p,st)));
+  }
   map.getSource('annot').setData(fc(feats));
   renderDrawManager();
 }
 function setDrawTool(t){
+  if(drawEditId){ exitDrawEdit(); const de=document.getElementById('drawEdit'); if(de)de.remove(); }
   finishDraw();                         // commit any in-progress geometry
   drawTool=(drawTool===t)?null:t; drawPts=[];
   document.querySelectorAll('#rail button[data-tool]').forEach(b=>b.classList.toggle('on',b.dataset.tool===drawTool));
@@ -1804,30 +1852,116 @@ function clearDraw(){ drawSaved=[]; drawPts=[]; if(map.getSource('annot')) map.g
 // #25 — a manager for what you've drawn: one row per object with its measurement, a per-
 // object delete, and clear-all. Self-styled floating card, shown only when drawings exist,
 // so you can drop a pin or measure a line and then prune the ones you don't want to keep.
+// #25 — the drawings legend: a per-TYPE show/hide (eye), and per-object rows you can click
+// to open the editor, or delete. Grouped by type (area/line/route/pin), which is the
+// "drawing types in the legend, shown/hidden by type" the hunter asked for.
+const _DT_ORDER=['area','line','route','dist','pin'];
+const _DT_NAME={area:'Areas',line:'Lines',route:'Routes',dist:'Measures',pin:'Pins'};
 function renderDrawManager(){
   let el=document.getElementById('drawMgr');
   const items=(drawSaved||[]).filter(f=>f&&f.geometry);
   if(!items.length){ if(el) el.remove(); return; }
   if(!el){
     el=document.createElement('div'); el.id='drawMgr';
-    el.style.cssText='position:fixed;right:64px;bottom:16px;z-index:45;width:210px;'
+    el.style.cssText='position:fixed;right:64px;bottom:16px;z-index:45;width:224px;max-height:52vh;overflow:auto;'
       +'background:#12171a;border:1px solid #2a343a;border-radius:10px;padding:8px 10px;'
       +'font:12px/1.4 system-ui,sans-serif;color:#dfe6e9;box-shadow:0 6px 20px rgba(0,0,0,.4)';
     document.body.appendChild(el);
   }
-  const tName=f=>f.geometry.type==='Polygon'?'Area':f.geometry.type==='LineString'?'Line':'Pin';
   const esc=s=>String(s||'').replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
-  el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">`
-    +`<b style="letter-spacing:.04em;font-size:11px;color:#9fb0b8">YOUR DRAWINGS</b>`
-    +`<span style="color:#7c8b93">${items.length}</span></div>`
-    +items.map((f,i)=>`<div style="display:flex;align-items:center;gap:6px;padding:2px 0">`
-      +`<span style="color:#e2c044;min-width:30px">${tName(f)}</span>`
-      +`<span style="flex:1;color:#c7d0d4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((f.properties||{}).label)}</span>`
-      +`<button data-i="${i}" style="background:none;border:none;color:#C9564A;cursor:pointer;font-size:15px;line-height:1;padding:0 2px">×</button></div>`).join('')
-    +`<button id="dmClear" style="margin-top:6px;width:100%;background:#1c2429;border:1px solid #2a343a;color:#9fb0b8;border-radius:6px;padding:4px;cursor:pointer;font-size:11px">Clear all</button>`;
-  el.querySelectorAll('button[data-i]').forEach(b=>b.onclick=()=>{ drawSaved.splice(+b.dataset.i,1); renderAnnot(); });
-  const ca=document.getElementById('dmClear'); if(ca) ca.onclick=()=>{ clearDraw(); };
+  const byType={}; items.forEach(f=>{ (byType[f.properties.dtype]=byType[f.properties.dtype]||[]).push(f); });
+  let h=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">`
+    +`<b style="letter-spacing:.04em;font-size:11px;color:#9fb0b8">MY DRAWINGS</b>`
+    +`<span style="color:#7c8b93">${items.length}</span></div>`;
+  _DT_ORDER.filter(t=>byType[t]).forEach(t=>{
+    const off=hiddenDrawTypes.has(t);
+    h+=`<div style="display:flex;align-items:center;gap:6px;margin:5px 0 2px"><button data-ty="${t}" title="show/hide all"`
+      +` style="background:none;border:none;cursor:pointer;color:${off?'#5c6a70':'#e2c044'};font-size:13px">${off?'☒':'👁'}</button>`
+      +`<b style="flex:1;font-size:11px;color:#9fb0b8">${_DT_NAME[t]} · ${byType[t].length}</b></div>`;
+    byType[t].forEach(f=>{ const p=f.properties;
+      h+=`<div style="display:flex;align-items:center;gap:6px;padding:1px 0 1px 16px">`
+        +`<span data-open="${p.id}" style="flex:1;color:${p.hidden?'#66727a':'#c7d0d4'};cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.label)||_DT_NAME[t]}</span>`
+        +`<button data-del="${p.id}" style="background:none;border:none;color:#C9564A;cursor:pointer;font-size:14px;padding:0 2px">×</button></div>`;
+    });
+  });
+  h+=`<button id="dmClear" style="margin-top:8px;width:100%;background:#1c2429;border:1px solid #2a343a;color:#9fb0b8;border-radius:6px;padding:4px;cursor:pointer;font-size:11px">Clear all</button>`;
+  el.innerHTML=h;
+  el.querySelectorAll('button[data-ty]').forEach(b=>b.onclick=()=>{ const t=b.dataset.ty; hiddenDrawTypes.has(t)?hiddenDrawTypes.delete(t):hiddenDrawTypes.add(t); renderAnnot(); });
+  el.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>openDrawEditor(+b.dataset.open));
+  el.querySelectorAll('button[data-del]').forEach(b=>b.onclick=()=>{ const id=+b.dataset.del; drawSaved=drawSaved.filter(x=>x.properties.id!==id); if(drawEditId===id)exitDrawEdit(); renderAnnot(); });
+  const ca=document.getElementById('dmClear'); if(ca) ca.onclick=()=>{ const de=document.getElementById('drawEdit'); if(de)de.remove(); clearDraw(); };
 }
+// Elevation sampler (inverse of the thermal grid mapping) + per-drawing stats.
+function _elevAtLL(lon,lat){ const e=DOC.elev,b=DOC.box; if(!e||!b||!e.v)return null;
+  const gi=Math.round((lon-b.w)/(b.e-b.w)*e.gw-0.5), gj=Math.round((b.n-lat)/(b.n-b.s)*e.gh-0.5);
+  const v=elevAt(gi,gj); return (v==null||isNaN(v))?null:v; }
+function _drawStats(f){ const g=f.geometry,out={};
+  if(g.type==='LineString'){ out.dist=polyKm(g.coordinates);
+    const es=g.coordinates.map(c=>_elevAtLL(c[0],c[1])).filter(v=>v!=null);
+    if(es.length>=2){ let up=0,dn=0; for(let i=1;i<es.length;i++){const d=es[i]-es[i-1]; if(d>0)up+=d;else dn-=d;}
+      out.up=up; out.dn=dn; } }
+  else if(g.type==='Polygon'){ const ring=g.coordinates[0]||[]; out.area=ringKm2(ring.slice(0,-1));
+    const es=ring.map(c=>_elevAtLL(c[0],c[1])).filter(v=>v!=null);
+    if(es.length){ out.emin=Math.min(...es); out.emax=Math.max(...es); } }
+  else if(g.type==='Point'){ out.elev=_elevAtLL(g.coordinates[0],g.coordinates[1]); }
+  return out; }
+// Click-to-open editor: stats + outline/fill colour + opacities + hide + edit-points + delete.
+function openDrawEditor(id){
+  const f=_drawById(id); if(!f) return; const p=f.properties, s=_drawStats(f);
+  let el=document.getElementById('drawEdit');
+  if(!el){ el=document.createElement('div'); el.id='drawEdit'; document.body.appendChild(el); }
+  el.style.cssText='position:fixed;right:296px;bottom:16px;z-index:60;width:236px;background:#12171a;'
+    +'border:1px solid #2a343a;border-radius:10px;padding:10px 12px;font:12px/1.45 system-ui,sans-serif;'
+    +'color:#dfe6e9;box-shadow:0 8px 26px rgba(0,0,0,.5)';
+  const TN={area:'Area',line:'Line',route:'Route',dist:'Measure',pin:'Pin'}[p.dtype]||'Drawing';
+  const mval=v=>UNITS==='imperial'?Math.round(v*3.28084)+' ft':Math.round(v)+' m';
+  let stats='';
+  if(s.dist!=null) stats+=`<div>Distance <b>${km(s.dist)}</b></div>`;
+  if(s.area!=null) stats+=`<div>Area <b>${areaFmt(s.area)}</b></div>`;
+  if(s.up!=null) stats+=`<div>Climb <b>+${mval(s.up)}</b> · drop <b>−${mval(s.dn)}</b></div>`;
+  if(s.emin!=null) stats+=`<div>Elevation <b>${mval(s.emin)}–${mval(s.emax)}</b></div>`;
+  if(s.elev!=null) stats+=`<div>Elevation <b>${mval(s.elev)}</b></div>`;
+  const isArea=p.dtype==='area';
+  el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">`
+    +`<b style="font-size:11px;letter-spacing:.04em;color:#9fb0b8">${TN.toUpperCase()}</b>`
+    +`<button id="deClose" style="background:none;border:none;color:#7c8b93;cursor:pointer;font-size:15px">×</button></div>`
+    +(stats?`<div style="margin-bottom:8px;color:#c7d0d4">${stats}</div>`:'')
+    +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Outline</span><input id="deStroke" type="color" value="${p.stroke||'#5fe6ff'}" style="width:30px;height:22px;border:none;background:none;padding:0"></div>`
+    +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Line opacity</span><input id="deLo" type="range" min="0" max="1" step="0.05" value="${p.lo!=null?p.lo:1}" style="width:100px"></div>`
+    +(isArea?`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Fill</span><input id="deFill" type="color" value="${p.fill||'#4de1ff'}" style="width:30px;height:22px;border:none;background:none;padding:0"></div>`
+      +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Fill opacity</span><input id="deFo" type="range" min="0" max="0.7" step="0.02" value="${p.fo!=null?p.fo:0.16}" style="width:100px"></div>`:'')
+    +`<label style="display:flex;align-items:center;gap:8px;margin:7px 0;cursor:pointer"><input id="deHide" type="checkbox" ${p.hidden?'checked':''}> Hide on map</label>`
+    +`<div style="display:flex;gap:6px;margin-top:6px">`
+    +`<button id="deEdit" style="flex:1;background:${drawEditId===id?'#2a4d1c':'#1c2429'};border:1px solid #2a343a;color:#cde;border-radius:6px;padding:5px;cursor:pointer">${drawEditId===id?'Done editing':'Edit points'}</button>`
+    +`<button id="deDel" style="background:#2a1416;border:1px solid #4a2226;color:#e58;border-radius:6px;padding:5px 9px;cursor:pointer">Delete</button></div>`
+    +(drawEditId===id?`<div style="margin-top:6px;color:#8fae6a;font-size:11px">Drag the points to reshape · click Done when finished.</div>`:'');
+  const set=(k,v)=>{ p[k]=v; renderAnnot(); };
+  el.querySelector('#deClose').onclick=()=>{ el.remove(); if(drawEditId===id) exitDrawEdit(); };
+  el.querySelector('#deStroke').oninput=e=>set('stroke',e.target.value);
+  el.querySelector('#deLo').oninput=e=>set('lo',+e.target.value);
+  if(isArea){ el.querySelector('#deFill').oninput=e=>set('fill',e.target.value); el.querySelector('#deFo').oninput=e=>set('fo',+e.target.value); }
+  el.querySelector('#deHide').onchange=e=>{ set('hidden',e.target.checked); renderDrawManager(); };
+  el.querySelector('#deDel').onclick=()=>{ drawSaved=drawSaved.filter(x=>x.properties.id!==id); if(drawEditId===id)exitDrawEdit(); el.remove(); renderAnnot(); };
+  el.querySelector('#deEdit').onclick=()=>{ if(drawEditId===id) exitDrawEdit(); else enterDrawEdit(id); openDrawEditor(id); };
+}
+// Vertex-drag editing of the selected drawing.
+let _dragVert=null;
+function enterDrawEdit(id){ drawEditId=id; map.getCanvas().style.cursor='grab'; renderAnnot(); map.on('mousedown','annot-pt',_vertDown); }
+function exitDrawEdit(){ drawEditId=null; _dragVert=null; map.getCanvas().style.cursor=''; try{map.off('mousedown','annot-pt',_vertDown);}catch(e){} renderAnnot(); }
+function _vertDown(e){ if(!drawEditId)return; const f=_drawById(drawEditId); if(!f)return;
+  const cl=e.lngLat, verts=_vertsOf(f); let bi=-1,bd=1e9;
+  verts.forEach((v,i)=>{const d=(v[0]-cl.lng)**2+(v[1]-cl.lat)**2; if(d<bd){bd=d;bi=i;}});
+  if(bi<0)return; _dragVert=bi; e.preventDefault(); map.dragPan.disable();
+  map.on('mousemove',_vertMove); map.once('mouseup',_vertUp); }
+function _vertMove(e){ if(_dragVert==null)return; const f=_drawById(drawEditId); if(!f)return; const g=f.geometry, ll=[e.lngLat.lng,e.lngLat.lat];
+  if(g.type==='Point') g.coordinates=ll;
+  else if(g.type==='LineString') g.coordinates[_dragVert]=ll;
+  else if(g.type==='Polygon'){ const r=g.coordinates[0]; r[_dragVert]=ll; if(_dragVert===0) r[r.length-1]=ll; }
+  _relabel(f); renderAnnot(); }
+function _vertUp(){ _dragVert=null; map.off('mousemove',_vertMove); map.dragPan.enable(); const de=document.getElementById('drawEdit'); if(de&&drawEditId!=null) openDrawEditor(drawEditId); }
+function _relabel(f){ const g=f.geometry;
+  if(g.type==='Polygon') f.properties.label=areaFmt(ringKm2((g.coordinates[0]||[]).slice(0,-1)));
+  else if(g.type==='LineString') f.properties.label=(f.properties.dtype==='route'?'Route ':'')+km(polyKm(g.coordinates)); }
 function destPoint(lon,lat,brgDeg,km){const R=6371,d2r=Math.PI/180,br=brgDeg*d2r,la1=lat*d2r,lo1=lon*d2r;
   const la2=Math.asin(Math.sin(la1)*Math.cos(km/R)+Math.cos(la1)*Math.sin(km/R)*Math.cos(br));
   const lo2=lo1+Math.atan2(Math.sin(br)*Math.sin(km/R)*Math.cos(la1),Math.cos(km/R)-Math.sin(la1)*Math.sin(la2));
@@ -2670,7 +2804,17 @@ function applyPlan(p){
   if(s.dates&&s.dates.length===2) draft.dates=s.dates.slice();
   SETUP.watercraft=s.watercraft||SETUP.watercraft; SETUP.huntStyle=s.huntStyle||SETUP.huntStyle;
   UNITS=p.units||UNITS;
-  drawSaved=JSON.parse(JSON.stringify(p.annot||[])); if(map.getSource('annot')) renderAnnot();
+  drawSaved=JSON.parse(JSON.stringify(p.annot||[]));
+  // Older plans stored drawings without id/dtype/style — backfill so the editor + legend
+  // work on them — and bump the id counter past what we restored so new drawings don't clash.
+  drawSaved.forEach(f=>{ const q=f.properties=f.properties||{};
+    if(q.id==null) q.id=_drawId++;
+    if(!q.dtype) q.dtype=f.geometry.type==='Polygon'?'area':f.geometry.type==='LineString'?'line':'pin';
+    const s=DRAW_STYLE[q.dtype]||DRAW_STYLE.area;
+    if(q.stroke==null)q.stroke=s.stroke; if(q.fill==null)q.fill=s.fill;
+    if(q.fo==null)q.fo=s.fo; if(q.lo==null)q.lo=s.lo; });
+  _drawId=Math.max(_drawId,...drawSaved.map(f=>(f.properties&&f.properties.id||0)+1),1);
+  if(map.getSource('annot')) renderAnnot();
   lastSel=p.area||1;
   renderSetup();
   const pl=document.getElementById('plans'); if(pl) pl.classList.add('hidden');
