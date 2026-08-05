@@ -540,8 +540,14 @@ def build(ctx: Context) -> dict:
         "camps": camps,
         "areas": area_out,
         "waypoints": wp_out,
-        "routes": [{"type": r["properties"]["legend"],
-                    "coords": r["geometry"]["coordinates"]} for r in routes],
+        # ATV (#69): legs/ride_km/walk_km ride along when the hunter listed an ATV, so
+        # the map can draw the ridable stretch differently from the part they walk, and
+        # the brief can quote the WALK distance (the pack-out reality) not the total.
+        "routes": [dict({"type": r["properties"]["legend"],
+                         "coords": r["geometry"]["coordinates"]},
+                        **{k: r["properties"][k] for k in ("legs", "ride_km", "walk_km")
+                           if k in r["properties"]})
+                   for r in routes],
         "weather": wthr,
         "layers": {"huntability_raster": "map.html overlay / huntability.tif (EPSG:32198)",
                    "roads": "roads.gpkg"},

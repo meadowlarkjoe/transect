@@ -442,9 +442,20 @@ function buildSources(){
   // access vs best vs midday-hot distinctly. A straight camp→centroid line is a
   // fiction, so we no longer draw one.
   const RT={route_access:'access',route_paddle:'access',route_best:'best',route_midday_hot:'hot'};
+  // With an ATV the engine splits each route into RIDE and WALK legs (#69). Draw the
+  // legs when they're there — the part you ride is not the part that costs you a
+  // pack-out — and fall back to the whole line when they aren't.
   const routes=fc((DOC.routes||[]).filter(r=>Array.isArray(r.coords)&&r.coords.length>1)
-    .map(r=>({type:'Feature',geometry:{type:'LineString',coordinates:r.coords},
-      properties:{t:RT[r.type]||'access',kind:r.type}})));
+    .flatMap(r=>{
+      const base={t:RT[r.type]||'access',kind:r.type,
+        ride_km:r.ride_km!=null?r.ride_km:null, walk_km:r.walk_km!=null?r.walk_km:null};
+      if(Array.isArray(r.legs)&&r.legs.length)
+        return r.legs.filter(lg=>Array.isArray(lg.coords)&&lg.coords.length>1)
+          .map(lg=>({type:'Feature',geometry:{type:'LineString',coordinates:lg.coords},
+            properties:Object.assign({},base,{mode:lg.mode})}));
+      return [{type:'Feature',geometry:{type:'LineString',coordinates:r.coords},
+        properties:Object.assign({},base,{mode:'foot'})}];
+    }));
   const packin=[];
   // exact vector hydrography (rivers carry a class: river=boat, stream=fordable)
   const h=DOC.hydro||{rivers:[],lakes:[]};
@@ -641,6 +652,11 @@ function init(){
     paint:{'line-color':COLORS.route_midday_hot,'line-width':2,'line-opacity':0.9,'line-dasharray':[4,2]}});
   map.addLayer({id:'route-best',type:'line',source:'routes',filter:['==',['get','t'],'best'],
     paint:{'line-color':COLORS.route_best,'line-width':2.4,'line-opacity':0.95}});
+  // RIDE legs (ATV/SxS on road or sentier) — a heavier casing under the route colour so
+  // you can see at a glance where you're riding and where the walking actually starts.
+  map.addLayer({id:'route-ride',type:'line',source:'routes',filter:['==',['get','mode'],'atv'],
+    layout:{'line-cap':'round'},
+    paint:{'line-color':'#e2c044','line-width':6,'line-opacity':0.30}},'route-access');
   // thermal-drift arrow field (off by default; toggle in tools)
   if(!map.hasImage('thermal-arrow')) map.addImage('thermal-arrow',arrowIcon(),{pixelRatio:2});
   map.addSource('thermal',{type:'geojson',data:fc([])});

@@ -1107,6 +1107,27 @@ def _add_routes(ctx, features, cache, prof, access, toll):
             out.append((rank, f))
         return out
 
+    # RIDE vs WALK (#69). With an ATV/SxS the hunter rides the road AND the motorised
+    # sentiers, then walks where the network stops. The route already prefers those
+    # surfaces (they're cheap in _walk_cost), so the honest thing is to say which parts
+    # of the line you ride and which you're on foot for — the pack-out reality is the
+    # WALK length, not the total. Split the path on the ridable mask and report both.
+    _kit_r = _hunter_kit(ctx.aoi.hunter)
+    _ride_mask = None
+    if _kit_r["atv"]:
+        try:
+            rd = _opt(cache / "roads.tif")
+            _ride_mask = np.zeros(cost.shape, dtype=bool)
+            if rd is not None:
+                _ride_mask |= np.nan_to_num(rd) > 0
+            _lin_r = _linear_cost_layer(cache, cost.shape)   # quad/snowmobile sentiers + rail
+            if _lin_r is not None:
+                _ride_mask |= _lin_r
+            if not _ride_mask.any():
+                _ride_mask = None
+        except Exception:
+            _ride_mask = None
+
     def add_route(rank, dest_feat, legend):
         lon, lat = dest_feat["geometry"]["coordinates"]
         end = lonlat_to_rc(lon, lat)
@@ -1115,9 +1136,29 @@ def _add_routes(ctx, features, cache, prof, access, toll):
             return
         path, _ = route_through_array(cost, start, end, fully_connected=True, geometric=True)
         coords = [list(toll((r, c))) for r, c in path]
+        props = {"legend": legend, "focus_area": rank}
+        if _ride_mask is not None and len(path) > 1:
+            step_km = res / 1000.0
+            ride = [bool(_ride_mask[r, c]) for (r, c) in path]
+            # smooth 1-cell flickers so the legs read as real segments, not confetti
+            for i in range(1, len(ride) - 1):
+                if ride[i - 1] == ride[i + 1] != ride[i]:
+                    ride[i] = ride[i - 1]
+            ride_km = sum(step_km for i in range(1, len(path)) if ride[i])
+            walk_km = sum(step_km for i in range(1, len(path)) if not ride[i])
+            legs, cur = [], None
+            for i, (rc, on) in enumerate(zip(path, ride)):
+                if cur is None or on != cur["ride"]:
+                    cur = {"ride": on, "coords": []}
+                    legs.append(cur)
+                cur["coords"].append(list(toll(rc)))
+            props["legs"] = [{"mode": "atv" if lg["ride"] else "foot",
+                              "coords": lg["coords"]} for lg in legs if len(lg["coords"]) >= 2]
+            props["ride_km"] = round(ride_km, 2)
+            props["walk_km"] = round(walk_km, 2)
         features.append({"type": "Feature",
                          "geometry": {"type": "LineString", "coordinates": coords},
-                         "properties": {"legend": legend, "focus_area": rank}})
+                         "properties": props})
 
     for rank, f in sites_of("rut_calling", 2):
         add_route(rank, f, "route_best")
