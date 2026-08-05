@@ -305,3 +305,51 @@ the couch answer is mostly reflow. I would not start M1 without knowing which.
 - That species configs for `whitetail_deer` and `black_bear` are validated. They are
   drafted and unexercised — no run has used them end to end.
 - That the region list above is complete. It is a plan, not a survey of open geodata.
+
+---
+
+## Going public (#83) — and why it runs on the expansion playbook
+
+The plan is to share Transect openly (Reddit and similar) so hunters can use it, and so
+feature requests and contributions arrive through GitHub. The sequencing is not a
+marketing question, it's a coverage question.
+
+**The blocker is geographic, not promotional.** The engine is Québec-only today: the
+legal gate dispatches on `legal_regime={quebec}`, and écoforestière, GRHQ, AQréseau+,
+MRNF tenure and zones are all QC sources. Posting to a general hunting community sends
+most readers to ground we cannot analyse — the worst possible first impression, because
+the tool doesn't fail loudly there, it just has less to say.
+
+So there are two honest doors, and **`docs/EXPANSION_PLAYBOOK.md` is how you walk through
+the second one**:
+
+1. **Post where coverage is already real** — Québec/Canadian communities. Available now.
+2. **Run the playbook on one adjacent region first, then post there.** Ontario is the
+   cheapest next step (LIO carries road/hydro/forest layers analogous to what we already
+   consume). Phases A→D are mechanical and can run as background work; only the species
+   and validation findings need review.
+
+The playbook exists exactly for this: expansion stops being a bespoke effort per region
+and becomes a procedure that improves each time it runs.
+
+### Everything else the launch needs
+
+- **Repo**: README stating what it does *and does not* claim (a prioritized hypothesis to
+  ground-truth, not a guarantee), current engine revision, self-host instructions,
+  CONTRIBUTING + issue templates so feature requests have somewhere to land.
+- **Landing page**: refresh to match shipped functionality — it predates most of the
+  current engine.
+- **The post itself**: plain description, honest limits, open-source note. These
+  communities punish anything that reads as marketing, and several ban tool promotion
+  outright or require mod approval — read each sub's rules first.
+- **Donations**: Buy Me a Coffee / Ko-fi / GitHub Sponsors on the landing page. The
+  account signup is the owner's to do; the site just carries the link.
+
+### Two things that must land BEFORE public traffic
+
+- **Liability.** Regulations rotate (MWA rules, zone boundaries) and `legal.py` already
+  flags unverified regimes — that warning has to be *visible in the UI*, not buried in a
+  contract field. The legal gate is an aid, not authority.
+- **Capacity.** `/scout` is minutes of CPU on a 4 GB droplet per run. Public traffic will
+  melt it. Needs per-account quota + a queue, and **#17** (analysis in a subprocess) so a
+  single run can't take the API down with it.
