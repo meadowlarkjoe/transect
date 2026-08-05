@@ -2279,6 +2279,30 @@ let draft={center: DOC.blank ? null : [DOC.meta.center.lon,DOC.meta.center.lat],
    Internally: camp => fixedCampMode + spike semantics (as before), the other two map to
    the engine's spike|vehicle hunt_style. */
 function hstyleOf(){ return draft.fixedCampMode ? 'camp' : SETUP.huntStyle; }
+/* THE BOX IS AN INPUT TO A RUNNING COMPUTATION. While one is in flight the Setup that
+   defines it has to hold still: the engine already has the box, the dates and the kit it
+   was given, and nothing the hunter changes here can reach it. Leaving the controls live
+   invites moving the box mid-run and then reading the result as if it were for the new
+   one — a silent, confident wrong answer, which is the worst kind.
+
+   Disabling the whole pane rather than each control means a new control cannot be added
+   later and quietly escape the lock. */
+function lockSetupWhileRunning(){
+  const el=document.getElementById('setup'); if(!el) return;
+  const lock=!!RUN_ACTIVE;
+  el.querySelectorAll('input,select,button,textarea').forEach(n=>{
+    if(n.id==='runBtn') return;                 // the run button owns its own state
+    if(lock) n.setAttribute('disabled','');
+    else n.removeAttribute('disabled');
+  });
+  el.classList.toggle('locked', lock);
+  const old=el.querySelector('.runlock'); if(old) old.remove();
+  if(!lock) return;
+  const note=document.createElement('div');
+  note.className='callout runlock'; note.dataset.kind='info';
+  note.innerHTML=`<span class="mark">◷</span><div class="body"><b>${t('lock.title')}</b>${t('lock.body')}</div>`;
+  el.insertBefore(note, el.firstChild);
+}
 function renderSetup(){
   const el=document.getElementById('setup');
   const hs=hstyleOf();
@@ -2522,6 +2546,7 @@ function renderSetup(){
   document.getElementById('uImperial').onclick=()=>setUnits('imperial');
   document.getElementById('runBtn').onclick=()=>runAnalysis();
   drawDraft(); applyHunt();
+  lockSetupWhileRunning();
 }
 /* Keep the resolution slider honest against the current area: bounds, default marker,
    live time estimate, and a WARNING when the grid is pushing the engine's memory
@@ -2738,6 +2763,7 @@ function _runAnalysis(){
   // to "No area yet — moose" and mark it UNSAVED, so re-analysing a saved plan looked
   // like it had been thrown away and replaced by a blank one.
   RUN_ACTIVE = true;
+  lockSetupWhileRunning();
   const _keepName = PLAN_NAME, _keepSaved = PLAN_SAVED;
   if(hasResult()){ applyDoc(blankDoc()); paintTabLocks(); setPlanName(_keepName, _keepSaved); }
   // Send them where the progress actually is. Left on Overview they got the empty-state
@@ -2756,11 +2782,11 @@ function _runAnalysis(){
         // The engine is draining for a deploy (scripts/deploy_engine.sh). Nothing is
         // wrong and nothing was lost — say that, rather than the generic "not
         // answering", which reads like the run failed.
-        stop(); RUN_ACTIVE=false; setBtn('RUN ANALYSIS →',false);
+        stop(); RUN_ACTIVE=false; lockSetupWhileRunning(); setBtn('RUN ANALYSIS →',false);
         tellModal(t('dlg.updatingTitle'), t('dlg.updatingBody'), 'warn');
         throw new Error('auth');   // reuse the already-handled sentinel
       }
-      if(r.status===401){ stop(); RUN_ACTIVE=false; setBtn('RUN ANALYSIS →',false);
+      if(r.status===401){ stop(); RUN_ACTIVE=false; lockSetupWhileRunning(); setBtn('RUN ANALYSIS →',false);
         askModal({title:t('dlg.signinTitle'),
           body:t('dlg.signinBody'),
           actions:[{id:'no',label:t('dlg.notnow')},{id:'go',label:t('dlg.signinGo'),primary:true}]})
@@ -2778,7 +2804,7 @@ function _runAnalysis(){
       rememberJob(j.job_id);
       pollJob(j.job_id,_jh,STAGE,stop,setBtn,line,h=>{lastHead=h;});
     })
-    .catch(e=>{ RUN_ACTIVE=false; if(e && e.message==='auth') return;   // already handled above
+    .catch(e=>{ RUN_ACTIVE=false; lockSetupWhileRunning(); if(e && e.message==='auth') return;   // already handled above
       setBtn('RUN ANALYSIS →',false);
       tellModal(t('dlg.offlineTitle'),
         t('dlg.offlineBody'),'warn');
@@ -2888,6 +2914,9 @@ function _wireDraftBoxEdit(){
   const EDGE=8;                                   // px tolerance for grabbing an edge
   let drag=null;                                  // {mode:'move'|'resize', startLL, c0, r0}
   const zone=(e)=>{
+    // A run is computing THIS box. Letting it be dragged mid-run leaves the map showing
+    // one area while the engine analyses another, and the result lands looking wrong.
+    if(RUN_ACTIVE) return null;
     if(curTab!=='setup'||draft.siteMode!=='find'||!draft.center||drawTool||drawEditId||_boxCleanup) return null;
     const box=draftBox(); if(!box) return null;
     const nw=map.project({lng:box[0][0],lat:box[0][1]}), se=map.project({lng:box[2][0],lat:box[2][1]});
@@ -3175,7 +3204,7 @@ function wireTabs(){
 let PLAN_NAME='', PLAN_SAVED=false;
 /* Is an analysis in flight? The Overview panel needs to tell "no plan yet" apart from
    "your plan is recomputing right now" — they look identical on a blanked DOC. */
-let RUN_ACTIVE=false;
+let RUN_ACTIVE=false; lockSetupWhileRunning();
 /* mark exactly one button in a .seg as pressed (the control means "one of these") */
 function segPick(id){
   const b=document.getElementById(id); if(!b) return;
@@ -3759,22 +3788,22 @@ function pollJob(jid,headers,STAGE,stop,setBtn,line,onHead){
       .then(s=>{
         failedSince=0;
         if(s.status==='done'){
-          stop(); RUN_ACTIVE=false; LAST_JOB_ID=jid; forgetJob(); setBtn('RUN ANALYSIS →',false); applyDoc(s.scout);
+          stop(); RUN_ACTIVE=false; lockSetupWhileRunning(); LAST_JOB_ID=jid; forgetJob(); setBtn('RUN ANALYSIS →',false); applyDoc(s.scout);
           // a finished run should present its result: Overview, with the layers card
           // showing what was drawn — even if it was dismissed earlier during Setup.
           layersDismissed=false; setTab('overview'); syncDocks('overview');
           autosavePlan();
         } else if(s.status==='error'){
-          stop(); RUN_ACTIVE=false; forgetJob(); setBtn('RUN ANALYSIS →',false);
+          stop(); RUN_ACTIVE=false; lockSetupWhileRunning(); forgetJob(); setBtn('RUN ANALYSIS →',false);
           tellModal(t('dlg.failTitle'),
             `The engine reported: <b>${escHtml(s.error||'unknown error')}</b><br>
              Your setup is untouched — nothing to re-enter before trying again.`,'danger');
         } else if(s.status==='cancelled'){
-          stop(); RUN_ACTIVE=false; forgetJob(); setBtn('RUN ANALYSIS →',false);
+          stop(); RUN_ACTIVE=false; lockSetupWhileRunning(); forgetJob(); setBtn('RUN ANALYSIS →',false);
           if(s.orphaned) tellModal(t('dlg.stoppedTitle'),
             t('dlg.stoppedBody'),'warn');
         } else if(s.status==='unknown'){
-          stop(); RUN_ACTIVE=false; forgetJob(); setBtn('RUN ANALYSIS →',false);
+          stop(); RUN_ACTIVE=false; lockSetupWhileRunning(); forgetJob(); setBtn('RUN ANALYSIS →',false);
           tellModal(t('dlg.restartTitle'),
             t('dlg.restartBody'),'warn');
         } else {
@@ -3790,7 +3819,7 @@ function pollJob(jid,headers,STAGE,stop,setBtn,line,onHead){
         if(!failedSince) failedSince=now;
         const out=now-failedSince;
         if(out>POLL_GIVEUP_MS){
-          stop(); RUN_ACTIVE=false; setBtn('RUN ANALYSIS →',false);
+          stop(); RUN_ACTIVE=false; lockSetupWhileRunning(); setBtn('RUN ANALYSIS →',false);
           askModal({kind:'warn', title:t('dlg.lostTitle'),
             body:t('dlg.lostBody'),
             actions:[{id:'stay',label:t('dlg.lostStay')},{id:'reload',label:t('dlg.lostReload'),primary:true}]
@@ -3912,7 +3941,7 @@ function resumeJob(){
   fetch(API_URL+'/jobs/'+jid,{headers:hdr,cache:'no-store'}).then(r=>r.json()).then(s=>{
     if(!s||s.status==='unknown'||s.status==='error'||s.status==='cancelled'){ forgetJob(); return; }
     if(s.status==='done'){
-      RUN_ACTIVE=false; LAST_JOB_ID=jid; forgetJob(); applyDoc(s.scout); layersDismissed=false; setTab('overview'); syncDocks('overview');
+      RUN_ACTIVE=false; lockSetupWhileRunning(); LAST_JOB_ID=jid; forgetJob(); applyDoc(s.scout); layersDismissed=false; setTab('overview'); syncDocks('overview');
       autosavePlan();
       return;
     }
