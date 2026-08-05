@@ -722,6 +722,16 @@ def run(ctx: Context, manual_areas=None) -> None:
         if st is None:
             continue
         area_stage[rank] = (st, (int(ar), int(ac)))
+        # HUNT STYLE DECIDES WHAT ANCHORS EXIST.
+        #   hunting camp (fixed) : the camp IS the staging and the bed — ONE pin, no
+        #                          separate parking (you drove to your camp).
+        #   vehicle              : staging only — you sleep at the truck, so a separate
+        #                          "base camp" pin would be a fiction.
+        #   spike                : both — leave the truck here, pack in and sleep there.
+        # area_stage is still computed for fixed camps because routing uses it; it just
+        # doesn't become a map feature.
+        if fixed_camp_rc is not None:
+            continue
         slon, slat = toll(st)
         walk_px = float(np.hypot(st[0] - ar, st[1] - ac))
         features.append({"type": "Feature",
