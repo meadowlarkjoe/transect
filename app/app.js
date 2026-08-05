@@ -1735,6 +1735,12 @@ function finishDraw(){
   drawPts=[]; renderAnnot();
 }
 function renderAnnot(){
+  // GUARANTEE the annotation source/layers exist before we draw into them. If the map-init
+  // path that calls setupDraw() ever aborts early, `annot` is missing and every draw tool
+  // silently no-ops (the tip readout still updates from drawPts, so the panel looked alive
+  // while the map stayed blank) — the measure/line/route/area bug. Idempotent.
+  if(!map.getSource('annot')){ try{ setupDraw(); }catch(e){} }
+  if(!map.getSource('annot')) return;
   // Offer "Recalculate" once the hunter has drawn a focus area to re-plan inside.
   const rb=document.getElementById('rescopeBtn');
   if(rb){ const hasPoly=(drawSaved||[]).some(f=>f.geometry&&f.geometry.type==='Polygon');
