@@ -1741,6 +1741,14 @@ function renderAnnot(){
   // while the map stayed blank) — the measure/line/route/area bug. Idempotent.
   if(!map.getSource('annot')){ try{ setupDraw(); }catch(e){} }
   if(!map.getSource('annot')) return;
+  // ...and make sure the annotation layers sit ON TOP. setupDraw() runs during map load,
+  // before the data layers are added, so the drawings were being painted UNDERNEATH the
+  // satellite + model layers — measuring updated the panel but you saw nothing on the map.
+  // Raise them once (idempotent via the flag).
+  if(!window._annotRaised){
+    ['annot-fill','annot-line','annot-pt','annot-label'].forEach(l=>{ try{ if(map.getLayer(l)) map.moveLayer(l); }catch(e){} });
+    window._annotRaised=true;
+  }
   // Offer "Recalculate" once the hunter has drawn a focus area to re-plan inside.
   const rb=document.getElementById('rescopeBtn');
   if(rb){ const hasPoly=(drawSaved||[]).some(f=>f.geometry&&f.geometry.type==='Polygon');
