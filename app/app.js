@@ -488,7 +488,7 @@ function buildSources(){
 
 function init(){
   document.getElementById('subtitle').textContent =
-    `${DOC.meta.species} · ${DOC.meta.target_dates.join(' – ')} · r${DOC.meta.radius_km} km · zone ${(DOC.legal||{}).zone||'?'}`;
+    `${speciesName(DOC.meta.species)} · ${DOC.meta.target_dates.join(' – ')} · r${DOC.meta.radius_km} km · ${t('sub.zone')} ${(DOC.legal||{}).zone||'?'}`;
   // Plans auto-name from the AOI — naming something before you know it's worth
   // keeping is friction at exactly the wrong moment.
   setPlanName(planTitle(), false);
@@ -803,7 +803,7 @@ function init(){
   // Each of these is independent chrome. Binding the tabs is the one thing that must
   // never be skipped, so a failure in an earlier renderer cannot cascade into
   // an app with dead navigation.
-  [renderSetup,renderBrief,wireTabs,initPlans,initAccount,initLang,initExport].forEach(fn=>{
+  [renderSetup,renderBrief,wireTabs,initAccount,initLang,initExport].forEach(fn=>{
     try{ fn(); }catch(e){ console.error('init step failed:',fn.name,e); }
   });
   setTab(startTab());
@@ -837,11 +837,11 @@ function chromeFallback(){
   try{ buildPanel(); }catch(e){}
   try{ buildTools(); }catch(e){}
   try{ buildWeather(); }catch(e){}
-  try{ renderSetup(); renderBrief(); wireTabs(); initPlans(); initAccount(); initLang(); initExport(); setTab(startTab());
+  try{ renderSetup(); renderBrief(); wireTabs(); initAccount(); initLang(); initExport(); setTab(startTab());
   if(window.I18N) I18N.apply(document); }catch(e){}
   try{ setPlanName(planTitle(),false);
     document.getElementById('subtitle').textContent=
-      `${DOC.meta.species} · ${DOC.meta.target_dates.join(' – ')} · r${DOC.meta.radius_km} km`; }catch(e){}
+      `${speciesName(DOC.meta.species)} · ${DOC.meta.target_dates.join(' – ')} · r${DOC.meta.radius_km} km`; }catch(e){}
 }
 map.on('load',go);
 map.on('styledata',()=>{ if(map.isStyleLoaded()) go(); });
@@ -2618,7 +2618,7 @@ function applyDoc(newDoc){        // re-bind the whole map + panels to fresh eng
   deepActive=null;
   try{buildThermal();}catch(e){} buildShooters();
   buildPanel(); buildWeather(); buildLayersDock(); lastSel=1;
-  document.getElementById('subtitle').textContent=`${DOC.meta.title} · ${DOC.meta.species} · ${(DOC.meta.target_dates||[]).join(' – ')}`;
+  document.getElementById('subtitle').textContent=`${DOC.blank?t('plan.noarea'):DOC.meta.title} · ${speciesName(DOC.meta.species)} · ${(DOC.meta.target_dates||[]).join(' – ')}`;
   setPlanName(planTitle(),false);   // a recompute is a NEW area — don't keep the old plan's name
   const b=newDoc.box; if(b) map.fitBounds([[b.w,b.s],[b.e,b.n]],{padding:60});
 }
@@ -3175,9 +3175,28 @@ function segPick(id){
   seg.querySelectorAll('button').forEach(x=>x.removeAttribute('aria-pressed'));
   b.setAttribute('aria-pressed','true');
 }
+/* Species as a word a hunter reads, not the contract's identifier. Written as an
+   explicit map rather than a computed key so the keys are real literals the gate can
+   see — a computed key looks like an orphan to the checker and like English through t()
+   to the shape gate. Three species is a small fixed set; when it stops being small,
+   generate it the way applyLegend does and teach the checker about it. */
+const SPECIES_NAME={
+  moose:          ()=>t('sp.moose'),
+  whitetail_deer: ()=>t('sp.whitetail_deer'),
+  black_bear:     ()=>t('sp.black_bear'),
+};
+function speciesName(sp){
+  const k=String(sp||'').trim();
+  return SPECIES_NAME[k] ? SPECIES_NAME[k]() : k;
+}
 function planTitle(){
-  const t=(DOC.meta.title||'').trim(), sp=(DOC.meta.species||'').trim();
-  return (sp && !t.toLowerCase().includes(sp.toLowerCase())) ? `${t} — ${sp}` : t;
+  // A real AOI title is a PLACE NAME written by the engine — never translate that.
+  // The blank-state stub is ours, and it was the last English in the top bar with FR
+  // selected.
+  const raw=(DOC.meta.title||'').trim();
+  const ttl=DOC.blank ? t('plan.noarea') : raw;
+  const sp=speciesName(DOC.meta.species);
+  return (sp && !ttl.toLowerCase().includes(sp.toLowerCase())) ? `${ttl} — ${sp}` : ttl;
 }
 function setPlanName(n,saved){
   PLAN_NAME=n; if(saved!=null) PLAN_SAVED=saved;
@@ -3376,7 +3395,6 @@ function applyPlan(p){
   if(map.getSource('annot')) renderAnnot();
   lastSel=p.area||1;
   renderSetup();
-  const pl=document.getElementById('plans'); if(pl) pl.classList.add('hidden');
   if(p.doc){                                   // cached analysis → no recompute needed
     // keep the ORIGINAL run time — re-saving a reopened plan must not pretend it
     // was just analysed.
@@ -3419,58 +3437,7 @@ async function doAuth(kind,email,pw){
 }
 function signOut(){ apiF('/auth/logout',{method:'POST'}).catch(()=>{});
   ['transect_token','transect_tok','transect_email'].forEach(k=>{try{localStorage.removeItem(k);}catch(e){}});
-  if(window._acctPaint) window._acctPaint();
-  renderPlans(); }
-async function serverPlans(){
-  try{ const r=await apiF('/plans'); if(!r.ok) return null;
-    return (await r.json()).plans.map(p=>Object.assign({},p.data,{id:p.id,name:p.name,savedAt:(p.updated||0)*1000})); }
-  catch(e){ return null; } }
-
-async function renderPlans(){
-  const el=document.getElementById('plans'); const authed=isAuthed();
-  const auth = authed
-    ? `<div class="authbar">Signed in as <b>${authEmail()}</b> <button id="signOut" class="ghost">Sign out</button></div>`
-    : `<div class="authbox"><div class="prow"><input id="aEmail" type="email" placeholder="email"><input id="aPw" type="password" placeholder="password"></div>
-       <div class="prow"><button id="aLogin">Sign in</button><button id="aSignup" class="ghost">Create account</button></div>
-       <div class="s" id="aErr" style="color:#f79"></div></div>`;
-  let plans = authed ? await serverPlans() : loadPlans();
-  if(plans===null) plans=loadPlans();
-  el.innerHTML=`<div class="phead"><b>Hunt plans</b><button id="plansClose" class="ghost">✕</button></div>
-    ${auth}
-    <div class="prow" style="margin-top:8px"><input id="planNameInput" placeholder="Name this plan…"><button id="planSave">Save current</button></div>
-    <div class="s" style="margin:2px 0 8px">${authed?'Synced to your account, with the computed analysis — reopens on any device without recomputing.':'Saved in this browser, settings only. Sign in to sync across devices and keep the analysis with the plan.'}</div>
-    ${plans.length?plans.map(p=>`<div class="plan" data-id="${p.id}">
-        <div><b>${p.name||'Plan'}</b><div class="s">${p.savedAt?new Date(p.savedAt).toLocaleString():''} · ${p.aoi||''} · r=${p.setup?p.setup.radius:'?'}km</div></div>
-        <div class="pacts"><button data-act="load" data-id="${p.id}">Load</button><button data-act="del" data-id="${p.id}" class="ghost">Delete</button></div>
-      </div>`).join(''):'<div class="s">No saved plans yet.</div>'}`;
-  document.getElementById('plansClose').onclick=()=>el.classList.add('hidden');
-  if(authed){
-    document.getElementById('signOut').onclick=signOut;
-  } else {
-    const err=document.getElementById('aErr');
-    const go=(kind)=>()=>{const e=document.getElementById('aEmail').value.trim(),p=document.getElementById('aPw').value;
-      doAuth(kind,e,p).then(()=>renderPlans()).catch(x=>{err.textContent=x.message;});};
-    document.getElementById('aLogin').onclick=go('login');
-    document.getElementById('aSignup').onclick=go('signup');
-  }
-  document.getElementById('planSave').onclick=async ()=>{
-    const nameEl=document.getElementById('planNameInput');
-    const p=currentPlan(nameEl?nameEl.value.trim():'', isAuthed());
-    if(isAuthed()){ await apiF('/plans',{method:'PUT',body:JSON.stringify({id:p.id,name:p.name,data:p})}); }
-    else { const arr=loadPlans(); arr.unshift(p); savePlans(arr); }
-    renderPlans();
-  };
-  el.querySelectorAll('button[data-act]').forEach(b=>b.onclick=async ()=>{
-    const id=b.dataset.id;
-    if(b.dataset.act==='del'){
-      if(isAuthed()) await apiF('/plans/'+id,{method:'DELETE'}); else savePlans(loadPlans().filter(x=>x.id!==id));
-      renderPlans();
-    } else {
-      const src = isAuthed()? (await serverPlans()||[]) : loadPlans();
-      applyPlan(src.find(x=>x.id===id));
-    }
-  });
-}
+  if(window._acctPaint) window._acctPaint(); }
 async function openPlanById(id){
   if(!id) return false;
   try{
@@ -3521,11 +3488,6 @@ function initAccount(){
   btn.onclick=e=>{ e.stopPropagation(); paint(); menu.classList.toggle('hidden'); };
   document.addEventListener('click',e=>{ if(!menu.contains(e.target)&&e.target!==btn) menu.classList.add('hidden'); });
   window._acctPaint=paint;
-}
-function initPlans(){
-  const btn=document.getElementById('plansBtn'); if(!btn) return;
-  btn.onclick=()=>{ const el=document.getElementById('plans');
-    if(el.classList.contains('hidden')){ renderPlans(); el.classList.remove('hidden'); } else el.classList.add('hidden'); };
 }
 
 /* ---------------- GPX / KML export (OnX / Garmin / Google Earth) ---------------- */

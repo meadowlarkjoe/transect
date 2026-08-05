@@ -33,7 +33,12 @@
   <div class="divider"></div>
   <a class="lnk only-anon" href="signin">Sign in</a>
   <a class="lnk only-authed" href="plans">My plans</a>
-  <a class="btn btn--primary" href="app">Start scouting</a>
+  <!-- The dashboard is the front door, not the map. Landing straight in the app
+       drops you on an empty canvas with your saved plans nowhere in sight; the
+       dashboard shows them and carries a "+ New hunt plan" for a fresh one.
+       Signed out, plans.html bounces to sign-in with ?next=plans, so you arrive
+       back here rather than somewhere arbitrary. -->
+  <a class="btn btn--primary" href="plans">Start scouting</a>
 </header>
 
 <div class="hero">
@@ -132,7 +137,7 @@
   <div class="brand" style="font-size:12px">TRANSECT</div>
   <span>MIT licensed</span><span>·</span>
   <a href="https://github.com/meadowlarkjoe/transect">Source</a><span>·</span>
-  <a href="app">Open the app</a>
+  <a href="plans">Your hunt plans</a>
   <div style="flex:1"></div>
   <span>Symbology follows Les Cartes Xperts / Charles Dorris.</span>
 </footer>
