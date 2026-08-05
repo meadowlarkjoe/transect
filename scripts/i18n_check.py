@@ -34,7 +34,7 @@ JS_FILES = ("app.js",)              # the only file that renders UI via t()
 
 # Ratchet baselines: the CURRENT debt, frozen. LOWER these as debt is paid down
 # (#28 wiring); never raise them. The gate's job is to stop the patchiness GROWING.
-ORPHAN_BASELINE = 84                # dictionary keys defined but not yet wired to the UI
+ORPHAN_BASELINE = 48                # dictionary keys defined but not yet wired to the UI
 HTML_TEXT_BASELINE = 85             # untranslated HTML text nodes (mostly public pages)
 HTML_ATTR_BASELINE = 3              # untranslated title/placeholder attributes
 
@@ -63,6 +63,20 @@ def _referenced_keys(js, html):
         used.add(m.group(1))
     used |= set(re.findall(r'data-i18n="([^"]+)"', html))
     used |= set(re.findall(r'data-i18n-ph="([^"]+)"', html))
+
+    # GENERATED KEYS. applyLegend() looks up one key per LAYERS row via _layKey()
+    # ('st-rut' -> 'lay.stRut'), so the key never appears as a literal and every one of
+    # them read as ORPHANED. Derive the same set the app derives, from the same source —
+    # narrow and exact, not a blanket exemption: a row with no translation still shows up
+    # as an orphan, which is the signal we want.
+    if "_layKey" in js:
+        m = re.search(r"const LAYERS=\[", js)
+        if m:
+            body = js[m.start():js.index("\n];", m.start())]
+            for k in re.findall(r"\{k:'([a-zA-Z0-9_-]+)'", body):
+                camel = re.sub(r"-([a-z])", lambda x: x.group(1).upper(), k)
+                used.add("lay." + camel)
+                used.add("lay." + camel + ".n")
     return used
 
 

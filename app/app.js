@@ -1302,13 +1302,30 @@ let groupOpacity={'MODEL ZONES':0.55,'SITES & FEATURES':1,'ACCESS & HYDRO':1};
 // doc or an older contract with no legend, so the app never renders nameless rows. Visual
 // symbology (colour / icon / texture / edge) is NOT species-specific and stays here.
 const _LEGEND_DEFAULTS=LAYERS.map(r=>({name:r.name,note:r.note,group:r.group}));
+/* Row key → i18n key: 'st-rut' → 'lay.stRut'. Kept as a transform rather than a table
+   so adding a layer cannot forget to add a mapping — it either has a translation or it
+   falls through to the engine's English, never to nothing. */
+const _layKey=k=>'lay.'+String(k).replace(/-([a-z])/g,(m,c)=>c.toUpperCase());
+/* WHO OWNS THIS PROSE. The engine does, in English: config/species/*.yaml decides what
+   a layer is called, so a new species relabels the whole UI with no app change. But the
+   yaml is English-only, so a French reader was getting an English panel — the most
+   visible part of the app, in the wrong language, for the user this is actually built
+   for. So: English takes the engine's words; French takes ours where we have them, and
+   falls back to the engine's rather than showing a bare key. */
+function _legendText(key,fallback){
+  // I18N.lang is a GETTER, not a method — calling it would throw, get swallowed, and
+  // silently hand French text to English readers.
+  try{ if(I18N && I18N.lang === 'en') return fallback; }catch(e){}
+  const s=t(key,'__none__');
+  return s==='__none__' ? fallback : s;
+}
 function applyLegend(){
   let rows=[]; try{ if(Array.isArray(DOC.legend)) rows=DOC.legend; }catch(e){}
   const byKey={}; rows.forEach(e=>{ if(e&&e.key) byKey[e.key]=e; });
   LAYERS.forEach((r,i)=>{
-    const d=_LEGEND_DEFAULTS[i], e=byKey[r.k];
-    r.name =(e&&e.name)  ? e.name : d.name;
-    r.note =(e&&e.note!=null) ? e.note : d.note;
+    const d=_LEGEND_DEFAULTS[i], e=byKey[r.k], lk=_layKey(r.k);
+    r.name =_legendText(lk,      (e&&e.name)      ? e.name : d.name);
+    r.note =_legendText(lk+'.n', (e&&e.note!=null) ? e.note : d.note);
     r.group=(e&&e.group) ? e.group : d.group;
   });
 }
