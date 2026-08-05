@@ -1469,8 +1469,9 @@ const ANCHOR={
    A tooltip that appears in a fixed spot regardless of which button you
    hovered is worse than no tooltip — this was a real defect in rev 2. */
 const TOOL_DEFS=[
-  {k:'dist',    icon:'ruler',    name:'Measure',        hint:'Click points on the map for a running distance. Double-click to finish.'},
+  {k:'dist',    icon:'ruler2',   name:'Measure',        hint:'Click points on the map for a running distance. Double-click to finish.'},
   {k:'area',    icon:'pentagon', name:'Area',           hint:'Draw a polygon — reports hectares and km².'},
+  {k:'line',    icon:'linedraw', name:'Draw line',      hint:'Freehand line for a boundary or a note to yourself. Shows its length.'},
   {k:'route',   icon:'route',    name:'Build route',    hint:'Multi-point access route at 2.5 km/h bushwhack. Exports its own GPX.'},
   {k:'waypoint',icon:'pin',      name:'Drop pin',       hint:'Log fresh sign or a wallow. Feeds the re-ranking loop.'},
   {k:'wind',    icon:'wind',     name:'Wind calendar',  hint:'Per-day forecast wind against each stand’s optimal approach.'}
@@ -1479,12 +1480,10 @@ const VIEW_DEFS=[
   {k:'surface', icon:'mountain', name:'Model surface',   hint:'Show or hide the huntability surface. Predicted moose ground — not terrain.'},
   {k:'stats',   icon:'crosshair',name:'Area statistics', hint:'Score breakdown, land-cover mix and confidence for whatever is under the cursor.'}
 ];
-/* Not in the spec's five, but they exist in this build and dropping working tools
-   is worse than one extra divider. They still get a real hint card — every
-   icon-only button has a hover label aligned to its own row, no exceptions. */
+/* Below the divider: the drawings-list toggle. Clear-all lives INSIDE the panel —
+   a destructive one-click button on the rail was a misfire waiting to happen. */
 const EXTRA_DEFS=[
-  {k:'line',  icon:'milestone', name:'Draw line',      hint:'Freehand line for a boundary or a note to yourself. Not measured, not exported to the model.'},
-  {k:'clear', icon:'ban',       name:'Clear drawings', hint:'Removes every measurement, line and dropped pin from this session. Saved plan data is untouched.'}
+  {k:'drawings', icon:'listdraw', name:'My drawings', hint:'Show or hide your drawings list — rename, restyle, hide or delete each drawing there. Clear all lives in the panel.'}
 ];
 const TOOLS_CARD_H=22+TOOL_DEFS.length*40+2;
 /* "top = 22 + index x 40" in the spec is just "aligned to that button's own
@@ -1554,11 +1553,8 @@ function buildTools(){
   const rail=document.getElementById('rail');
   rail.innerHTML=`<div class="railcap">${t('rail.tools','TOOLS')}</div>`+
     TOOL_DEFS.map(x=>`<button data-tool="${x.k}" data-k="${x.k}">${railIcon(x.icon)}</button>`).join('')+
-    // draw-line and clear are ours, not the spec's five — kept because dropping
-    // working tools is worse than one extra divider. Flagged in the handoff notes.
     `<div class="sep"></div>
-     <button data-tool="line" data-k="line">${railIcon('milestone')}</button>
-     <button id="drawClear" data-k="clear">${railIcon('ban')}</button>`;
+     <button id="drawListBtn" data-k="drawings">${railIcon('listdraw')}</button>`;
 
   /* VIEW RAIL — directly beneath, same 46px card, two buttons */
   const vr=document.getElementById('viewRail');
@@ -1574,7 +1570,11 @@ function buildTools(){
     setDrawTool(drawTool===b.dataset.tool?null:b.dataset.tool);
     showRailTip(b.dataset.k);
   });
-  document.getElementById('drawClear').onclick=()=>{clearDraw();setDrawTool(null);};
+  document.getElementById('drawListBtn').onclick=()=>{
+    window.drawMgrHidden=!window.drawMgrHidden;
+    document.getElementById('drawListBtn').classList.toggle('on',!window.drawMgrHidden);
+    renderDrawManager();
+  };
   document.getElementById('viewSurface').onclick=()=>toggleDock('surfDock','viewSurface');
   document.getElementById('viewStats').onclick=()=>{
     statsOn=!statsOn;
@@ -1808,9 +1808,39 @@ function setupDraw(){
         const id=e.features&&e.features[0]&&e.features[0].properties.id;
         if(id!=null&&id!==''){ if(e.originalEvent)e.originalEvent.stopPropagation(); openDrawEditor(+id); } });
       map.on('mouseenter',l,()=>{ if(!drawTool&&!drawEditId) map.getCanvas().style.cursor='pointer'; });
-      map.on('mouseleave',l,()=>{ if(!drawTool&&!drawEditId) map.getCanvas().style.cursor=''; });
+      map.on('mousemove',l,e=>{ if(drawTool||drawEditId) return; _drawHover(e); });
+      map.on('mouseleave',l,()=>{ if(!drawTool&&!drawEditId) map.getCanvas().style.cursor=''; _drawHover(null); });
+    });
+    // ESC CANCELS an in-progress drawing (drops the points — it does not commit),
+    // or exits vertex-edit mode. The measuring tip has promised "ESC TO EXIT" all
+    // along; now it's true.
+    window.addEventListener('keydown',e=>{
+      if(e.key!=='Escape') return;
+      if(drawEditId){ exitDrawEdit(); const de=document.getElementById('drawEdit'); if(de)de.remove(); return; }
+      if(drawTool){ drawPts=[]; setDrawTool(drawTool); }   // toggle the armed tool OFF, nothing committed
     });
   }
+}
+// Hover tooltip for finished drawings: name (bold) + notes + the measurement.
+function _drawHover(e){
+  let tip=document.getElementById('drawTip');
+  if(!e){ if(tip) tip.remove(); return; }
+  const id=e.features&&e.features[0]&&e.features[0].properties.id;
+  const f=(id!=null&&id!=='')?_drawById(+id):null;
+  if(!f){ if(tip) tip.remove(); return; }
+  const p=f.properties, esc=s=>String(s||'').replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+  if(!p.name && !p.note){ if(tip) tip.remove(); return; }   // nothing to say — no empty bubble
+  if(!tip){ tip=document.createElement('div'); tip.id='drawTip';
+    tip.style.cssText='position:fixed;z-index:70;pointer-events:none;max-width:220px;background:#12171a;'
+      +'border:1px solid #2a343a;border-radius:8px;padding:6px 9px;font:11px/1.4 system-ui,sans-serif;'
+      +'color:#c7d0d4;box-shadow:0 6px 18px rgba(0,0,0,.45)';
+    document.body.appendChild(tip); }
+  tip.innerHTML=(p.name?`<b style="color:#dfe6e9">${esc(p.name)}</b>`:'')
+    +(p.note?`<div>${esc(p.note)}</div>`:'')
+    +(p.label?`<div style="color:#7c8b93;margin-top:2px">${esc(p.label)}</div>`:'');
+  const r=map.getCanvas().getBoundingClientRect();
+  tip.style.left=Math.round(r.left+e.point.x+14)+'px';
+  tip.style.top =Math.round(r.top +e.point.y+14)+'px';
 }
 // Per-drawing editable style. Every committed drawing carries its own id, type, colours
 // and opacities so the click-to-edit panel can recolour just that one, and so a type can
@@ -1923,7 +1953,8 @@ const _DT_NAME={area:'Areas',line:'Lines',route:'Routes',dist:'Measures',pin:'Pi
 function renderDrawManager(){
   let el=document.getElementById('drawMgr');
   const items=(drawSaved||[]).filter(f=>f&&f.geometry);
-  if(!items.length){ if(el) el.remove(); return; }
+  // The rail's My-drawings button toggles the panel; empty list removes it outright.
+  if(!items.length || window.drawMgrHidden){ if(el) el.remove(); return; }
   if(!el){
     el=document.createElement('div'); el.id='drawMgr';
     el.style.cssText='position:fixed;right:64px;bottom:16px;z-index:45;width:224px;max-height:52vh;overflow:auto;'
@@ -1932,6 +1963,7 @@ function renderDrawManager(){
     document.body.appendChild(el);
   }
   const esc=s=>String(s||'').replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+  const eye=on=>railIcon(on?'eye':'eyeoff',13);   // vector eyes, matching the app's icon set
   const byType={}; items.forEach(f=>{ (byType[f.properties.dtype]=byType[f.properties.dtype]||[]).push(f); });
   let h=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">`
     +`<b style="letter-spacing:.04em;font-size:11px;color:#9fb0b8">MY DRAWINGS</b>`
@@ -1939,11 +1971,11 @@ function renderDrawManager(){
   _DT_ORDER.filter(t=>byType[t]).forEach(t=>{
     const off=hiddenDrawTypes.has(t);
     h+=`<div style="display:flex;align-items:center;gap:6px;margin:5px 0 2px"><button data-ty="${t}" title="show/hide all"`
-      +` style="background:none;border:none;cursor:pointer;color:${off?'#5c6a70':'#e2c044'};font-size:13px">${off?'☒':'👁'}</button>`
+      +` style="background:none;border:none;cursor:pointer;display:flex;align-items:center;color:${off?'#5c6a70':'#e2c044'}">${eye(!off)}</button>`
       +`<b style="flex:1;font-size:11px;color:#9fb0b8">${_DT_NAME[t]} · ${byType[t].length}</b></div>`;
     byType[t].forEach(f=>{ const p=f.properties;
       h+=`<div style="display:flex;align-items:center;gap:6px;padding:1px 0 1px 16px">`
-        +`<span data-open="${p.id}" style="flex:1;color:${p.hidden?'#66727a':'#c7d0d4'};cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.label)||_DT_NAME[t]}</span>`
+        +`<span data-open="${p.id}" title="${esc(p.note||'')}" style="flex:1;color:${p.hidden?'#66727a':'#c7d0d4'};cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name)||esc(p.label)||_DT_NAME[t]}</span>`
         +`<button data-del="${p.id}" style="background:none;border:none;color:#C9564A;cursor:pointer;font-size:14px;padding:0 2px">×</button></div>`;
     });
   });
@@ -1989,6 +2021,10 @@ function openDrawEditor(id){
     +`<b style="font-size:11px;letter-spacing:.04em;color:#9fb0b8">${TN.toUpperCase()}</b>`
     +`<button id="deClose" style="background:none;border:none;color:#7c8b93;cursor:pointer;font-size:15px">×</button></div>`
     +(stats?`<div style="margin-bottom:8px;color:#c7d0d4">${stats}</div>`:'')
+    +`<input id="deName" type="text" placeholder="Name" value="${(p.name||'').replace(/"/g,'&quot;')}" maxlength="60"
+       style="width:100%;box-sizing:border-box;background:#1c2429;border:1px solid #2a343a;color:#dfe6e9;border-radius:5px;padding:4px 6px;margin:2px 0 4px;font:12px system-ui,sans-serif">`
+    +`<textarea id="deNote" placeholder="Notes — shown on hover" maxlength="240" rows="2"
+       style="width:100%;box-sizing:border-box;background:#1c2429;border:1px solid #2a343a;color:#c7d0d4;border-radius:5px;padding:4px 6px;margin:0 0 6px;font:11px system-ui,sans-serif;resize:vertical">${(p.note||'').replace(/</g,'&lt;')}</textarea>`
     +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Outline</span><input id="deStroke" type="color" value="${p.stroke||'#5fe6ff'}" style="width:30px;height:22px;border:none;background:none;padding:0"></div>`
     +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Line opacity</span><input id="deLo" type="range" min="0" max="1" step="0.05" value="${p.lo!=null?p.lo:1}" style="width:100px"></div>`
     +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Weight</span><input id="deLw" type="range" min="1" max="8" step="0.5" value="${p.lw!=null?p.lw:3.4}" style="width:100px"></div>`
@@ -2005,6 +2041,9 @@ function openDrawEditor(id){
     +(drawEditId===id?`<div style="margin-top:6px;color:#8fae6a;font-size:11px">Drag the points to reshape · click Done when finished.</div>`:'');
   const set=(k,v)=>{ p[k]=v; renderAnnot(); };
   el.querySelector('#deClose').onclick=()=>{ el.remove(); if(drawEditId===id) exitDrawEdit(); };
+  // Name/notes only touch the list + hover tip — no map re-render per keystroke.
+  el.querySelector('#deName').oninput=e=>{ p.name=e.target.value; renderDrawManager(); };
+  el.querySelector('#deNote').oninput=e=>{ p.note=e.target.value; renderDrawManager(); };
   el.querySelector('#deStroke').oninput=e=>set('stroke',e.target.value);
   el.querySelector('#deLo').oninput=e=>set('lo',+e.target.value);
   el.querySelector('#deLw').oninput=e=>set('lw',+e.target.value);
