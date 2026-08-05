@@ -2251,7 +2251,7 @@ function renderSetup(){
     <div class="sec">
       <div class="sechead"><span class="num">05</span><h3>${t('setup.sRes','Processing detail')}</h3></div>
       <label class="fld">${t('setup.resLbl','Grid resolution')} — <b class="mono" id="resVal"></b></label>
-      <input id="resSlider" type="range" step="10">
+      <input id="resSlider" type="range" step="1">
       <div class="t-micro" style="display:flex;justify-content:space-between;margin-top:4px">
         <span>${t('setup.resFine','finer · more detail · slower')}</span><span>${t('setup.resCoarse','coarser · faster')}</span></div>
       <div class="s" id="resNote" style="margin-top:6px"></div>
@@ -2380,7 +2380,9 @@ function renderSetup(){
     drawDraft();};
   // processing-detail slider
   const rsl=document.getElementById('resSlider');
-  rsl.oninput=()=>{ const v=+rsl.value; draft.resM=(v===autoResM(draft.radius))?null:v; _syncResUI(); };
+  rsl.oninput=()=>{ const v=+rsl.value, a=autoResM(draft.radius);
+    draft.resM=(Math.abs(v-a)<=2)?null:v;    // snap back to auto near the default
+    _syncResUI(); };
   _syncResUI();
   document.getElementById('uMetric').onclick=()=>setUnits('metric');
   document.getElementById('uImperial').onclick=()=>setUnits('imperial');
