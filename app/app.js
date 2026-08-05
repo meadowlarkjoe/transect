@@ -1754,6 +1754,7 @@ function renderAnnot(){
     drawPts.forEach(p=>feats.push({type:'Feature',geometry:{type:'Point',coordinates:p},properties:{}}));
   }
   map.getSource('annot').setData(fc(feats));
+  renderDrawManager();
 }
 function setDrawTool(t){
   finishDraw();                         // commit any in-progress geometry
@@ -1773,7 +1774,34 @@ function setDrawTool(t){
     area:'Click a boundary; double-click to close. Shows area.',waypoint:'Click to drop waypoints.'})[drawTool]:'';
   renderAnnot();
 }
-function clearDraw(){ drawSaved=[]; drawPts=[]; if(map.getSource('annot')) map.getSource('annot').setData(fc([])); }
+function clearDraw(){ drawSaved=[]; drawPts=[]; if(map.getSource('annot')) map.getSource('annot').setData(fc([])); renderDrawManager(); }
+// #25 — a manager for what you've drawn: one row per object with its measurement, a per-
+// object delete, and clear-all. Self-styled floating card, shown only when drawings exist,
+// so you can drop a pin or measure a line and then prune the ones you don't want to keep.
+function renderDrawManager(){
+  let el=document.getElementById('drawMgr');
+  const items=(drawSaved||[]).filter(f=>f&&f.geometry);
+  if(!items.length){ if(el) el.remove(); return; }
+  if(!el){
+    el=document.createElement('div'); el.id='drawMgr';
+    el.style.cssText='position:fixed;right:64px;bottom:16px;z-index:45;width:210px;'
+      +'background:#12171a;border:1px solid #2a343a;border-radius:10px;padding:8px 10px;'
+      +'font:12px/1.4 system-ui,sans-serif;color:#dfe6e9;box-shadow:0 6px 20px rgba(0,0,0,.4)';
+    document.body.appendChild(el);
+  }
+  const tName=f=>f.geometry.type==='Polygon'?'Area':f.geometry.type==='LineString'?'Line':'Pin';
+  const esc=s=>String(s||'').replace(/[<>&]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]));
+  el.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">`
+    +`<b style="letter-spacing:.04em;font-size:11px;color:#9fb0b8">YOUR DRAWINGS</b>`
+    +`<span style="color:#7c8b93">${items.length}</span></div>`
+    +items.map((f,i)=>`<div style="display:flex;align-items:center;gap:6px;padding:2px 0">`
+      +`<span style="color:#e2c044;min-width:30px">${tName(f)}</span>`
+      +`<span style="flex:1;color:#c7d0d4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc((f.properties||{}).label)}</span>`
+      +`<button data-i="${i}" style="background:none;border:none;color:#C9564A;cursor:pointer;font-size:15px;line-height:1;padding:0 2px">×</button></div>`).join('')
+    +`<button id="dmClear" style="margin-top:6px;width:100%;background:#1c2429;border:1px solid #2a343a;color:#9fb0b8;border-radius:6px;padding:4px;cursor:pointer;font-size:11px">Clear all</button>`;
+  el.querySelectorAll('button[data-i]').forEach(b=>b.onclick=()=>{ drawSaved.splice(+b.dataset.i,1); renderAnnot(); });
+  const ca=document.getElementById('dmClear'); if(ca) ca.onclick=()=>{ clearDraw(); };
+}
 function destPoint(lon,lat,brgDeg,km){const R=6371,d2r=Math.PI/180,br=brgDeg*d2r,la1=lat*d2r,lo1=lon*d2r;
   const la2=Math.asin(Math.sin(la1)*Math.cos(km/R)+Math.cos(la1)*Math.sin(km/R)*Math.cos(br));
   const lo2=lo1+Math.atan2(Math.sin(br)*Math.sin(km/R)*Math.cos(la1),Math.cos(km/R)-Math.sin(la1)*Math.sin(la2));
