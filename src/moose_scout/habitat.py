@@ -114,9 +114,17 @@ def run(ctx: Context) -> None:
         #              not see at all before, and the tightest edge a moose actually uses;
         #   neighbourhood — the ~200 m mosaic the old code approximated from binary cells,
         #              now averaged from real fractions instead of 0/1 votes.
-        sub = np.clip(4 * p_tree * (1 - p_tree), 0.0, 1.0)
+        # The opening half of the seam must be FOOD-BEARING, not merely not-tree.
+        # 4·p·(1−p) treats a cell that is 90 % conifer and 10 % LAKE as strong edge,
+        # which it is not — a moose cannot feed on water or bare rock. Pairing cover
+        # against browse-bearing openings only (shrub, grass, wetland, moss) is what
+        # "cover↔food interspersion" actually means, and it keeps 10 m classification
+        # speckle inside homogeneous forest from being promoted to habitat edge.
+        p_open = np.clip(sum(fr.get(c, 0.0) for c in (20, 30, 90, 100)), 0, 1)
+        sub = np.clip(4 * p_tree * p_open, 0.0, 1.0)
         nbr_p = uniform_filter(p_tree, size=max(3, int(round(200 / res)) | 1))
-        nbr = np.clip(4 * nbr_p * (1 - nbr_p), 0.0, 1.0)
+        nbr_o = uniform_filter(p_open, size=max(3, int(round(200 / res)) | 1))
+        nbr = np.clip(4 * nbr_p * nbr_o, 0.0, 1.0)
         edge = np.clip(np.maximum(nbr, 0.85 * sub), 0.0, 1.0)
         print(f"[habitat] edge from NATIVE 10 m fractions "
               f"(sub-cell mean {float(np.nanmean(sub)):.3f}, neighbourhood {float(np.nanmean(nbr)):.3f})")
