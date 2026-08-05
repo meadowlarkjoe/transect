@@ -1735,8 +1735,10 @@ function areaFmt(km2){ return UNITS==='imperial'?(km2*0.386102).toFixed(2)+' miÂ
 const _ANNOT_LAYERS=['annot-line-case','annot-line','annot-pt','annot-label'];
 const _ANNOTFILL_LAYERS=['annot-fill'];
 function _addAnnotFillLayers(){
+  // Insert the fill BELOW the outline casing so the outline/vertices always sit on top of it.
+  const before=map.getLayer('annot-line-case')?'annot-line-case':undefined;
   map.addLayer({id:'annot-fill',type:'fill',source:'annotFill',filter:['==','$type','Polygon'],
-    paint:{'fill-color':['coalesce',['get','fill'],'#4de1ff'],'fill-opacity':['coalesce',['get','fo'],0.28]}});
+    paint:{'fill-color':['coalesce',['get','fill'],'#4de1ff'],'fill-opacity':['coalesce',['get','fo'],0.28]}}, before);
 }
 function _addAnnotLayers(){
   const LW=['coalesce',['get','lw'],3.4], SC=['coalesce',['get','stroke'],'#5fe6ff'], LO=['coalesce',['get','lo'],1];
@@ -1774,15 +1776,17 @@ function _recreateAnnot(data){
   map.addSource('annot',{type:'geojson',data});
   _addAnnotLayers();
 }
-// Recreate the FILL first (lower), then the lines/points (re-added on top), so the outline and
-// vertices always sit above the fill.
-function _annotWrite(lineData, fillData){ try{ _recreateAnnotFill(fillData); _recreateAnnot(lineData); }catch(e){} }
+// Recreate the LINES/POINTS first, THEN the fill. A polygon in a source recreated in the same
+// tick starves whatever source is recreated after it (fill stayed, outline/vertices vanished at
+// the 3rd point). Doing the lines first means they never sit behind the polygon's tiling; the
+// fill is recreated last and inserted BELOW the outline via beforeId so z-order still holds.
+function _annotWrite(lineData, fillData){ try{ _recreateAnnot(lineData); _recreateAnnotFill(fillData); }catch(e){} }
 function setupDraw(){
   if(map.getSource('annot')) return;                 // idempotent
-  map.addSource('annotFill',{type:'geojson',data:fc([])});
-  _addAnnotFillLayers();
   map.addSource('annot',{type:'geojson',data:fc([])});
   _addAnnotLayers();
+  map.addSource('annotFill',{type:'geojson',data:fc([])});
+  _addAnnotFillLayers();
   if(!window._annotWired){
     window._annotWired=true;
     map.on('click',onDrawClick);
