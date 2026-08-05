@@ -145,6 +145,10 @@
       'w.pickday': 'Pick a day → sites turn green when the forecast wind fits their approach',
       'x.title': "Export this plan's waypoints, routes & areas:",
       'x.gpx': 'GPX — OnX / Garmin', 'x.kml': 'KML — Google Earth', 'x.zones': 'include model zones',
+      'run.analysing': 'Analysing',
+      'run.thisPlan': 'This plan',
+      'run.inflight': 'Your analysis is running. The previous result was cleared so it cannot be mistaken for the new one — the map fills in as soon as the run finishes.',
+      'run.watch': 'Watch progress in Setup',
       'lang.label': 'Language',
       /* dialogs (#75) — every one of these replaced a native alert()/confirm(), which
          printed English regardless of the language chip. */
@@ -327,6 +331,10 @@
       'w.pickday': 'Choisissez une journée → les sites passent au vert quand le vent prévu convient à leur approche',
       'x.title': 'Exporter les points, trajets et secteurs de ce plan :',
       'x.gpx': 'GPX — OnX / Garmin', 'x.kml': 'KML — Google Earth', 'x.zones': 'inclure les zones du modèle',
+      'run.analysing': 'Analyse en cours',
+      'run.thisPlan': 'Ce plan',
+      'run.inflight': 'Votre analyse est en cours. Le résultat précédent a été effacé pour qu’on ne le confonde pas avec le nouveau — la carte se remplit dès que le calcul se termine.',
+      'run.watch': 'Suivre la progression dans Configuration',
       'lang.label': 'Langue',
       'dlg.ok': 'Compris',
       'dlg.cancel': 'Annuler',

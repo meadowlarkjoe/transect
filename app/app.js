@@ -898,6 +898,21 @@ function buildPanel(){
   // Nothing analysed yet — say so, and offer the example explicitly rather than
   // silently pretending someone else's run is yours.
   if(DOC.blank){
+    // A RUN IN FLIGHT IS NOT AN EMPTY APP. Re-analysing an existing plan clears the map
+    // first, and this panel then told the owner of a five-minute-old plan that there was
+    // "nothing on the map" and invited them to set up a hunt — while their hunt was
+    // already computing. Say what is actually happening instead.
+    if(RUN_ACTIVE){
+      document.getElementById('gate').innerHTML=
+        `<div class="t-micro" style="margin-bottom:10px">${t('run.analysing','Analysing')}</div>
+         <h2 class="t-h1" style="margin:0 0 8px;font-size:19px">${escHtml(PLAN_NAME||t('run.thisPlan','This plan'))}</h2>
+         <p class="s" style="margin:0 0 14px">${t('run.inflight','Your analysis is running. The previous result was cleared so it cannot be mistaken for the new one — the map fills in as soon as the run finishes.')}</p>
+         <button class="btn btn--secondary btn--block" id="goSetup">${t('run.watch','Watch progress in Setup')}</button>`;
+      document.getElementById('method').innerHTML='';
+      document.getElementById('list').innerHTML='';
+      const g2=document.getElementById('goSetup'); if(g2) g2.onclick=()=>setTab('setup');
+      return;
+    }
     document.getElementById('gate').innerHTML=
       `<div class="t-micro" style="margin-bottom:10px">No analysis yet</div>
        <h2 class="t-h1" style="margin:0 0 8px;font-size:19px">Nothing on the map yet</h2>
@@ -2701,7 +2716,17 @@ function _runAnalysis(){
   if(req.fixed_camp) req.radius_km=Math.max(6,Math.min(120,(req.hunt_radius_km||5)+4));
   // wipe the previous result up front: leaving it on the map while a new box computes
   // invites reading old areas as if they belonged to the new one.
-  if(hasResult()){ applyDoc(blankDoc()); paintTabLocks(); }
+  //
+  // But the plan's IDENTITY is not part of the result. Blanking used to rename the plan
+  // to "No area yet — moose" and mark it UNSAVED, so re-analysing a saved plan looked
+  // like it had been thrown away and replaced by a blank one.
+  RUN_ACTIVE = true;
+  const _keepName = PLAN_NAME, _keepSaved = PLAN_SAVED;
+  if(hasResult()){ applyDoc(blankDoc()); paintTabLocks(); setPlanName(_keepName, _keepSaved); }
+  // Send them where the progress actually is. Left on Overview they got the empty-state
+  // panel — "Nothing on the map yet · Set up a hunt →" — while their own re-run was
+  // already computing, which reads as "my plan is gone", not "my plan is working".
+  setTab('setup'); syncDocks('setup');
   setBtn(line('ANALYSING… starting'),true);
   // tick the elapsed clock even between polls so it never looks frozen
   let lastHead='ANALYSING… starting', tick=setInterval(()=>setBtn(line(lastHead),true),1000);
@@ -2710,7 +2735,7 @@ function _runAnalysis(){
   if(authTok()) _ah['Authorization']='Bearer '+authTok();
   fetch(API_URL+'/scout',{method:'POST',headers:_ah,body:JSON.stringify(req)})
     .then(async r=>{
-      if(r.status===401){ stop(); setBtn('RUN ANALYSIS →',false);
+      if(r.status===401){ stop(); RUN_ACTIVE=false; setBtn('RUN ANALYSIS →',false);
         askModal({title:t('dlg.signinTitle'),
           body:t('dlg.signinBody'),
           actions:[{id:'no',label:t('dlg.notnow')},{id:'go',label:t('dlg.signinGo'),primary:true}]})
@@ -2728,7 +2753,7 @@ function _runAnalysis(){
       rememberJob(j.job_id);
       pollJob(j.job_id,_jh,STAGE,stop,setBtn,line,h=>{lastHead=h;});
     })
-    .catch(e=>{ if(e && e.message==='auth') return;      // already handled above
+    .catch(e=>{ RUN_ACTIVE=false; if(e && e.message==='auth') return;   // already handled above
       setBtn('RUN ANALYSIS →',false);
       tellModal(t('dlg.offlineTitle'),
         t('dlg.offlineBody'),'warn');
@@ -3123,6 +3148,9 @@ function wireTabs(){
 }
 /* plan identity in the top bar: auto-named, renamable inline, with a saved state */
 let PLAN_NAME='', PLAN_SAVED=false;
+/* Is an analysis in flight? The Overview panel needs to tell "no plan yet" apart from
+   "your plan is recomputing right now" — they look identical on a blanked DOC. */
+let RUN_ACTIVE=false;
 /* mark exactly one button in a .seg as pressed (the control means "one of these") */
 function segPick(id){
   const b=document.getElementById(id); if(!b) return;
@@ -3744,22 +3772,22 @@ function pollJob(jid,headers,STAGE,stop,setBtn,line,onHead){
       .then(s=>{
         failedSince=0;
         if(s.status==='done'){
-          stop(); LAST_JOB_ID=jid; forgetJob(); setBtn('RUN ANALYSIS →',false); applyDoc(s.scout);
+          stop(); RUN_ACTIVE=false; LAST_JOB_ID=jid; forgetJob(); setBtn('RUN ANALYSIS →',false); applyDoc(s.scout);
           // a finished run should present its result: Overview, with the layers card
           // showing what was drawn — even if it was dismissed earlier during Setup.
           layersDismissed=false; setTab('overview'); syncDocks('overview');
           autosavePlan();
         } else if(s.status==='error'){
-          stop(); forgetJob(); setBtn('RUN ANALYSIS →',false);
+          stop(); RUN_ACTIVE=false; forgetJob(); setBtn('RUN ANALYSIS →',false);
           tellModal(t('dlg.failTitle'),
             `The engine reported: <b>${escHtml(s.error||'unknown error')}</b><br>
              Your setup is untouched — nothing to re-enter before trying again.`,'danger');
         } else if(s.status==='cancelled'){
-          stop(); forgetJob(); setBtn('RUN ANALYSIS →',false);
+          stop(); RUN_ACTIVE=false; forgetJob(); setBtn('RUN ANALYSIS →',false);
           if(s.orphaned) tellModal(t('dlg.stoppedTitle'),
             t('dlg.stoppedBody'),'warn');
         } else if(s.status==='unknown'){
-          stop(); forgetJob(); setBtn('RUN ANALYSIS →',false);
+          stop(); RUN_ACTIVE=false; forgetJob(); setBtn('RUN ANALYSIS →',false);
           tellModal(t('dlg.restartTitle'),
             t('dlg.restartBody'),'warn');
         } else {
@@ -3775,7 +3803,7 @@ function pollJob(jid,headers,STAGE,stop,setBtn,line,onHead){
         if(!failedSince) failedSince=now;
         const out=now-failedSince;
         if(out>POLL_GIVEUP_MS){
-          stop(); setBtn('RUN ANALYSIS →',false);
+          stop(); RUN_ACTIVE=false; setBtn('RUN ANALYSIS →',false);
           askModal({kind:'warn', title:t('dlg.lostTitle'),
             body:t('dlg.lostBody'),
             actions:[{id:'stay',label:t('dlg.lostStay')},{id:'reload',label:t('dlg.lostReload'),primary:true}]
@@ -3897,7 +3925,7 @@ function resumeJob(){
   fetch(API_URL+'/jobs/'+jid,{headers:hdr,cache:'no-store'}).then(r=>r.json()).then(s=>{
     if(!s||s.status==='unknown'||s.status==='error'||s.status==='cancelled'){ forgetJob(); return; }
     if(s.status==='done'){
-      LAST_JOB_ID=jid; forgetJob(); applyDoc(s.scout); layersDismissed=false; setTab('overview'); syncDocks('overview');
+      RUN_ACTIVE=false; LAST_JOB_ID=jid; forgetJob(); applyDoc(s.scout); layersDismissed=false; setTab('overview'); syncDocks('overview');
       autosavePlan();
       return;
     }
@@ -3909,7 +3937,7 @@ function resumeJob(){
       actions:[{id:'drop',label:t('dlg.jobDrop')},{id:'watch',label:t('dlg.jobWatch'),primary:true}]
     }).then(a=>{
       if(a!=='watch'){ forgetJob(); return; }
-      _watchJob(jid,hdr);
+      RUN_ACTIVE=true; _watchJob(jid,hdr);
     });
   }).catch(()=>{});
 }
