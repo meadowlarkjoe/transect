@@ -320,8 +320,13 @@ def _reach_km(hunter, kit):
     Spike/camp hunts add the road→camp leg to the camp→hunt leg; a vehicle hunt has
     only the one. An ATV multiplies it along tracks (the ride/walk split is #69)."""
     style = getattr(hunter, "hunt_style", "spike")
-    access = float(getattr(hunter, "walk_access_km", 6.0) or 6.0)
-    hunt_km = float(getattr(hunter, "walk_hunt_km", 3.0) or 3.0)
+    # `x or default` treats a stated ZERO as "not set" — a hunter who says they will walk
+    # 0 km in from the road silently got 6 km, which is the opposite of what they said.
+    # Fall back only when the value is genuinely absent.
+    _a = getattr(hunter, "walk_access_km", None)
+    _h = getattr(hunter, "walk_hunt_km", None)
+    access = float(6.0 if _a is None else _a)
+    hunt_km = float(3.0 if _h is None else _h)
     reach = hunt_km if style == "vehicle" else (access + hunt_km)
     if kit["atv"]:
         reach = reach * 2.5 + 5.0
