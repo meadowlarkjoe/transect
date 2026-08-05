@@ -1728,14 +1728,20 @@ function areaFmt(km2){ return UNITS==='imperial'?(km2*0.386102).toFixed(2)+' mi�
 // emits an explicit boundary LineString for every polygon — that is the real cure for the
 // "area outline vanishes at the 3rd point" report. No source-splitting, no recreate/prime, no
 // per-style layer split (all of which caused regressions and could not be verified reliably).
-const _ANNOT_LAYERS=['annot-fill','annot-line-case','annot-line','annot-pt','annot-label'];
+// The draw FILL lives in its OWN source (`annotFill`), separate from the lines/points (`annot`).
+// A POLYGON sharing the geojson source with the line/point features BLANKS the whole drawing the
+// instant it appears — that is the "everything vanishes at the 3rd point when it becomes a polygon"
+// bug. It was originally fixed in e8148c7 and regressed when the sources were merged. Keep apart.
+const _ANNOT_LAYERS=['annot-line-case','annot-line','annot-pt','annot-label'];
+const _ANNOTFILL_LAYERS=['annot-fill'];
+function _addAnnotFillLayers(){
+  map.addLayer({id:'annot-fill',type:'fill',source:'annotFill',filter:['==','$type','Polygon'],
+    paint:{'fill-color':['coalesce',['get','fill'],'#4de1ff'],'fill-opacity':['coalesce',['get','fo'],0.28]}});
+}
 function _addAnnotLayers(){
   const LW=['coalesce',['get','lw'],3.4], SC=['coalesce',['get','stroke'],'#5fe6ff'], LO=['coalesce',['get','lo'],1];
-  map.addLayer({id:'annot-fill',type:'fill',source:'annot',filter:['==','$type','Polygon'],
-    paint:{'fill-color':['coalesce',['get','fill'],'#4de1ff'],'fill-opacity':['coalesce',['get','fo'],0.28]}});
-  // A dark casing under the bright outline so the drawing reads on any background. Both line
-  // layers match ONLY LineStrings — every polygon emits its own boundary LineString, so we never
-  // depend on a line layer painting a polygon RING (which it does not do reliably).
+  // A dark casing under the bright outline so the drawing reads on any background. Both line layers
+  // match ONLY LineStrings — every polygon emits its own boundary LineString into `annot`.
   map.addLayer({id:'annot-line-case',type:'line',source:'annot',filter:['==','$type','LineString'],
     layout:{'line-cap':'round','line-join':'round'},
     paint:{'line-color':'#08131a','line-width':['+',LW,2.6],'line-opacity':['*',0.6,LO]}});
@@ -1752,22 +1758,29 @@ function _addAnnotLayers(){
 }
 // THE render fix, GPU-pixel-verified (queryRenderedFeatures and screenshots both lied here; only
 // reading canvas pixels told the truth). A geojson source created EMPTY at map load never builds
-// its tile buckets, so NOTHING set on it later with setData paints — not fills, not lines, not
-// even points (the user saw exactly that: every tool blank). The one operation that always paints
-// is RECREATING the source carrying the real data SYNCHRONOUSLY — it builds the buckets in the
-// right tiles and re-adds the layers on top. It must be synchronous: deferring the recreate into a
-// requestAnimationFrame callback collides with MapLibre's own render loop and the new tiles never
-// load (verified — rAF recreate stayed blank, the identical synchronous recreate painted). So
-// write == recreate, right now. setData is never used (it does not paint on this source).
+// its tile buckets, so NOTHING set on it later with setData paints. The one operation that always
+// paints is RECREATING the source carrying the real data SYNCHRONOUSLY. It must be synchronous:
+// deferring into requestAnimationFrame collides with MapLibre's render loop and the tiles never
+// load. Both sources are recreated every write; setData is never used.
+function _recreateAnnotFill(data){
+  _ANNOTFILL_LAYERS.forEach(l=>{ if(map.getLayer(l)) map.removeLayer(l); });
+  if(map.getSource('annotFill')) map.removeSource('annotFill');
+  map.addSource('annotFill',{type:'geojson',data});
+  _addAnnotFillLayers();
+}
 function _recreateAnnot(data){
   _ANNOT_LAYERS.forEach(l=>{ if(map.getLayer(l)) map.removeLayer(l); });
   if(map.getSource('annot')) map.removeSource('annot');
   map.addSource('annot',{type:'geojson',data});
-  _addAnnotLayers();                                  // re-added on top, in fill<line<pt<label order
+  _addAnnotLayers();
 }
-function _annotWrite(data){ try{ _recreateAnnot(data); }catch(e){} }
+// Recreate the FILL first (lower), then the lines/points (re-added on top), so the outline and
+// vertices always sit above the fill.
+function _annotWrite(lineData, fillData){ try{ _recreateAnnotFill(fillData); _recreateAnnot(lineData); }catch(e){} }
 function setupDraw(){
   if(map.getSource('annot')) return;                 // idempotent
+  map.addSource('annotFill',{type:'geojson',data:fc([])});
+  _addAnnotFillLayers();
   map.addSource('annot',{type:'geojson',data:fc([])});
   _addAnnotLayers();
   if(!window._annotWired){
@@ -1834,30 +1847,35 @@ function renderAnnot(){
   // The measurement was being computed correctly and never shown: the readout only refreshed on
   // hovering the rail button, so clicking points produced a running total nobody could see.
   if(drawTool) showRailTip(drawTool);
-  // ONE source, ONE setData. Every polygon ALSO emits an explicit CLOSED-RING LineString in the
-  // SAME outline style, because a `line` layer does NOT paint polygon rings — THAT is why the
-  // area outline vanished the instant the 3rd point turned the geometry into a Polygon. Hidden
-  // objects (per-object or per-TYPE) are dropped from the render set.
-  const feats=[];
+  // Split the render set: polygons go to `annotFill` (fill only), everything else — the lines,
+  // the explicit polygon-boundary LineStrings, the vertices — goes to `annot`. Keeping polygons
+  // OUT of the line/point source is what stops a polygon from blanking the whole drawing. Every
+  // polygon still emits an explicit closed-ring LineString for its outline, because a line layer
+  // does not paint polygon rings. Hidden objects (per-object or per-TYPE) are dropped.
+  const feats=[];   // lines + points + boundary lines  -> `annot`
+  const fills=[];   // polygons                           -> `annotFill`
   const vis=f=>!(f.properties&&(f.properties.hidden||hiddenDrawTypes.has(f.properties.dtype)));
   drawSaved.filter(vis).forEach(f=>{
-    feats.push(f);                                              // polygon (for its fill) / line / pin
-    if(f.geometry.type==='Polygon')
+    if(f.geometry.type==='Polygon'){
+      fills.push(f);
       (f.geometry.coordinates||[]).forEach(ring=>feats.push(_styledLine(ring,f.properties)));
+    } else {
+      feats.push(f);                                            // committed line / pin
+    }
     if(drawEditId && f.properties.id===drawEditId) _vertsOf(f).forEach(v=>feats.push(_vertFeat(v,f.properties,true)));
   });
   if(drawPts.length){
     const st=DRAW_STYLE[drawTool]||DRAW_STYLE.area;
     if(drawTool==='area' && drawPts.length>=2){
       const ring=drawPts.concat([drawPts[0]]);                 // ALWAYS closed while drawing
-      if(drawPts.length>=3) feats.push({type:'Feature',geometry:{type:'Polygon',coordinates:[ring]},properties:{fill:st.fill,fo:st.fo,style:'solid'}});
+      if(drawPts.length>=3) fills.push({type:'Feature',geometry:{type:'Polygon',coordinates:[ring]},properties:{fill:st.fill,fo:st.fo}});
       feats.push(_styledLine(ring,{stroke:st.stroke,lo:st.lo,style:'solid',label:drawPts.length>=3?areaFmt(ringKm2(drawPts)):''}));
     } else {
       feats.push(_styledLine(drawPts.slice(),{stroke:st.stroke,lo:st.lo,style:'solid',label:drawPts.length>=2?km(polyKm(drawPts)):''}));
     }
     drawPts.forEach(p=>feats.push(_vertFeat(p,st)));
   }
-  _annotWrite(fc(feats));
+  _annotWrite(fc(feats), fc(fills));
   renderDrawManager();
 }
 function setDrawTool(t){
@@ -1879,7 +1897,7 @@ function setDrawTool(t){
     area:'Click a boundary; double-click to close. Shows area.',waypoint:'Click to drop waypoints.'})[drawTool]:'';
   renderAnnot();
 }
-function clearDraw(){ drawSaved=[]; drawPts=[]; if(map.getSource('annot')) map.getSource('annot').setData(fc([])); renderDrawManager(); }
+function clearDraw(){ drawSaved=[]; drawPts=[]; if(map.getSource('annot')) _annotWrite(fc([]),fc([])); renderDrawManager(); }
 // #25 — a manager for what you've drawn: one row per object with its measurement, a per-
 // object delete, and clear-all. Self-styled floating card, shown only when drawings exist,
 // so you can drop a pin or measure a line and then prune the ones you don't want to keep.
