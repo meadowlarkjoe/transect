@@ -1705,9 +1705,9 @@ let drawTool=null, drawPts=[], drawWpts=[], drawSaved=[];
 let drawEditId=null;                       // id of the drawing whose vertices are being dragged
 const hiddenDrawTypes=new Set();           // drawing TYPES hidden from the legend (area/line/…)
 function _styledLine(coords,src){ return {type:'Feature',geometry:{type:'LineString',coordinates:coords},
-  properties:{id:src.id,stroke:src.stroke,lo:src.lo!=null?src.lo:1,label:src.label||''}}; }
-function _vertFeat(ll,src){ return {type:'Feature',geometry:{type:'Point',coordinates:ll},
-  properties:{vertex:1,id:src.id,stroke:src.stroke||'#5fe6ff'}}; }
+  properties:{id:src.id,stroke:src.stroke,lo:src.lo!=null?src.lo:1,lw:src.lw!=null?src.lw:2.6,style:src.style||'solid',label:src.label||''}}; }
+function _vertFeat(ll,src,grab){ return {type:'Feature',geometry:{type:'Point',coordinates:ll},
+  properties:{vertex:1,grab:grab?1:0,id:src.id,stroke:src.stroke||'#5fe6ff'}}; }
 function _vertsOf(f){ const g=f.geometry;
   if(g.type==='Point') return [g.coordinates];
   if(g.type==='LineString') return g.coordinates.slice();
@@ -1735,12 +1735,23 @@ function setupDraw(){
   // drawing reads on ANY background — a thin white line was lost on satellite + the overlay.
   map.addLayer({id:'annot-fill',type:'fill',source:'annotFill',filter:['==','$type','Polygon'],
     paint:{'fill-color':['coalesce',['get','fill'],'#4de1ff'],'fill-opacity':['coalesce',['get','fo'],0.16]}});
-  map.addLayer({id:'annot-line-case',type:'line',source:'annot',filter:['==','$type','LineString'],
-    paint:{'line-color':'#08131a','line-width':5,'line-opacity':['*',0.6,['coalesce',['get','lo'],1]]}});
-  map.addLayer({id:'annot-line',type:'line',source:'annot',filter:['==','$type','LineString'],
-    paint:{'line-color':['coalesce',['get','stroke'],'#5fe6ff'],'line-width':2.6,'line-dasharray':[2,1.4],'line-opacity':['coalesce',['get','lo'],1]}});
+  // Width is per-drawing (data-driven `lw`). STYLE (solid/dashed/dotted) can't be data-driven
+  // for line-dasharray, so the outline is split into three layers filtered on the `style`
+  // property; a drawing routes to whichever matches (default solid). Dark casing under all.
+  const _lw=['coalesce',['get','lw'],2.6], _lc=['coalesce',['get','stroke'],'#5fe6ff'], _lo=['coalesce',['get','lo'],1];
+  const _isLine=['==','$type','LineString'];
+  const _solid=['all',_isLine,['any',['!',['has','style']],['==',['get','style'],'solid']]];
+  map.addLayer({id:'annot-line-case',type:'line',source:'annot',filter:_isLine,
+    paint:{'line-color':'#08131a','line-width':['+',_lw,2.4],'line-opacity':['*',0.6,_lo]}});
+  map.addLayer({id:'annot-line',type:'line',source:'annot',filter:_solid,
+    paint:{'line-color':_lc,'line-width':_lw,'line-opacity':_lo}});
+  map.addLayer({id:'annot-line-dashed',type:'line',source:'annot',filter:['all',_isLine,['==',['get','style'],'dashed']],
+    paint:{'line-color':_lc,'line-width':_lw,'line-opacity':_lo,'line-dasharray':[2,1.4]}});
+  map.addLayer({id:'annot-line-dotted',type:'line',source:'annot',filter:['all',_isLine,['==',['get','style'],'dotted']],
+    layout:{'line-cap':'round'},paint:{'line-color':_lc,'line-width':_lw,'line-opacity':_lo,'line-dasharray':[0.1,2]}});
   map.addLayer({id:'annot-pt',type:'circle',source:'annot',filter:['==','$type','Point'],
-    paint:{'circle-radius':['case',['==',['get','vertex'],1],5,6],'circle-color':['coalesce',['get','stroke'],'#5fe6ff'],
+    paint:{'circle-radius':['case',['==',['get','grab'],1],8,['==',['get','vertex'],1],5,6],
+      'circle-color':['case',['==',['get','grab'],1],'#ffffff',['coalesce',['get','stroke'],'#5fe6ff']],
       'circle-stroke-color':'#08131a','circle-stroke-width':2.2}});
   map.addLayer({id:'annot-label',type:'symbol',source:'annot',filter:['has','label'],
     layout:{'text-field':['get','label'],'text-size':12,'text-offset':[0,-1.2],'text-font':['Open Sans Bold'],'text-allow-overlap':true},
@@ -1772,7 +1783,7 @@ let _drawId=1;
 function _drawFeat(geom,dtype,label){
   const s=DRAW_STYLE[dtype]||DRAW_STYLE.area;
   return {type:'Feature',geometry:geom,properties:{id:_drawId++,dtype,label:label||'',
-    stroke:s.stroke,fill:s.fill,fo:s.fo,lo:s.lo,hidden:false}};
+    stroke:s.stroke,fill:s.fill,fo:s.fo,lo:s.lo,lw:2.6,style:'solid',hidden:false}};
 }
 function onDrawClick(e){
   if(!drawTool || drawEditId) return;      // in vertex-edit mode, clicks drag, not add
@@ -1803,7 +1814,7 @@ function renderAnnot(){
   // satellite + model layers — measuring updated the panel but you saw nothing on the map.
   // Raise them once (idempotent via the flag).
   if(!window._annotRaised){
-    ['annot-fill','annot-line-case','annot-line','annot-pt','annot-label'].forEach(l=>{ try{ if(map.getLayer(l)) map.moveLayer(l); }catch(e){} });
+    ['annot-fill','annot-line-case','annot-line','annot-line-dashed','annot-line-dotted','annot-pt','annot-label'].forEach(l=>{ try{ if(map.getLayer(l)) map.moveLayer(l); }catch(e){} });
     window._annotRaised=true;
   }
   // Offer "Recalculate" once the hunter has drawn a focus area to re-plan inside.
@@ -1824,12 +1835,12 @@ function renderAnnot(){
   const vis=f=>!(f.properties&&(f.properties.hidden||hiddenDrawTypes.has(f.properties.dtype)));
   drawSaved.filter(vis).forEach(f=>{
     if(f.geometry.type==='Polygon'){
-      fills.push(f);   // fill in its own source
-      (f.geometry.coordinates||[]).forEach(ring=>feats.push(_styledLine(ring,{id:f.properties.id,stroke:f.properties.stroke,lo:f.properties.lo,label:f.properties.label})));
+      fills.push(f);   // fill in its own source; the boundary line carries the label + style
+      (f.geometry.coordinates||[]).forEach(ring=>feats.push(_styledLine(ring,f.properties)));
     } else {
       feats.push(f);   // committed line / pin renders directly
     }
-    if(drawEditId && f.properties.id===drawEditId) _vertsOf(f).forEach(v=>feats.push(_vertFeat(v,f.properties)));
+    if(drawEditId && f.properties.id===drawEditId) _vertsOf(f).forEach(v=>feats.push(_vertFeat(v,f.properties,true)));
   });
   if(drawPts.length){
     const st=DRAW_STYLE[drawTool]||DRAW_STYLE.area;
@@ -1945,6 +1956,9 @@ function openDrawEditor(id){
     +(stats?`<div style="margin-bottom:8px;color:#c7d0d4">${stats}</div>`:'')
     +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Outline</span><input id="deStroke" type="color" value="${p.stroke||'#5fe6ff'}" style="width:30px;height:22px;border:none;background:none;padding:0"></div>`
     +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Line opacity</span><input id="deLo" type="range" min="0" max="1" step="0.05" value="${p.lo!=null?p.lo:1}" style="width:100px"></div>`
+    +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Weight</span><input id="deLw" type="range" min="1" max="8" step="0.5" value="${p.lw!=null?p.lw:2.6}" style="width:100px"></div>`
+    +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Style</span><select id="deStyle" style="background:#1c2429;color:#dfe6e9;border:1px solid #2a343a;border-radius:5px;padding:2px 4px">`
+      +['solid','dashed','dotted'].map(o=>`<option value="${o}" ${(p.style||'solid')===o?'selected':''}>${o[0].toUpperCase()+o.slice(1)}</option>`).join('')+`</select></div>`
     +(isArea?`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Fill</span><input id="deFill" type="color" value="${p.fill||'#4de1ff'}" style="width:30px;height:22px;border:none;background:none;padding:0"></div>`
       +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Fill opacity</span><input id="deFo" type="range" min="0" max="0.7" step="0.02" value="${p.fo!=null?p.fo:0.16}" style="width:100px"></div>`:'')
     +`<label style="display:flex;align-items:center;gap:8px;margin:7px 0;cursor:pointer"><input id="deHide" type="checkbox" ${p.hidden?'checked':''}> Hide on map</label>`
@@ -1956,6 +1970,8 @@ function openDrawEditor(id){
   el.querySelector('#deClose').onclick=()=>{ el.remove(); if(drawEditId===id) exitDrawEdit(); };
   el.querySelector('#deStroke').oninput=e=>set('stroke',e.target.value);
   el.querySelector('#deLo').oninput=e=>set('lo',+e.target.value);
+  el.querySelector('#deLw').oninput=e=>set('lw',+e.target.value);
+  el.querySelector('#deStyle').onchange=e=>set('style',e.target.value);
   if(isArea){ el.querySelector('#deFill').oninput=e=>set('fill',e.target.value); el.querySelector('#deFo').oninput=e=>set('fo',+e.target.value); }
   el.querySelector('#deHide').onchange=e=>{ set('hidden',e.target.checked); renderDrawManager(); };
   el.querySelector('#deDel').onclick=()=>{ drawSaved=drawSaved.filter(x=>x.properties.id!==id); if(drawEditId===id)exitDrawEdit(); el.remove(); renderAnnot(); };
@@ -2829,7 +2845,7 @@ function applyPlan(p){
     if(!q.dtype) q.dtype=f.geometry.type==='Polygon'?'area':f.geometry.type==='LineString'?'line':'pin';
     const s=DRAW_STYLE[q.dtype]||DRAW_STYLE.area;
     if(q.stroke==null)q.stroke=s.stroke; if(q.fill==null)q.fill=s.fill;
-    if(q.fo==null)q.fo=s.fo; if(q.lo==null)q.lo=s.lo; });
+    if(q.fo==null)q.fo=s.fo; if(q.lo==null)q.lo=s.lo; if(q.lw==null)q.lw=2.6; if(!q.style)q.style='solid'; });
   _drawId=Math.max(_drawId,...drawSaved.map(f=>(f.properties&&f.properties.id||0)+1),1);
   if(map.getSource('annot')) renderAnnot();
   lastSel=p.area||1;
