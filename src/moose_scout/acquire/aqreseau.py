@@ -48,7 +48,7 @@ def _get(url: str, timeout: int = 60):
         return json.loads(r.read().decode("utf-8", "replace"))
 
 
-def _query_layer(layer: int, bbox, t0):
+def _query_layer(layer: int, bbox, t0, out_fields=None):
     """All features of one layer inside bbox, paged. bbox = (w, s, e, n) in WGS84."""
     w, s, e, n = bbox
     out, offset = [], 0
@@ -62,7 +62,7 @@ def _query_layer(layer: int, bbox, t0):
             "geometryType": "esriGeometryEnvelope",
             "inSR": 4326, "outSR": 4326,
             "spatialRel": "esriSpatialRelIntersects",
-            "outFields": "NomRte,NoRte,ClsRte,Cls_CheFor,CarRte,Che_Multi,Gestion",
+            "outFields": out_fields or "NomRte,NoRte,ClsRte,Cls_CheFor,CarRte,Che_Multi,Gestion",
             "returnGeometry": "true",
             "resultOffset": offset, "resultRecordCount": PAGE,
             "orderByFields": "OBJECTID",
@@ -72,6 +72,9 @@ def _query_layer(layer: int, bbox, t0):
             j = _get(f"{BASE}/{layer}/query?{q}")
         except Exception as ex:                       # one bad page must not kill the pull
             print(f"[aqreseau] layer {layer} offset {offset} failed: {ex}")
+            break
+        if isinstance(j, dict) and j.get("error"):
+            print(f"[aqreseau] layer {layer} query error: {j['error'].get('message')}")
             break
         feats = j.get("features") or []
         out.extend(feats)
@@ -129,7 +132,7 @@ def _fetch_simple(layers, bbox, t0, out_path, kind_field):
 
     rows, geoms = [], []
     for layer, kind in layers:
-        for f in _query_layer(layer, bbox, t0):
+        for f in _query_layer(layer, bbox, t0, out_fields="*"):
             g = f.get("geometry") or {}
             gt, co = g.get("type"), g.get("coordinates")
             if not co:
