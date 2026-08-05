@@ -108,7 +108,13 @@ def _infra_lines(cache):
     import geopandas as gpd
 
     out = []
-    specs = [("roads.gpkg", "road"), ("rail.gpkg", "rail"), ("trails.gpkg", "trail")]
+    # OSM first, then the OFFICIAL AQréseau+ layers. Both go to the MAP, not just the
+    # engine's cost raster — a forest road the model routes down but the map never draws
+    # is exactly the "no road data" the hunter was looking at. Motorised trails and rail
+    # keep their OWN types ('trail'/'rail') so the client can toggle them separately and
+    # nobody reads a quad trail as drivable.
+    specs = [("roads.gpkg", "road"), ("rail.gpkg", "rail"), ("trails.gpkg", "trail"),
+             ("aqreseau.gpkg", "road"), ("aq_trails.gpkg", "trail"), ("aq_rail.gpkg", "rail")]
     for name, t in specs:
         p = cache / name
         if not p.exists():
@@ -117,6 +123,7 @@ def _infra_lines(cache):
             g = gpd.read_file(p)
             if g.crs and g.crs.to_epsg() != 4326:
                 g = g.to_crs(4326)
+            has_cls = "cls" in g.columns          # AQréseau+ pre-classifies its own
             has_hw = "highway" in g.columns
             has_ot = "other_tags" in g.columns
             has_nm = "name" in g.columns
@@ -124,7 +131,9 @@ def _infra_lines(cache):
             for i, geom in enumerate(g.geometry):
                 if geom is None or geom.is_empty:
                     continue
-                if t == "road":
+                if has_cls:
+                    cls = str(g["cls"].iloc[i] or t)   # AQréseau+ forest-road class
+                elif t == "road":
                     cls = _road_class(g["highway"].iloc[i] if has_hw else None,
                                       g["other_tags"].iloc[i] if has_ot else None)
                 else:

@@ -1197,8 +1197,8 @@ const LAYERS=[
  {k:'roads', group:'ACCESS & HYDRO', kind:'line', edge:'solid', name:'Roads & rail',
   note:'Reference geography, not a model output', hex:'#CBD5DA', on:true, lyr:'roads',
   count:()=>(DOC.infra||[]).filter(o=>o.t!=='trail').length},
- {k:'trails', group:'ACCESS & HYDRO', kind:'line', edge:'dashed', name:'Trails (foot)',
-  note:'OSM foot paths — walk-in access you cannot drive. Dotted olive.', hex:'#9db36a',
+ {k:'trails', group:'ACCESS & HYDRO', kind:'line', edge:'dashed', name:'Trails & sentiers',
+  note:'Foot paths (OSM) plus official quad/snowmobile sentiers (AQréseau+). Not truck-drivable — but an ATV rides them, they beat bushwhacking, and moose travel them.', hex:'#9db36a',
   dash:'dashed', on:false, lyr:'trails', count:()=>(DOC.infra||[]).filter(o=>o.t==='trail').length},
  // These were one row describing only the red hatch, so the amber dashed boundary —
  // ZEC / réserve faunique, ground you CAN hunt but must register or book first —
