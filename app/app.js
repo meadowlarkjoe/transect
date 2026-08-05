@@ -2558,6 +2558,7 @@ function _radiusRing(ll,rkm){
   return ring;
 }
 function drawDraft(fit){
+  _wireDraftBoxEdit();                    // idempotent — box move/resize handlers
   const feats=[];
   if(draft.siteMode==='known' && draft.sites.length){
     // KNOWN SITES: a dot per site + a live radius circle that tracks the slider.
@@ -2610,20 +2611,24 @@ function startBoxDraw(){
   const onMove=(e)=>{ if(!start)return;
     const b=[[start.lng,start.lat],[e.lngLat.lng,start.lat],[e.lngLat.lng,e.lngLat.lat],[start.lng,e.lngLat.lat],[start.lng,start.lat]];
     map.getSource('draft').setData(fc([{type:'Feature',geometry:{type:'Polygon',coordinates:[b]},properties:{}}]));};
+  // RELEASING the mouse commits the box (the intuitive gesture); ESC still bails out.
+  // NOTE: every element touched here must exist in the CURRENT setup markup — an id that
+  // went away in a redesign made this throw mid-commit, which left the mode armed and
+  // "release does nothing, next click starts a new box" (user-reported).
   const onUp=(e)=>{ if(!start)return;
     const clon=(start.lng+e.lngLat.lng)/2, clat=(start.lat+e.lngLat.lat)/2;
     const halfW=hav([start.lng,clat],[e.lngLat.lng,clat])/2, halfH=hav([clon,start.lat],[clon,e.lngLat.lat])/2;
     draft.center=[clon,clat]; draft.radius=Math.max(2,Math.round(Math.max(halfW,halfH)));
-    document.getElementById('radius').value=Math.min(120,draft.radius);
-    document.getElementById('radVal').textContent=draft.radius+' '+unitBig();
-    document.getElementById('coord').value=clat.toFixed(4)+', '+clon.toFixed(4);
+    const rs=document.getElementById('radius'); if(rs) rs.value=Math.min(120,Math.round(toU(draft.radius)));
+    const rv=document.getElementById('radVal'); if(rv) rv.textContent=Math.round(toU(draft.radius))+' '+unitBig();
+    const le=document.getElementById('locEntry'); if(le) le.value=clat.toFixed(4)+', '+clon.toFixed(4);
     cleanup(); drawDraft();};
   const onKey=(ev)=>{ if(ev.key==='Escape') cleanup(); };
   function cleanup(){
     map.getCanvas().style.cursor=''; map.dragPan.enable();
     document.body.classList.remove('boxdraw','boxdraw-active');
     const b=document.getElementById('dragBox');
-    if(b){ b.classList.remove('on'); b.textContent='▛ Drag a box on the map'; }
+    if(b){ b.classList.remove('on'); b.innerHTML=railIcon('boxselect',15); }   // restore the icon, don't clobber it
     map.off('mousedown',onDown); map.off('mousemove',onMove); map.off('mouseup',onUp);
     window.removeEventListener('keydown',onKey);
     _boxCleanup=null;
@@ -2631,6 +2636,56 @@ function startBoxDraw(){
   _boxCleanup=cleanup;
   window.addEventListener('keydown',onKey);
   map.on('mousedown',onDown); map.on('mousemove',onMove); map.on('mouseup',onUp);
+}
+/* Once drawn, the search box is a live object: hover an EDGE to resize (cursor shows
+   which way), hover the MIDDLE to move (move cursor), drag to do it. Radius + slider
+   track the resize in real time. Active only on the Setup tab, find-sites mode, with
+   no other tool armed. */
+function _wireDraftBoxEdit(){
+  if(window._draftEditWired) return; window._draftEditWired=true;
+  const EDGE=8;                                   // px tolerance for grabbing an edge
+  let drag=null;                                  // {mode:'move'|'resize', startLL, c0, r0}
+  const zone=(e)=>{
+    if(curTab!=='setup'||draft.siteMode!=='find'||!draft.center||drawTool||drawEditId||_boxCleanup) return null;
+    const box=draftBox(); if(!box) return null;
+    const nw=map.project({lng:box[0][0],lat:box[0][1]}), se=map.project({lng:box[2][0],lat:box[2][1]});
+    const x=e.point.x,y=e.point.y;
+    const inX=x>nw.x-EDGE&&x<se.x+EDGE, inY=y>nw.y-EDGE&&y<se.y+EDGE;
+    if(!inX||!inY) return null;
+    const nL=Math.abs(x-nw.x)<EDGE, nR=Math.abs(x-se.x)<EDGE, nT=Math.abs(y-nw.y)<EDGE, nB=Math.abs(y-se.y)<EDGE;
+    if((nL||nR)&&(nT||nB)) return {mode:'resize',cursor:'nwse-resize'};
+    if(nL||nR) return {mode:'resize',cursor:'ew-resize'};
+    if(nT||nB) return {mode:'resize',cursor:'ns-resize'};
+    if(x>nw.x&&x<se.x&&y>nw.y&&y<se.y) return {mode:'move',cursor:'move'};
+    return null;
+  };
+  map.on('mousemove',e=>{
+    if(drag){
+      if(drag.mode==='move'){
+        draft.center=[drag.c0[0]+(e.lngLat.lng-drag.startLL.lng), drag.c0[1]+(e.lngLat.lat-drag.startLL.lat)];
+      } else {
+        const dxKm=hav([draft.center[0],draft.center[1]],[e.lngLat.lng,draft.center[1]]);
+        const dyKm=hav([draft.center[0],draft.center[1]],[draft.center[0],e.lngLat.lat]);
+        draft.radius=Math.max(2,Math.min(120,Math.round(Math.max(dxKm,dyKm))));
+        const rs=document.getElementById('radius'); if(rs) rs.value=Math.min(120,Math.round(toU(draft.radius)));
+        const rv=document.getElementById('radVal'); if(rv) rv.textContent=Math.round(toU(draft.radius))+' '+unitBig();
+      }
+      drawDraft(); return;
+    }
+    const z=zone(e);
+    // Only own the cursor while we're actually over the box (and release it after),
+    // so the drawings' pointer cursor and the tools' crosshair are never fought over.
+    if(z){ map.getCanvas().style.cursor=z.cursor; window._boxCur=true; }
+    else if(window._boxCur){ map.getCanvas().style.cursor=drawTool?'crosshair':''; window._boxCur=false; }
+  });
+  map.on('mousedown',e=>{
+    const z=zone(e); if(!z) return;
+    e.preventDefault(); map.dragPan.disable();
+    drag={mode:z.mode,startLL:e.lngLat,c0:draft.center.slice(),r0:draft.radius};
+  });
+  map.on('mouseup',()=>{ if(!drag) return; drag=null; map.dragPan.enable();
+    const le=document.getElementById('locEntry');
+    if(le&&draft.center) le.value=draft.center[1].toFixed(4)+', '+draft.center[0].toFixed(4); });
 }
 
 /* Nominatim geocode (no key) */
