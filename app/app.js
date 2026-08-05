@@ -1738,18 +1738,15 @@ function setupDraw(){
   // Width is per-drawing (data-driven `lw`). STYLE (solid/dashed/dotted) can't be data-driven
   // for line-dasharray, so the outline is split into three layers filtered on the `style`
   // property; a drawing routes to whichever matches (default solid). Dark casing under all.
-  // Paint may use EXPRESSIONS; the FILTERS here are LEGACY syntax (['==','$type',…]), so
-  // they must NOT contain expression forms like ['!',…] or ['get',…] — mixing the two makes
-  // addLayer throw and the layer silently never gets added (that broke the outline).
+  // ONE line layer over a dark casing — the structure proven to render (fill + line coexist).
+  // Width/colour/opacity are per-drawing (data-driven); STYLE (dash) is applied by swapping
+  // this layer's line-dasharray to match the SELECTED drawing when the editor changes it —
+  // simpler and reliable vs. per-feature dash (which isn't data-driven and needs layer splits).
   const _lw=['coalesce',['get','lw'],2.6], _lc=['coalesce',['get','stroke'],'#5fe6ff'], _lo=['coalesce',['get','lo'],1];
   map.addLayer({id:'annot-line-case',type:'line',source:'annot',filter:['==','$type','LineString'],
     paint:{'line-color':'#08131a','line-width':['+',_lw,2.4],'line-opacity':['*',0.6,_lo]}});
-  map.addLayer({id:'annot-line',type:'line',source:'annot',filter:['all',['==','$type','LineString'],['any',['!has','style'],['==','style','solid']]],
+  map.addLayer({id:'annot-line',type:'line',source:'annot',filter:['==','$type','LineString'],
     paint:{'line-color':_lc,'line-width':_lw,'line-opacity':_lo}});
-  map.addLayer({id:'annot-line-dashed',type:'line',source:'annot',filter:['all',['==','$type','LineString'],['==','style','dashed']],
-    paint:{'line-color':_lc,'line-width':_lw,'line-opacity':_lo,'line-dasharray':[2,1.4]}});
-  map.addLayer({id:'annot-line-dotted',type:'line',source:'annot',filter:['all',['==','$type','LineString'],['==','style','dotted']],
-    layout:{'line-cap':'round'},paint:{'line-color':_lc,'line-width':_lw,'line-opacity':_lo,'line-dasharray':[0.1,2]}});
   map.addLayer({id:'annot-pt',type:'circle',source:'annot',filter:['==','$type','Point'],
     paint:{'circle-radius':['case',['==',['get','grab'],1],8,['==',['get','vertex'],1],5,6],
       'circle-color':['case',['==',['get','grab'],1],'#ffffff',['coalesce',['get','stroke'],'#5fe6ff']],
@@ -1813,11 +1810,10 @@ function renderAnnot(){
   // ...and make sure the annotation layers sit ON TOP. setupDraw() runs during map load,
   // before the data layers are added, so the drawings were being painted UNDERNEATH the
   // satellite + model layers — measuring updated the panel but you saw nothing on the map.
-  // Raise them once (idempotent via the flag).
-  if(!window._annotRaised){
-    ['annot-fill','annot-line-case','annot-line','annot-line-dashed','annot-line-dotted','annot-pt','annot-label'].forEach(l=>{ try{ if(map.getLayer(l)) map.moveLayer(l); }catch(e){} });
-    window._annotRaised=true;
-  }
+  // Raise EVERY render (cheap) in this exact order, so the outline always sits above the
+  // fill and the vertices above the outline — a stale one-time raise let the fill cover the
+  // outline once a polygon appeared (the "outline vanishes at the 3rd point" report).
+  ['annot-fill','annot-line-case','annot-line','annot-pt','annot-label'].forEach(l=>{ try{ if(map.getLayer(l)) map.moveLayer(l); }catch(e){} });
   // Offer "Recalculate" once the hunter has drawn a focus area to re-plan inside.
   const rb=document.getElementById('rescopeBtn');
   if(rb){ const hasPoly=(drawSaved||[]).some(f=>f.geometry&&f.geometry.type==='Polygon');
@@ -1958,8 +1954,6 @@ function openDrawEditor(id){
     +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Outline</span><input id="deStroke" type="color" value="${p.stroke||'#5fe6ff'}" style="width:30px;height:22px;border:none;background:none;padding:0"></div>`
     +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Line opacity</span><input id="deLo" type="range" min="0" max="1" step="0.05" value="${p.lo!=null?p.lo:1}" style="width:100px"></div>`
     +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Weight</span><input id="deLw" type="range" min="1" max="8" step="0.5" value="${p.lw!=null?p.lw:2.6}" style="width:100px"></div>`
-    +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Style</span><select id="deStyle" style="background:#1c2429;color:#dfe6e9;border:1px solid #2a343a;border-radius:5px;padding:2px 4px">`
-      +['solid','dashed','dotted'].map(o=>`<option value="${o}" ${(p.style||'solid')===o?'selected':''}>${o[0].toUpperCase()+o.slice(1)}</option>`).join('')+`</select></div>`
     +(isArea?`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Fill</span><input id="deFill" type="color" value="${p.fill||'#4de1ff'}" style="width:30px;height:22px;border:none;background:none;padding:0"></div>`
       +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Fill opacity</span><input id="deFo" type="range" min="0" max="0.7" step="0.02" value="${p.fo!=null?p.fo:0.16}" style="width:100px"></div>`:'')
     +`<label style="display:flex;align-items:center;gap:8px;margin:7px 0;cursor:pointer"><input id="deHide" type="checkbox" ${p.hidden?'checked':''}> Hide on map</label>`
@@ -1972,7 +1966,6 @@ function openDrawEditor(id){
   el.querySelector('#deStroke').oninput=e=>set('stroke',e.target.value);
   el.querySelector('#deLo').oninput=e=>set('lo',+e.target.value);
   el.querySelector('#deLw').oninput=e=>set('lw',+e.target.value);
-  el.querySelector('#deStyle').onchange=e=>set('style',e.target.value);
   if(isArea){ el.querySelector('#deFill').oninput=e=>set('fill',e.target.value); el.querySelector('#deFo').oninput=e=>set('fo',+e.target.value); }
   el.querySelector('#deHide').onchange=e=>{ set('hidden',e.target.checked); renderDrawManager(); };
   el.querySelector('#deDel').onclick=()=>{ drawSaved=drawSaved.filter(x=>x.properties.id!==id); if(drawEditId===id)exitDrawEdit(); el.remove(); renderAnnot(); };
