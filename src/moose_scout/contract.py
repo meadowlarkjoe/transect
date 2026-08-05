@@ -1034,6 +1034,11 @@ def build(ctx: Context) -> dict:
         _lg = load_species_legend(ctx.aoi.species)
         doc["legend"] = _lg["legend"]
         doc["legend_groups"] = _lg["groups"]
+        # #71: for layers that come from an official dataset rather than our model, the
+        # honest "why" is naming the SOURCE — not inventing a rationale. The client shows
+        # this on hover so a hunter can tell "we measured this" from "we inferred this".
+        from .confidence import SOURCE_NOTES as _SN
+        doc["layer_provenance"] = {k: {"source": v[0], "conf": v[1]} for k, v in _SN.items()}
     except Exception:
         doc["legend"] = []
         doc["legend_groups"] = []

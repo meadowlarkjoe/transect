@@ -129,3 +129,66 @@ def overall(ctx, cache) -> dict:
             "Confidence is about DATA quality, not a guarantee animals are present.",
         ],
     }
+
+
+# --- #71: plain-language WHY + confidence, per placed feature -------------------
+# A hunter should never have to wonder why the model dropped a marker somewhere. Two
+# honest families here, and they deserve different language:
+#   MODELLED  — we inferred it from terrain/cover/water. Confidence is about DATA
+#               quality, and the reasons quote the local values that drove the call.
+#   SOURCED   — it came from an official dataset. Confidence is high and the honest
+#               "why" is naming the source, not inventing a rationale.
+SOURCE_NOTES = {
+    "burns":    ("NBAC (Canadian national burned-area composite) fire perimeters, dated", 0.95),
+    "cuts":     ("MRNF carte écoforestière — mapped cutblocks with harvest year", 0.93),
+    "beaver":   ("MRNF GRHQ hydrography — mapped flowages ('mare')", 0.92),
+    "wetland":  ("MRNF GRHQ hydrography — mapped marsh/bog/fen", 0.92),
+    "water":    ("OSM hydrography + ESA WorldCover 10 m water mask", 0.9),
+    "roads":    ("AQréseau+ (official Québec road network, MRNF) unioned with OSM", 0.93),
+    "trails":   ("AQréseau+ quad/snowmobile sentiers + OSM foot paths", 0.85),
+    "crossings": ("GRHQ Strahler order + perenniality where available; OSM waterway class otherwise", 0.7),
+    "tenure":   ("MRNF tenure polygons (pourvoirie / ZEC / réserve)", 0.95),
+}
+
+
+def site_explain(legend, vals) -> dict:
+    """Why THIS site, in language a hunter uses. `vals` carries whatever local numbers
+    synth had to hand (dist_water_m, dist_road_m, slope_deg, cover_frac, browse,
+    score...). Returns {conf, band, why:[...]} — never raises, and says less rather
+    than inventing a reason it can't support."""
+    why = []
+    v = {k: x for k, x in (vals or {}).items() if x is not None}
+    s = v.get("score")
+    dw, dr = v.get("dist_water_m"), v.get("dist_road_m")
+    slope, cov, brw = v.get("slope_deg"), v.get("cover_frac"), v.get("browse")
+
+    if legend == "thermal_refuge":
+        why.append("dense mature conifer — the cool, shaded cover moose bed in when it warms up")
+        if dw is not None and dw < 500:
+            why.append(f"water within ~{int(dw)} m to cool off and drink")
+        why.append("scored well above the surrounding ground on this AOI's own refuge surface")
+    elif legend == "rut_calling":
+        why.append("sits on a cover↔opening seam — bulls cruise these edges looking for cows")
+        if brw is not None and brw > 0.2:
+            why.append("forage on the open side, so cows use it too")
+        why.append("enough security cover behind you to call from without skylining")
+    elif legend == "saline_blind":
+        why.append("browse edge / riparian willow — the food itself, worked at first and last light")
+        if dw is not None and dw < 400:
+            why.append(f"riparian band ~{int(dw)} m from water")
+    elif legend == "glassing":
+        why.append("high ground with a real view over open country — prominence plus visible openness")
+    elif legend == "funnel":
+        why.append("a narrow neck of land between water or wetland — travelling animals squeeze through here")
+    elif legend == "validate_ground":
+        why.append("a spot where the model is confident enough to be worth checking — go look for sign")
+    if slope is not None and slope < 8:
+        why.append(f"gentle ground (~{slope:.0f}° slope) — quiet to still-hunt and easier to pack out")
+    if dr is not None and dr > 3000:
+        why.append(f"~{dr/1000:.1f} km off the nearest road — less hunter pressure, longer haul")
+
+    # Confidence: the surface's own strength, tempered because a placed site is always
+    # a hypothesis to ground-truth. Never presented as certainty.
+    base = 0.55 + 0.30 * float(min(1.0, max(0.0, s))) if s is not None else 0.6
+    score = float(max(0.35, min(0.9, base)))
+    return {"conf": round(score, 2), "band": _band(score), "why": why[:4]}

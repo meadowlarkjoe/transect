@@ -3784,10 +3784,22 @@ function buildIdentify(){
     const rk=typeof def.row==='function'?def.row(p):def.row;
     const row=rk?LAYERS.find(r=>r.k===rk):null;
     const sub=(def.sub&&def.sub(p))||'';
+    // #71 — say WHY this is here and how sure we are. Modelled features carry a
+    // confidence + plain-language reasons from the engine; layers that come straight
+    // from an official dataset name the SOURCE instead of inventing a rationale, so a
+    // hunter can tell "we measured this" from "we inferred this".
+    let why=[]; try{ why=typeof p.why==='string'?JSON.parse(p.why):(p.why||[]); }catch(e){ why=[]; }
+    const conf=p.conf!=null?(typeof p.conf==='object'?p.conf.score:p.conf):null;
+    const prov=(DOC.layer_provenance||{})[rk]||null;
+    const pct=v=>Math.round(v*100)+'%';
     el.innerHTML=
       `<div class="idhead">${row?iconBadge(row.icon,row.hex,18,def.chip&&def.chip(p)):''}
          <span>${def.title(p)}</span></div>`+
       (sub?`<div class="idsub">${sub}</div>`:'')+
+      (conf!=null?`<div class="idsub" style="color:#e2c044">Confidence ${pct(conf)}${p.band?' · '+p.band:''}</div>`:'')+
+      ((why&&why.length)?`<div class="idsub" style="opacity:.9">${
+         why.map(w=>'· '+String(w)).join('<br>')}</div>`:'')+
+      (prov?`<div class="idsub" style="opacity:.75">Source: ${prov.source} · ${pct(prov.conf)}</div>`:'')+
       (row?`<div class="idrow">${row.name}</div>`:'');
     el.classList.remove('hidden');
     const r=el.getBoundingClientRect(), pad=14, cx=e.originalEvent.clientX, cy=e.originalEvent.clientY;

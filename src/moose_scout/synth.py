@@ -526,6 +526,19 @@ def run(ctx: Context, manual_areas=None) -> None:
                 props = {"legend": legend, "focus_area": rank,
                          "score": round(float(arr[r, c]), 3),
                          "elev_m": round(float(dem[r, c]), 0) if np.isfinite(dem[r, c]) else None}
+                # #71: WHY this marker is here, in plain language, plus a confidence that
+                # never pretends a modelled site is a certainty. Reads the local values
+                # that actually drove the placement.
+                try:
+                    def _at(a):
+                        return (float(a[r, c]) if a is not None and np.isfinite(a[r, c]) else None)
+                    props.update(_conf.site_explain(legend, {
+                        "score": float(arr[r, c]),
+                        "dist_water_m": _at(dist_water), "dist_road_m": _at(dist_road),
+                        "slope_deg": _at(Lyr.get("slope")), "browse": _at(browse),
+                    }))
+                except Exception:
+                    pass
                 if extra:
                     props.update(extra)
                 features.append({"type": "Feature",
