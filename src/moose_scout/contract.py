@@ -912,24 +912,65 @@ def build(ctx: Context) -> dict:
             if len(cc) < 2:
                 continue
             leg = r["properties"]["legend"]
+            fa = r["properties"].get("focus_area")
             for union, weak in ((danger_union, "danger"), (big_union, "river"),
                                 (small_union, "stream")):
                 if union is None:
                     continue
                 for p in _pts(cc, union):
                     kind, why, basis = _classify(p, weak)
-                    crossings.append({"route": leg, "ll": p, "kind": kind,
+                    crossings.append({"route": leg, "focus_area": fa, "ll": p, "kind": kind,
                                       "why": why, "basis": basis})
             if lake_union is not None:
                 for p in _pts(cc, lake_union):
                     kind, why, basis = _classify(p, "river")   # open water: never a ford
                     if kind == "ford":
                         kind, why = "boat", "open water — not a stream"
-                    crossings.append({"route": leg, "ll": p, "kind": kind,
+                    crossings.append({"route": leg, "focus_area": fa, "ll": p, "kind": kind,
                                       "why": why + " (lake shore)", "basis": basis})
     except Exception:
         pass
     doc["crossings"] = crossings
+
+    # --- CAPABILITY GATE, second pass: boat-only CROSSINGS -----------------------
+    # synth's gate only sees distance-to-road, so an area a short walk from a road but
+    # on the far side of an unbridgeable river passed it. Crossings are only classified
+    # HERE (after routing), so the boat check has to run here too: if the way in crosses
+    # water that needs a boat and the hunter told us they have none, that area is not a
+    # recommendation. Re-rank so viable areas keep ranks 1..n, exactly like synth's pass.
+    try:
+        from .synth import _hunter_kit
+        _kit = _hunter_kit(ctx.aoi.hunter)
+        if not _kit["boat"] and area_out:
+            _boat_areas = {c.get("focus_area") for c in crossings
+                           if c.get("kind") == "boat" and c.get("focus_area") is not None}
+            _hit = [a for a in area_out
+                    if a["rank"] in _boat_areas and a.get("status", "ok") == "ok"]
+            for a in _hit:
+                a["status"] = "excluded"
+                a["excluded_reason"] = ("No boat — the way in crosses water that needs one "
+                                        "(see the crossing markers on its route). A canoe or "
+                                        "boat would open it.")
+            if _hit:
+                _ok = [a for a in area_out if a.get("status", "ok") == "ok"]
+                _ex = [a for a in area_out if a.get("status", "ok") != "ok"]
+                _remap = {}
+                for _new, a in enumerate(_ok + _ex, 1):
+                    _remap[a["rank"]] = _new
+                for a in area_out:
+                    a["rank"] = _remap[a["rank"]]
+                for w in wp_out:
+                    _fa = (w.get("properties") or {}).get("focus_area")
+                    if _fa in _remap:
+                        w["properties"]["focus_area"] = _remap[_fa]
+                for c in crossings:
+                    if c.get("focus_area") in _remap:
+                        c["focus_area"] = _remap[c["focus_area"]]
+                area_out.sort(key=lambda a: a["rank"])
+                print(f"[contract] boat-crossing gate: {len(_hit)} area(s) excluded "
+                      f"(no boat); {len(_ok)} viable")
+    except Exception as e:
+        print(f"[contract] boat-crossing gate skipped: {e}")
     doc["crossings_note"] = (
         "Crossing calls are graded. 'Measured' means a mapped bridge, or a GRHQ call from "
         "the stream's Strahler order and perenniality (permanent vs intermittent). "

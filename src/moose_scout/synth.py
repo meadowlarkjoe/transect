@@ -254,7 +254,11 @@ def _explain_area(sel, L, res, med, hunter=None):
         pros.append(f"gentle ground (~{slp:.0f}° mean slope)")
 
     if dr is not None and dr > 4000:
-        cons.append(f"far from a mapped road (~{dr/1000:.0f} km — plan canoe/ATV or long pack)")
+        # Advise the kit they HAVE, not the kit the sentence was written around.
+        _have = ([] + (["canoe/boat"] if kit["boat"] else []) + (["ATV"] if kit["atv"] else []))
+        cons.append(f"far from a mapped road (~{dr/1000:.0f} km — "
+                    + (f"plan {' or '.join(_have)}" if _have else "a long pack on foot")
+                    + ")")
     if slp is not None and slp > 12:
         cons.append(f"steeper access (~{slp:.0f}° mean slope)")
     if pres is not None and pres > 0.4:
