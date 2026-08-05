@@ -1643,7 +1643,14 @@ function showRailTip(k){
       const m=ci.value.split(/[, ]+/).map(Number).filter(n=>!isNaN(n));
       if(m.length!==2){ ci.style.borderColor='var(--danger)'; return; }
       const [lat,lon]=m;
-      onDrawClick({lngLat:{lng:lon,lat:lat}});
+      // Add the pin DIRECTLY. Routing through onDrawClick no-ops unless the waypoint tool
+      // is armed (`if(!drawTool) return`) — but this coord tip can be open on hover without
+      // arming it, so the map recentred and NO marker appeared (user-reported). Ensure the
+      // annot source/layers exist, drop the point, render it.
+      if(typeof setupDraw==='function') setupDraw();
+      drawSaved.push({type:'Feature',geometry:{type:'Point',coordinates:[lon,lat]},
+        properties:{label:'WP'+(drawSaved.filter(f=>f.geometry.type==='Point').length+1)}});
+      renderAnnot();
       map.flyTo({center:[lon,lat],zoom:Math.max(map.getZoom(),11)});
       ci.value='';
     };
@@ -1915,8 +1922,13 @@ function renderSetup(){
         <label class="fld">Walk: access → base camp (max)</label>
         <div class="numrow"><input id="walkAccess" type="number" step="0.1" placeholder="e.g. 2" value="${draft.walkAccess!=null?toU(draft.walkAccess).toFixed(1):''}"><span id="uAccess">${unitBig()}</span></div>
       </div>
-      <label class="fld" id="walkHuntLbl">Walk: base camp → hunting (max)</label>
-      <div class="numrow"><input id="walkHunt" type="number" step="0.1" placeholder="e.g. 4" value="${draft.walkHunt!=null?toU(draft.walkHunt).toFixed(1):''}"><span id="uHunt">${unitBig()}</span></div>
+      <!-- In FIXED-CAMP mode this is the same number as "Hunt radius from camp" above —
+           both are "how far from camp you'll hunt" — so the row is hidden and the hunt
+           radius drives the camp→site walk (avoids asking the same question twice). -->
+      <div id="walkHuntRow">
+        <label class="fld" id="walkHuntLbl">Walk: base camp → hunting (max)</label>
+        <div class="numrow"><input id="walkHunt" type="number" step="0.1" placeholder="e.g. 4" value="${draft.walkHunt!=null?toU(draft.walkHunt).toFixed(1):''}"><span id="uHunt">${unitBig()}</span></div>
+      </div>
 
       <label class="fld">${t('setup.leaving')}</label>
       <div class="row"><input id="leaveSearch" placeholder="Search departure town…" value="${draft.leaving||''}">
@@ -2015,6 +2027,10 @@ function syncWalkFields(){
   // (you drive to your camp). The remaining walk is measured FROM the camp/vehicle.
   const row=document.getElementById('walkAccessRow');
   if(row) row.classList.toggle('hidden', veh||fixed);
+  // Fixed camp: the camp→hunting walk IS the hunt radius from camp (asked above), so hide
+  // this duplicate field — the payload derives walk_hunt_km from huntRadius in that mode.
+  const hr=document.getElementById('walkHuntRow');
+  if(hr) hr.classList.toggle('hidden', fixed);
   const lbl=document.getElementById('walkHuntLbl');
   if(lbl) lbl.textContent = veh ? 'Walk: vehicle → hunting (max)'
                                 : 'Walk: camp → hunting (max)';
@@ -2145,7 +2161,8 @@ function runAnalysis(){
     // For a vehicle hunt the staging point IS the camp (see synth.py), so the
     // access-to-camp leg is zero and the only real limit is the walk from the truck.
     walk_access_km:(SETUP.huntStyle==='vehicle'?draft.walkHunt:draft.walkAccess),
-    walk_hunt_km:draft.walkHunt,
+    // Fixed camp: the hunt radius IS how far you walk from camp — one number, not two.
+    walk_hunt_km:(draft.fixedCampMode?(draft.huntRadius||5):draft.walkHunt),
     party_size:draft.party||2,
     // Hunt-from-camp: the AOI centre IS the camp; the analysis narrows to hunt radius.
     fixed_camp:(draft.fixedCampMode && draft.center)?[draft.center[1],draft.center[0]]:null,
@@ -2193,12 +2210,22 @@ function draftBox(){
 }
 function drawDraft(){
   const box=draftBox();
-  const data=box?fc([{type:'Feature',geometry:{type:'Polygon',coordinates:[box]},properties:{}}]):fc([]);
+  const feats=[];
+  if(box) feats.push({type:'Feature',geometry:{type:'Polygon',coordinates:[box]},properties:{}});
+  // Fixed camp: mark WHERE the camp sits (the analysis centre) the moment it's set, before
+  // you run anything — immediate feedback that "this point is my camp" (user-requested).
+  if(draft.fixedCampMode && draft.center)
+    feats.push({type:'Feature',geometry:{type:'Point',coordinates:draft.center.slice()},properties:{camp:1}});
+  const data=fc(feats);
   if(map.getSource('draft')) map.getSource('draft').setData(data);
   else { map.addSource('draft',{type:'geojson',data});
-    map.addLayer({id:'draft-line',type:'line',source:'draft',
+    map.addLayer({id:'draft-fill',type:'fill',source:'draft',filter:['==','$type','Polygon'],paint:{'fill-color':'#e2c044','fill-opacity':0.06}});
+    map.addLayer({id:'draft-line',type:'line',source:'draft',filter:['==','$type','Polygon'],
       paint:{'line-color':'#e2c044','line-width':2,'line-dasharray':[3,2]}});
-    map.addLayer({id:'draft-fill',type:'fill',source:'draft',paint:{'fill-color':'#e2c044','fill-opacity':0.06}}); }
+    map.addLayer({id:'draft-camp',type:'symbol',source:'draft',filter:['==',['get','camp'],1],
+      layout:{'icon-image':'base_camp','icon-size':['interpolate',['linear'],['zoom'],8,0.9,11,1.25,15,2],'icon-allow-overlap':true,
+        'text-field':'CAMP','text-offset':[0,1.4],'text-size':11,'text-font':['Open Sans Bold']},
+      paint:{'text-color':'#e6c98a','text-halo-color':'#0b0f0d','text-halo-width':1.5}}); }
 }
 let _boxCleanup=null;
 function cancelBoxDraw(){ if(_boxCleanup) _boxCleanup(); }
