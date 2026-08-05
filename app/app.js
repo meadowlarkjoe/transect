@@ -1704,7 +1704,6 @@ function syncDocks(tab){
 let drawTool=null, drawPts=[], drawWpts=[], drawSaved=[];
 let drawEditId=null;                       // id of the drawing whose vertices are being dragged
 const hiddenDrawTypes=new Set();           // drawing TYPES hidden from the legend (area/line/…)
-const _PRIME=[[0,0],[0.0003,0]];           // degenerate off-map line that keeps the geojson line bucket alive
 function _styledLine(coords,src){ return {type:'Feature',geometry:{type:'LineString',coordinates:coords},
   properties:{id:src.id,stroke:src.stroke,lo:src.lo!=null?src.lo:1,lw:src.lw!=null?src.lw:2.6,style:src.style||'solid',label:src.label||''}}; }
 function _vertFeat(ll,src,grab){ return {type:'Feature',geometry:{type:'Point',coordinates:ll},
@@ -1723,52 +1722,47 @@ function ringKm2(ring){ // spherical polygon area
   return Math.abs(s*R*R/2);
 }
 function areaFmt(km2){ return UNITS==='imperial'?(km2*0.386102).toFixed(2)+' mi²':km2.toFixed(2)+' km²'; }
-// The four annot layers (over the `annot` source). Factored so _rebuildAnnot can recreate
-// them after recreating the source. Width/colour/opacity are per-drawing (data-driven).
-function _addAnnotLayers(){
-  const _lw=['coalesce',['get','lw'],2.6], _lc=['coalesce',['get','stroke'],'#5fe6ff'], _lo=['coalesce',['get','lo'],1];
-  map.addLayer({id:'annot-line-case',type:'line',source:'annot',filter:['==','$type','LineString'],
-    paint:{'line-color':'#08131a','line-width':['+',_lw,2.4],'line-opacity':['*',0.6,_lo]}});
-  map.addLayer({id:'annot-line',type:'line',source:'annot',filter:['==','$type','LineString'],
-    paint:{'line-color':_lc,'line-width':_lw,'line-opacity':_lo}});
-  map.addLayer({id:'annot-pt',type:'circle',source:'annot',filter:['==','$type','Point'],
-    paint:{'circle-radius':['case',['==',['get','grab'],1],8,['==',['get','vertex'],1],5,6],
-      'circle-color':['case',['==',['get','grab'],1],'#ffffff',['coalesce',['get','stroke'],'#5fe6ff']],
+// ONE `annot` source, created once, mutated only with setData — the simple model that always
+// worked. Colour / weight / opacity are per-drawing (data-driven from feature properties, so
+// the editor recolours just the one object). Outline STYLE (solid/dashed/dotted) can't be
+// data-driven — line-dasharray is a constant — so there is ONE line layer per style, each
+// filtered on the `style` property. All filters are PURE expression syntax (mixing legacy
+// `$type` with `['get',…]` inside one filter is what silently broke the layers before).
+function setupDraw(){
+  if(map.getSource('annot')) return;                 // idempotent
+  map.addSource('annot',{type:'geojson',data:fc([])});
+  const LW=['coalesce',['get','lw'],2.6], SC=['coalesce',['get','stroke'],'#5fe6ff'], LO=['coalesce',['get','lo'],1];
+  const isLine=['==',['geometry-type'],'LineString'];
+  const styleIs=v=>['all',isLine,['==',['coalesce',['get','style'],'solid'],v]];
+  map.addLayer({id:'annot-fill',type:'fill',source:'annot',filter:['==',['geometry-type'],'Polygon'],
+    paint:{'fill-color':['coalesce',['get','fill'],'#4de1ff'],'fill-opacity':['coalesce',['get','fo'],0.16]}});
+  // A dark casing under the outline so it reads on any background.
+  map.addLayer({id:'annot-line-case',type:'line',source:'annot',filter:isLine,
+    layout:{'line-cap':'round','line-join':'round'},
+    paint:{'line-color':'#08131a','line-width':['+',LW,2.4],'line-opacity':['*',0.55,LO]}});
+  map.addLayer({id:'annot-line-solid',type:'line',source:'annot',filter:styleIs('solid'),
+    layout:{'line-cap':'round','line-join':'round'},
+    paint:{'line-color':SC,'line-width':LW,'line-opacity':LO}});
+  map.addLayer({id:'annot-line-dash',type:'line',source:'annot',filter:styleIs('dashed'),
+    layout:{'line-join':'round'},
+    paint:{'line-color':SC,'line-width':LW,'line-opacity':LO,'line-dasharray':[2,1.4]}});
+  map.addLayer({id:'annot-line-dot',type:'line',source:'annot',filter:styleIs('dotted'),
+    layout:{'line-cap':'round','line-join':'round'},
+    paint:{'line-color':SC,'line-width':LW,'line-opacity':LO,'line-dasharray':[0.1,1.8]}});
+  map.addLayer({id:'annot-pt',type:'circle',source:'annot',filter:['==',['geometry-type'],'Point'],
+    paint:{'circle-radius':['case',['==',['get','grab'],1],7,['==',['get','vertex'],1],5,6],
+      'circle-color':['case',['==',['get','grab'],1],'#ffffff',SC],
       'circle-stroke-color':'#08131a','circle-stroke-width':2.2}});
   map.addLayer({id:'annot-label',type:'symbol',source:'annot',filter:['has','label'],
     layout:{'text-field':['get','label'],'text-size':12,'text-offset':[0,-1.2],'text-font':['Open Sans Bold'],'text-allow-overlap':true},
     paint:{'text-color':'#ffe6a8','text-halo-color':'#0b0f0d','text-halo-width':2}});
-}
-// THE outline fix. An empty-initialised geojson source never builds its LINE render bucket,
-// so lines set on it later never paint (points do) — the invisible-outline bug. Recreating
-// the source CARRYING the actual in-AOI line data builds the bucket in the right tiles, and
-// setData keeps working afterwards (both verified live). renderAnnot calls this the first
-// time a line appears (and _annotLinesLive resets on a fresh setupDraw / style reload).
-function _rebuildAnnot(data){
-  ['annot-line-case','annot-line','annot-pt','annot-label'].forEach(l=>{ if(map.getLayer(l)) map.removeLayer(l); });
-  if(map.getSource('annot')) map.removeSource('annot');
-  map.addSource('annot',{type:'geojson',data});
-  _addAnnotLayers();
-  window._annotLinesLive=true;
-}
-function setupDraw(){
-  ['annot-fill','annot-line-case','annot-line','annot-pt','annot-label'].forEach(l=>{ if(map.getLayer(l)) map.removeLayer(l); });
-  if(map.getSource('annot')) map.removeSource('annot');
-  if(map.getSource('annotFill')) map.removeSource('annotFill');
-  window._annotLinesLive=false;   // force a rebuild-with-data on the next line
-  map.addSource('annot',{type:'geojson',data:fc([])});
-  // Area FILLS live in their OWN source (kept split for safety); setData works fine for fills.
-  map.addSource('annotFill',{type:'geojson',data:fc([])});
-  map.addLayer({id:'annot-fill',type:'fill',source:'annotFill',filter:['==','$type','Polygon'],
-    paint:{'fill-color':['coalesce',['get','fill'],'#4de1ff'],'fill-opacity':['coalesce',['get','fo'],0.16]}});
-  _addAnnotLayers();
   if(!window._annotWired){
     window._annotWired=true;
     map.on('click',onDrawClick);
     map.on('dblclick',e=>{ if(drawTool&&drawTool!=='waypoint'){ e.preventDefault(); finishDraw(); } });
-    // Click a finished drawing (no tool armed) to open its editor; the boundary lines +
-    // vertices carry the parent id, so a click anywhere on the drawing resolves to it.
-    ['annot-fill','annot-line','annot-pt'].forEach(l=>{
+    // Click a finished drawing (no tool armed) to open its editor; fills, outlines and vertices
+    // all carry the parent id, so a click anywhere on the drawing resolves to it.
+    ['annot-fill','annot-line-solid','annot-line-dash','annot-line-dot','annot-pt'].forEach(l=>{
       map.on('click',l,e=>{ if(drawTool||drawEditId) return;
         const id=e.features&&e.features[0]&&e.features[0].properties.id;
         if(id!=null&&id!==''){ if(e.originalEvent)e.originalEvent.stopPropagation(); openDrawEditor(+id); } });
@@ -1818,52 +1812,42 @@ function renderAnnot(){
   if(!map.getSource('annot')){ try{ setupDraw(); }catch(e){} }
   if(!map.getSource('annot')) return;
   // ...and make sure the annotation layers sit ON TOP. setupDraw() runs during map load,
-  // before the data layers are added, so the drawings were being painted UNDERNEATH the
-  // satellite + model layers — measuring updated the panel but you saw nothing on the map.
-  // Raise EVERY render (cheap) in this exact order, so the outline always sits above the
-  // fill and the vertices above the outline — a stale one-time raise let the fill cover the
-  // outline once a polygon appeared (the "outline vanishes at the 3rd point" report).
-  ['annot-fill','annot-line-case','annot-line','annot-pt','annot-label'].forEach(l=>{ try{ if(map.getLayer(l)) map.moveLayer(l); }catch(e){} });
+  // before the data layers are added, so the drawings would otherwise paint UNDERNEATH the
+  // satellite + model layers. Raise EVERY render (cheap) in this exact order so fill < outline
+  // < vertices < labels always holds and nothing covers the outline.
+  ['annot-fill','annot-line-case','annot-line-solid','annot-line-dash','annot-line-dot','annot-pt','annot-label']
+    .forEach(l=>{ try{ if(map.getLayer(l)) map.moveLayer(l); }catch(e){} });
   // Offer "Recalculate" once the hunter has drawn a focus area to re-plan inside.
   const rb=document.getElementById('rescopeBtn');
   if(rb){ const hasPoly=(drawSaved||[]).some(f=>f.geometry&&f.geometry.type==='Polygon');
     rb.classList.toggle('hidden', !(hasPoly && hasResult() && LAST_JOB_ID)); }
-  // The measurement was being computed correctly and never shown: the readout only
-  // refreshed on hovering the rail button, so clicking points on the map produced a
-  // running total nobody could see. That is why the tools felt dead.
+  // The measurement was being computed correctly and never shown: the readout only refreshed on
+  // hovering the rail button, so clicking points produced a running total nobody could see.
   if(drawTool) showRailTip(drawTool);
-  // Build the render set: committed drawings (skip any hidden per-object or per-TYPE), plus
-  // the in-progress geometry. Every polygon ALSO emits an explicit CLOSED-RING LineString in
-  // the SAME colour, because a `line` layer won't paint polygon rings — that's why the area
-  // outline (and its closing edge back to point 1) kept vanishing. The ring is closed from
-  // the moment there are ≥2 points, so an area always reads as a shape while you draw it.
-  const feats=[];    // lines + points -> `annot` (never a polygon, so it never breaks)
-  const fills=[];    // polygons -> `annotFill` (isolated)
+  // ONE source, ONE setData. Every polygon ALSO emits an explicit CLOSED-RING LineString in the
+  // SAME outline style, because a `line` layer does NOT paint polygon rings — THAT is why the
+  // area outline vanished the instant the 3rd point turned the geometry into a Polygon. Hidden
+  // objects (per-object or per-TYPE) are dropped from the render set.
+  const feats=[];
   const vis=f=>!(f.properties&&(f.properties.hidden||hiddenDrawTypes.has(f.properties.dtype)));
   drawSaved.filter(vis).forEach(f=>{
-    if(f.geometry.type==='Polygon'){
-      fills.push(f);   // fill in its own source; the boundary line carries the label + style
+    feats.push(f);                                              // polygon (for its fill) / line / pin
+    if(f.geometry.type==='Polygon')
       (f.geometry.coordinates||[]).forEach(ring=>feats.push(_styledLine(ring,f.properties)));
-    } else {
-      feats.push(f);   // committed line / pin renders directly
-    }
     if(drawEditId && f.properties.id===drawEditId) _vertsOf(f).forEach(v=>feats.push(_vertFeat(v,f.properties,true)));
   });
   if(drawPts.length){
     const st=DRAW_STYLE[drawTool]||DRAW_STYLE.area;
     if(drawTool==='area' && drawPts.length>=2){
       const ring=drawPts.concat([drawPts[0]]);                 // ALWAYS closed while drawing
-      if(drawPts.length>=3) fills.push({type:'Feature',geometry:{type:'Polygon',coordinates:[ring]},properties:{fill:st.fill,fo:st.fo}});
-      feats.push(_styledLine(ring,{stroke:st.stroke,lo:st.lo,label:drawPts.length>=3?areaFmt(ringKm2(drawPts)):''}));
+      if(drawPts.length>=3) feats.push({type:'Feature',geometry:{type:'Polygon',coordinates:[ring]},properties:{fill:st.fill,fo:st.fo,style:'solid'}});
+      feats.push(_styledLine(ring,{stroke:st.stroke,lo:st.lo,style:'solid',label:drawPts.length>=3?areaFmt(ringKm2(drawPts)):''}));
     } else {
-      feats.push(_styledLine(drawPts.slice(),{stroke:st.stroke,lo:st.lo,label:drawPts.length>=2?km(polyKm(drawPts)):''}));
+      feats.push(_styledLine(drawPts.slice(),{stroke:st.stroke,lo:st.lo,style:'solid',label:drawPts.length>=2?km(polyKm(drawPts)):''}));
     }
     drawPts.forEach(p=>feats.push(_vertFeat(p,st)));
   }
-  const hasLines=feats.some(f=>f.geometry&&f.geometry.type==='LineString');
-  if(hasLines && !window._annotLinesLive) _rebuildAnnot(fc(feats));   // first in-AOI line: build the bucket with real data
-  else { const s=map.getSource('annot'); if(s) s.setData(fc(feats)); }
-  const fsrc=map.getSource('annotFill'); if(fsrc) fsrc.setData(fc(fills));
+  map.getSource('annot').setData(fc(feats));
   renderDrawManager();
 }
 function setDrawTool(t){
@@ -1966,6 +1950,10 @@ function openDrawEditor(id){
     +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Outline</span><input id="deStroke" type="color" value="${p.stroke||'#5fe6ff'}" style="width:30px;height:22px;border:none;background:none;padding:0"></div>`
     +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Line opacity</span><input id="deLo" type="range" min="0" max="1" step="0.05" value="${p.lo!=null?p.lo:1}" style="width:100px"></div>`
     +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Weight</span><input id="deLw" type="range" min="1" max="8" step="0.5" value="${p.lw!=null?p.lw:2.6}" style="width:100px"></div>`
+    +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Style</span>`
+      +`<select id="deStyle" style="background:#1c2429;border:1px solid #2a343a;color:#cde;border-radius:5px;padding:2px 6px;cursor:pointer">`
+      +['solid','dashed','dotted'].map(v=>`<option value="${v}" ${(p.style||'solid')===v?'selected':''}>${v[0].toUpperCase()+v.slice(1)}</option>`).join('')
+      +`</select></div>`
     +(isArea?`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Fill</span><input id="deFill" type="color" value="${p.fill||'#4de1ff'}" style="width:30px;height:22px;border:none;background:none;padding:0"></div>`
       +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Fill opacity</span><input id="deFo" type="range" min="0" max="0.7" step="0.02" value="${p.fo!=null?p.fo:0.16}" style="width:100px"></div>`:'')
     +`<label style="display:flex;align-items:center;gap:8px;margin:7px 0;cursor:pointer"><input id="deHide" type="checkbox" ${p.hidden?'checked':''}> Hide on map</label>`
@@ -1978,6 +1966,7 @@ function openDrawEditor(id){
   el.querySelector('#deStroke').oninput=e=>set('stroke',e.target.value);
   el.querySelector('#deLo').oninput=e=>set('lo',+e.target.value);
   el.querySelector('#deLw').oninput=e=>set('lw',+e.target.value);
+  el.querySelector('#deStyle').onchange=e=>set('style',e.target.value);
   if(isArea){ el.querySelector('#deFill').oninput=e=>set('fill',e.target.value); el.querySelector('#deFo').oninput=e=>set('fo',+e.target.value); }
   el.querySelector('#deHide').onchange=e=>{ set('hidden',e.target.checked); renderDrawManager(); };
   el.querySelector('#deDel').onclick=()=>{ drawSaved=drawSaved.filter(x=>x.properties.id!==id); if(drawEditId===id)exitDrawEdit(); el.remove(); renderAnnot(); };
