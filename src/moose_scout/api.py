@@ -291,6 +291,39 @@ def _reap_orphans():
 threading.Thread(target=_reap_orphans, daemon=True).start()
 
 
+def _resume_interrupted():
+    """Pick up runs whose worker died with the last container.
+
+    HONEST LIMIT, measured rather than assumed: start_new_session detaches a worker from
+    the API's process GROUP, not from the container. `docker rm -f` still kills it — I
+    checked, and an earlier version of this claimed otherwise. So a deploy that replaces
+    the container DOES kill the analysis running inside it.
+
+    What makes that survivable is the pair of things #17 actually bought: the state is on
+    disk, and stages skip work already done. So the new container looks for jobs that
+    were running when the old one went away and starts them again — they resume at the
+    stage they reached, and with the geography cache (#79) the acquire they already paid
+    for costs seconds. The hunter sees the run continue instead of vanish.
+
+    The drain is still the first line of defence; this is what happens when a drain was
+    skipped, or the box died on its own."""
+    try:
+        for jid, st in list(jobstore.all_states()):
+            if jobstore.effective_status(st) != "interrupted":
+                continue
+            if jobstore.cancelled(jid):
+                continue          # abandoned on purpose; do not drag it back
+            done = st.get("done_stages") or []
+            print(f"[api] resuming interrupted job {jid} (had finished {len(done)} stages)")
+            jobstore.update(jid, status="running", resumed=(st.get("resumed", 0) + 1))
+            _spawn_worker(jid)
+    except Exception as e:  # noqa: BLE001 — never let recovery stop the API booting
+        print(f"[api] resume scan failed: {e}")
+
+
+threading.Thread(target=_resume_interrupted, daemon=True).start()
+
+
 RESCOPE_KEEP = 25          # most-recent job caches retained for re-planning
 
 
