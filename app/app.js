@@ -4044,7 +4044,17 @@ const IDENTIFY = [
   {lyr:'burnZones',    row:'burns',    title:p=>`Burn regeneration · ${p.cls||''}`, sub:p=>`${p.area_km2} km²`},
   {lyr:'cutZones',     row:'cuts',     title:p=>({fresh:'Recent cut · fresh (<10 yr)',regen:'Recent cut · prime regen (10–25 yr)',closing:'Recent cut · closing in (26–40 yr)'}[p.cls]||'Logging cut'),
                        sub:p=>`${p.area_km2} km² · logged ground, browse by age`},
-  {lyr:'funnelZones',  row:'funnel',   title:()=>'Funnel / pass',    sub:p=>`${p.area_km2} km²`},
+  {lyr:'funnelZones',  row:'funnel',   title:()=>'Funnel / pass',
+                       // The NECK WIDTH is the claim this feature is making; area is not.
+                       // "0.1 km²" is unfalsifiable — "a 180 m neck" is something you can
+                       // check against the contours in front of you, and it is what makes a
+                       // funnel drawn through a bog obviously wrong.
+                       sub:p=>{
+                         const w=p.neck_m!=null?`~${p.neck_m} m neck`:'width not measured';
+                         const meta=DOC.funnel_meta||{};
+                         const thin=meta.grhq_present===false;
+                         return `${w} · ${p.area_km2} km²`+(thin?' · bog data missing here — treat with suspicion':'');
+                       }},
   {lyr:'wetlandZones', row:'wetland',  title:()=>'Wetland',          sub:p=>`${p.area_km2} km² · marsh/bog — barrier + slow going`},
   {lyr:'beaverPonds',  row:'beaver',   title:()=>'Beaver pond',      sub:()=>'GRHQ flowage — a rut hub; hunt the wet edge beside cover'},
   {lyr:'tenureBlocked',row:'tenure',   title:()=>'Closed to you',    sub:p=>p.name||'outfitter / reserve tenure'},

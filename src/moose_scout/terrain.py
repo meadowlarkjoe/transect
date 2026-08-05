@@ -13,6 +13,8 @@ These feed the HSM (habitat), the funnel/pass features, and thermal refuges.
 """
 from __future__ import annotations
 
+import json
+
 from .config import Context, cache_dir
 from . import rasterio_utils as ru
 
@@ -139,6 +141,35 @@ def run(ctx: Context) -> None:
         constriction = np.where(ridge & (full_w < NECK_M), strength, 0.0).astype("float32")
         # thicken the 1-px centreline so a neck reads as a small zone, not a hairline
         constriction = maximum_filter(constriction, size=max(3, int(round(120 / res)) | 1))
+        # PERSIST THE MEASUREMENT, not just the score. "Funnel / pass · 0.1 km²" tells a
+        # hunter nothing about whether to believe it; "a 180 m neck" is checkable against
+        # the map in front of them. Width is the honest unit for a constriction, and it
+        # is the number that makes a bad funnel obviously bad.
+        funnel_w = np.where(constriction > 0, full_w, np.nan).astype("float32")
+        funnel_w = maximum_filter(np.nan_to_num(funnel_w, nan=0.0),
+                                  size=max(3, int(round(120 / res)) | 1))
+        funnel_w = np.where(constriction > 0, funnel_w, np.nan).astype("float32")
+        ru.write(cache_dir(aoi) / "funnel_width.tif", funnel_w, prof)
+        # How much of the barrier is WETLAND rather than open water. WorldCover barely
+        # sees boreal peatland (0.4% of one test AOI, against 7.5% from MRNF GRHQ), so
+        # when GRHQ is missing bog silently becomes PASSABLE and necks get drawn straight
+        # through it — a funnel in the middle of a bog, which is not a funnel. Record the
+        # share so the contract can caveat the layer instead of presenting it flat.
+        try:
+            _wet = np.zeros(dem.shape, bool)
+            for nm in ("wetland.tif", "wetland_grhq.tif"):
+                try:
+                    w = ru.read(cache_dir(aoi) / nm)[0]
+                    if w is not None and w.shape == dem.shape:
+                        _wet |= np.nan_to_num(w) > 0
+                except Exception:
+                    pass
+            (cache_dir(aoi) / "funnel_barrier.json").write_text(json.dumps({
+                "barrier_frac": round(float(barrier.mean()), 4),
+                "wetland_frac": round(float(_wet.mean()), 4),
+                "grhq_present": (cache_dir(aoi) / "wetland_grhq.tif").exists()}))
+        except Exception as _e:
+            print(f"[terrain] funnel barrier note not written: {_e}")
 
     # topographic saddle — trustworthy ONLY on steep ground; near-zero and noisy on
     # flats, so gate it hard by slope instead of letting it dominate.

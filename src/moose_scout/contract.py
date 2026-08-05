@@ -754,6 +754,43 @@ def build(ctx: Context) -> dict:
     try:
         doc["funnel_zones"] = _polygonize(ctx, cache, "terrain/funnel.tif",
                                           [("funnel", 0.15)], min_km2=0.04, smooth_m=90, per_class=18)
+        # THE NECK WIDTH, per funnel. "Funnel / pass · 0.1 km²" is unfalsifiable — it
+        # says nothing a hunter can check against the map in front of them. "a 180 m
+        # neck" is the measurement the feature is actually claiming, and it is what makes
+        # a bad funnel obviously bad (user: "one is in the middle of a bog").
+        try:
+            import numpy as _np
+            import rasterio as _rio
+            from rasterio.features import geometry_mask as _gmask
+            fw = cache / "funnel_width.tif"
+            if fw.exists() and doc["funnel_zones"]:
+                with _rio.open(fw) as _s:
+                    _w = _s.read(1).astype("float32")
+                    _nd = _s.nodata
+                    if _nd is not None:
+                        _w[_w == _nd] = _np.nan
+                    for z in doc["funnel_zones"]:
+                        try:
+                            g = {"type": "Polygon", "coordinates": [z["ll"]]}
+                            m = _gmask([g], out_shape=_w.shape, transform=_s.transform,
+                                       invert=True, all_touched=True)
+                            vals = _w[m & _np.isfinite(_w)]
+                            if vals.size:
+                                z["neck_m"] = int(round(float(_np.nanmin(vals))))
+                        except Exception:
+                            pass
+        except Exception as _e:
+            print(f"[contract] funnel neck widths unavailable: {_e}")
+        # And say when the barrier that DEFINES a funnel is incomplete. WorldCover barely
+        # sees boreal peatland; without MRNF GRHQ, bog reads as passable ground and necks
+        # get drawn through it. That is a caveat on the layer, not a silent degradation.
+        try:
+            import json as _json
+            bn = cache / "funnel_barrier.json"
+            if bn.exists():
+                doc["funnel_meta"] = _json.loads(bn.read_text())
+        except Exception:
+            pass
     except Exception:
         doc["funnel_zones"] = []
     # GRHQ wetlands (marsh/bog/fen) as a display layer — the barrier that shapes the
