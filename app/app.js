@@ -1704,6 +1704,7 @@ function syncDocks(tab){
 let drawTool=null, drawPts=[], drawWpts=[], drawSaved=[];
 let drawEditId=null;                       // id of the drawing whose vertices are being dragged
 const hiddenDrawTypes=new Set();           // drawing TYPES hidden from the legend (area/line/…)
+const _PRIME=[[0,0],[0.0003,0]];           // degenerate off-map line that keeps the geojson line bucket alive
 function _styledLine(coords,src){ return {type:'Feature',geometry:{type:'LineString',coordinates:coords},
   properties:{id:src.id,stroke:src.stroke,lo:src.lo!=null?src.lo:1,lw:src.lw!=null?src.lw:2.6,style:src.style||'solid',label:src.label||''}}; }
 function _vertFeat(ll,src,grab){ return {type:'Feature',geometry:{type:'Point',coordinates:ll},
@@ -1731,7 +1732,11 @@ function setupDraw(){
   ['annot-fill','annot-line-case','annot-line','annot-pt','annot-label'].forEach(l=>{ if(map.getLayer(l)) map.removeLayer(l); });
   if(map.getSource('annot')) map.removeSource('annot');
   if(map.getSource('annotFill')) map.removeSource('annotFill');
-  map.addSource('annot',{type:'geojson',data:fc([])});
+  // PRIME the source with a LineString. An EMPTY-initialised geojson source never builds its
+  // line render bucket, so LINE features later set on it never paint (points do) — that was
+  // the invisible-outline bug the whole time. A degenerate line at null island (off every real
+  // AOI) primes it; renderAnnot keeps one present so the bucket never dies.
+  map.addSource('annot',{type:'geojson',data:{type:'Feature',geometry:{type:'LineString',coordinates:_PRIME},properties:{prime:1}}});
   // Area FILLS live in their OWN source (a polygon beside the lines/points once looked like it
   // broke them; kept split for safety — the outline + vertices are what the hunter must see).
   map.addSource('annotFill',{type:'geojson',data:fc([])});
@@ -1861,6 +1866,7 @@ function renderAnnot(){
     }
     drawPts.forEach(p=>feats.push(_vertFeat(p,st)));
   }
+  feats.push({type:'Feature',geometry:{type:'LineString',coordinates:_PRIME},properties:{prime:1}});   // keep the line bucket alive
   map.getSource('annot').setData(fc(feats));
   const fsrc=map.getSource('annotFill'); if(fsrc) fsrc.setData(fc(fills));
   renderDrawManager();
