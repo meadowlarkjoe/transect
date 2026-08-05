@@ -105,20 +105,34 @@ def class_fractions(src, classes, dst_crs, dst_transform, W, H, aoi_wgs84,
     out = {k: np.zeros((H, W), dtype="float32") for k in classes}
     seen = np.zeros((H, W), dtype=bool)
 
-    # How many destination rows can we do at once? Estimate the native pixels each dest
-    # row pulls in, from the source/destination resolution ratio.
+    # SOURCE PIXELS PER DESTINATION CELL — measured, not derived from the two
+    # resolutions.
+    #
+    # Comparing src.transform.a to dst_transform.a assumes they share units, and they do
+    # NOT: WorldCover is EPSG:4326 (degrees, ~8.3e-5) while the analysis grid is metric
+    # (40). That ratio came out ~10,000x too large, which made the block factor absurd
+    # and the row budget one row, and the whole thing OOM-killed the container — a
+    # change meant to raise the resolution ceiling instead lowered it.
+    #
+    # Measuring the real window covering the whole AOI is unit-free and correct for any
+    # CRS pair.
     try:
-        src_res = abs(src.transform.a)
-        dst_res = abs(dst_transform.a)
-        ratio = max(1.0, dst_res / max(src_res, 1e-9))
+        l0, b0, r0f, t0f = transform_bounds(dst_crs, src.crs,
+                                            *(dst_transform * (0, 0)),
+                                            *(dst_transform * (W, H)))
+        fw = from_bounds(min(l0, r0f), min(b0, t0f), max(l0, r0f), max(b0, t0f),
+                         src.transform)
+        spc = float(np.sqrt(max(1.0, abs(fw.width) * abs(fw.height)) / max(1, W * H)))
     except Exception:
-        src_res, dst_res, ratio = 10.0, 40.0, 4.0
-    # Block factor: collapse native pixels to ~half a destination cell before warping.
-    # Constant for the whole call, and the source window is snapped to a multiple of it,
-    # so block boundaries sit on a GLOBAL grid and cannot shift with the tiling — that is
-    # what makes the tiled result identical to the untiled one.
-    bf = int(max(1, np.floor(dst_res / (2.0 * src_res))))
-    per_row = max(1.0, W * ratio * ratio)
+        spc = 4.0
+    spc = float(min(64.0, max(1.0, spc)))       # linear source pixels per dest cell
+
+    # Block factor: collapse native pixels to ~2 samples per destination cell before
+    # warping. Constant for the whole call, and the source window is snapped to a
+    # multiple of it, so block boundaries sit on a GLOBAL grid and cannot shift with the
+    # tiling — that is what makes the tiled result identical to the untiled one.
+    bf = int(max(1, np.floor(spc / 2.0)))
+    per_row = max(1.0, W * spc * spc)
     band = int(max(1, min(H, budget_px // per_row)))
 
     for r0 in range(0, H, band):

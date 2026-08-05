@@ -102,3 +102,34 @@ def _bounds_wgs84(path):
     from rasterio.warp import transform_bounds
     with rasterio.open(path) as s:
         return transform_bounds(s.crs, "EPSG:4326", *s.bounds)
+
+
+def test_geographic_source_into_metric_grid_stays_bounded(tmp_path):
+    """THE BUG THIS EXISTS FOR: the source was EPSG:4326 (degrees) and the analysis grid
+    metric, so comparing their pixel sizes directly overstated the ratio by ~10,000x.
+    The block factor went absurd, the row budget collapsed to one, and the container was
+    OOM-killed — a change meant to RAISE the resolution ceiling lowered it instead.
+
+    A degrees-in / metres-out call must produce sane fractions without exploding."""
+    from rasterio.transform import from_origin
+    deg = 8.333e-5                                  # ~10 m at the equator
+    fine = np.indices((240, 240))[1] % 2 * 10 + 10  # alternating classes
+    p = tmp_path / "geo.tif"
+    prof = {"driver": "GTiff", "dtype": "uint8", "count": 1, "height": 240, "width": 240,
+            "crs": "EPSG:4326", "transform": from_origin(-79.0, 48.0, deg, deg),
+            "nodata": 0}
+    with rasterio.open(p, "w", **prof) as d:
+        d.write(fine.astype("uint8"), 1)
+
+    from rasterio.warp import transform_bounds
+    with rasterio.open(p) as s:
+        wgs = transform_bounds(s.crs, "EPSG:4326", *s.bounds)
+        l, b, r, t = transform_bounds("EPSG:4326", "EPSG:32198", *wgs)
+        W = H = 15                                   # ~40 m cells over the same ground
+        tr = from_origin(l, t, (r - l) / W, (t - b) / H)
+        frac, seen = ru.class_fractions(s, [10, 20], "EPSG:32198", tr, W, H, wgs)
+
+    assert seen.any(), "a fully overlapping source must produce coverage"
+    tot = frac[10] + frac[20]
+    assert np.allclose(tot[seen], 1.0, atol=0.1)
+    assert 0.2 < float(frac[10][seen].mean()) < 0.8, "a 50/50 interleave must read near half"
