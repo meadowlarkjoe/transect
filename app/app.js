@@ -1705,7 +1705,7 @@ let drawTool=null, drawPts=[], drawWpts=[], drawSaved=[];
 let drawEditId=null;                       // id of the drawing whose vertices are being dragged
 const hiddenDrawTypes=new Set();           // drawing TYPES hidden from the legend (area/line/…)
 function _styledLine(coords,src){ return {type:'Feature',geometry:{type:'LineString',coordinates:coords},
-  properties:{id:src.id,stroke:src.stroke,lo:src.lo!=null?src.lo:1,lw:src.lw!=null?src.lw:2.6,style:src.style||'solid',label:src.label||''}}; }
+  properties:{id:src.id,stroke:src.stroke,lo:src.lo!=null?src.lo:1,lw:src.lw!=null?src.lw:3.4,style:src.style||'solid',label:src.label||''}}; }
 function _vertFeat(ll,src,grab){ return {type:'Feature',geometry:{type:'Point',coordinates:ll},
   properties:{vertex:1,grab:grab?1:0,id:src.id,stroke:src.stroke||'#5fe6ff'}}; }
 function _vertsOf(f){ const g=f.geometry;
@@ -1730,14 +1730,16 @@ function areaFmt(km2){ return UNITS==='imperial'?(km2*0.386102).toFixed(2)+' mi�
 // per-style layer split (all of which caused regressions and could not be verified reliably).
 const _ANNOT_LAYERS=['annot-fill','annot-line-case','annot-line','annot-pt','annot-label'];
 function _addAnnotLayers(){
-  const LW=['coalesce',['get','lw'],2.6], SC=['coalesce',['get','stroke'],'#5fe6ff'], LO=['coalesce',['get','lo'],1];
+  const LW=['coalesce',['get','lw'],3.4], SC=['coalesce',['get','stroke'],'#5fe6ff'], LO=['coalesce',['get','lo'],1];
   map.addLayer({id:'annot-fill',type:'fill',source:'annot',filter:['==','$type','Polygon'],
-    paint:{'fill-color':['coalesce',['get','fill'],'#4de1ff'],'fill-opacity':['coalesce',['get','fo'],0.16]}});
-  // A dark casing under the bright outline so the drawing reads on any background.
-  map.addLayer({id:'annot-line-case',type:'line',source:'annot',filter:['!=','$type','Point'],
+    paint:{'fill-color':['coalesce',['get','fill'],'#4de1ff'],'fill-opacity':['coalesce',['get','fo'],0.28]}});
+  // A dark casing under the bright outline so the drawing reads on any background. Both line
+  // layers match ONLY LineStrings — every polygon emits its own boundary LineString, so we never
+  // depend on a line layer painting a polygon RING (which it does not do reliably).
+  map.addLayer({id:'annot-line-case',type:'line',source:'annot',filter:['==','$type','LineString'],
     layout:{'line-cap':'round','line-join':'round'},
-    paint:{'line-color':'#08131a','line-width':['+',LW,2.4],'line-opacity':['*',0.55,LO]}});
-  map.addLayer({id:'annot-line',type:'line',source:'annot',filter:['!=','$type','Point'],
+    paint:{'line-color':'#08131a','line-width':['+',LW,2.6],'line-opacity':['*',0.6,LO]}});
+  map.addLayer({id:'annot-line',type:'line',source:'annot',filter:['==','$type','LineString'],
     layout:{'line-cap':'round','line-join':'round'},
     paint:{'line-color':SC,'line-width':LW,'line-opacity':LO}});
   map.addLayer({id:'annot-pt',type:'circle',source:'annot',filter:['==','$type','Point'],
@@ -1787,7 +1789,7 @@ function setupDraw(){
 // and opacities so the click-to-edit panel can recolour just that one, and so a type can
 // be hidden wholesale from the legend. Defaults per tool; the user overrides them.
 const DRAW_STYLE={
-  area :{stroke:'#5fe6ff',fill:'#4de1ff',fo:0.16,lo:1},
+  area :{stroke:'#5fe6ff',fill:'#4de1ff',fo:0.28,lo:1},
   line :{stroke:'#ffd24d',fill:'#ffd24d',fo:0,   lo:1},
   route:{stroke:'#7bd47b',fill:'#7bd47b',fo:0,   lo:1},
   dist :{stroke:'#ffd24d',fill:'#ffd24d',fo:0,   lo:1},
@@ -1797,7 +1799,7 @@ let _drawId=1;
 function _drawFeat(geom,dtype,label){
   const s=DRAW_STYLE[dtype]||DRAW_STYLE.area;
   return {type:'Feature',geometry:geom,properties:{id:_drawId++,dtype,label:label||'',
-    stroke:s.stroke,fill:s.fill,fo:s.fo,lo:s.lo,lw:2.6,style:'solid',hidden:false}};
+    stroke:s.stroke,fill:s.fill,fo:s.fo,lo:s.lo,lw:3.4,style:'solid',hidden:false}};
 }
 function onDrawClick(e){
   if(!drawTool || drawEditId) return;      // in vertex-edit mode, clicks drag, not add
@@ -1957,9 +1959,9 @@ function openDrawEditor(id){
     +(stats?`<div style="margin-bottom:8px;color:#c7d0d4">${stats}</div>`:'')
     +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Outline</span><input id="deStroke" type="color" value="${p.stroke||'#5fe6ff'}" style="width:30px;height:22px;border:none;background:none;padding:0"></div>`
     +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Line opacity</span><input id="deLo" type="range" min="0" max="1" step="0.05" value="${p.lo!=null?p.lo:1}" style="width:100px"></div>`
-    +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Weight</span><input id="deLw" type="range" min="1" max="8" step="0.5" value="${p.lw!=null?p.lw:2.6}" style="width:100px"></div>`
+    +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Weight</span><input id="deLw" type="range" min="1" max="8" step="0.5" value="${p.lw!=null?p.lw:3.4}" style="width:100px"></div>`
     +(isArea?`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Fill</span><input id="deFill" type="color" value="${p.fill||'#4de1ff'}" style="width:30px;height:22px;border:none;background:none;padding:0"></div>`
-      +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Fill opacity</span><input id="deFo" type="range" min="0" max="0.7" step="0.02" value="${p.fo!=null?p.fo:0.16}" style="width:100px"></div>`:'')
+      +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Fill opacity</span><input id="deFo" type="range" min="0" max="0.7" step="0.02" value="${p.fo!=null?p.fo:0.28}" style="width:100px"></div>`:'')
     +`<label style="display:flex;align-items:center;gap:8px;margin:7px 0;cursor:pointer"><input id="deHide" type="checkbox" ${p.hidden?'checked':''}> Hide on map</label>`
     +`<div style="display:flex;gap:6px;margin-top:6px">`
     +`<button id="deEdit" style="flex:1;background:${drawEditId===id?'#2a4d1c':'#1c2429'};border:1px solid #2a343a;color:#cde;border-radius:6px;padding:5px;cursor:pointer">${drawEditId===id?'Done editing':'Edit points'}</button>`
