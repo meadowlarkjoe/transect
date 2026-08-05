@@ -1811,13 +1811,13 @@ function setupDraw(){
       map.on('mousemove',l,e=>{ if(drawTool||drawEditId) return; _drawHover(e); });
       map.on('mouseleave',l,()=>{ if(!drawTool&&!drawEditId) map.getCanvas().style.cursor=''; _drawHover(null); });
     });
-    // ESC CANCELS an in-progress drawing (drops the points — it does not commit),
-    // or exits vertex-edit mode. The measuring tip has promised "ESC TO EXIT" all
-    // along; now it's true.
+    // ESC FINISHES the in-progress drawing — commits it and disarms the tool (same as
+    // double-click, but one key). Losing your points on ESC was the wrong default; delete
+    // is always available from the drawing's own panel. In vertex-edit mode, ESC exits edit.
     window.addEventListener('keydown',e=>{
       if(e.key!=='Escape') return;
       if(drawEditId){ exitDrawEdit(); const de=document.getElementById('drawEdit'); if(de)de.remove(); return; }
-      if(drawTool){ drawPts=[]; setDrawTool(drawTool); }   // toggle the armed tool OFF, nothing committed
+      if(drawTool) setDrawTool(drawTool);   // toggles OFF; setDrawTool commits drawPts via finishDraw()
     });
   }
 }
