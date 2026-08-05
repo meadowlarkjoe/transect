@@ -769,9 +769,16 @@ def build(ctx: Context) -> dict:
                     _nd = _s.nodata
                     if _nd is not None:
                         _w[_w == _nd] = _np.nan
+                    # The rings are WGS84 lon/lat; the raster is projected. Masking a
+                    # geographic polygon against a metric transform yields an EMPTY mask
+                    # and no width — silently, which is how the first version of this
+                    # shipped reporting nothing at all.
+                    from pyproj import Transformer as _TR
+                    _fwd = _TR.from_crs("EPSG:4326", _s.crs, always_xy=True)
                     for z in doc["funnel_zones"]:
                         try:
-                            g = {"type": "Polygon", "coordinates": [z["ll"]]}
+                            _ring = [list(_fwd.transform(x, y)) for x, y in z["ll"]]
+                            g = {"type": "Polygon", "coordinates": [_ring]}
                             m = _gmask([g], out_shape=_w.shape, transform=_s.transform,
                                        invert=True, all_touched=True)
                             vals = _w[m & _np.isfinite(_w)]
