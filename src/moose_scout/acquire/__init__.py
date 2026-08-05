@@ -108,6 +108,24 @@ def run(ctx: Context) -> dict[str, str]:
 
     from . import dem, ecoforestiere, fire, grhq, hydro, roads, sentinel, tenure, zones
 
+    # GEOGRAPHY CACHE (#79). Every source below skips a layer that is already on disk,
+    # so linking in what a previous job over this same box + grid already downloaded is
+    # all it takes to turn the slow half of a run into a no-op. Nothing here can fail
+    # the run: a miss just means we fetch, exactly as before.
+    from .. import geocache
+    cache = cache_dir(ctx.aoi.name)
+    reused = []
+    try:
+        reused = geocache.restore(ctx, cache)
+        if reused:
+            print(f"[acquire] geocache HIT {geocache.key(ctx)} — reused {len(reused)} "
+                  f"layers, skipping their downloads: {', '.join(sorted(reused)[:8])}"
+                  f"{'…' if len(reused) > 8 else ''}")
+        else:
+            print(f"[acquire] geocache MISS {geocache.key(ctx)} — fetching this box cold")
+    except Exception as e:  # noqa: BLE001
+        print(f"[acquire] geocache restore skipped: {e}")
+
     steps = [
         ("zones", zones.fetch),
         ("tenure", tenure.fetch),
@@ -149,6 +167,19 @@ def run(ctx: Context) -> dict[str, str]:
             status[name] = f"error: {exc}"
         finally:
             pool.shutdown(wait=False)       # abandon a stuck worker thread; move on
+
+    # Contribute whatever this run fetched back to the shared store, so the NEXT job
+    # over this box gets it free. Publish only layers that landed — a source that timed
+    # out must not cache its absence as if it were a result.
+    try:
+        put = geocache.publish(ctx, cache)
+        geocache.touch(ctx)
+        geocache.prune()
+        if put:
+            print(f"[acquire] geocache published {len(put)} layers to {geocache.key(ctx)}")
+    except Exception as e:  # noqa: BLE001
+        print(f"[acquire] geocache publish skipped: {e}")
+    status["_geocache"] = f"reused {len(reused)}"
     return status
 
 

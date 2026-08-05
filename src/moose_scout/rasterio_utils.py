@@ -91,13 +91,31 @@ def write(path, arr, profile, nodata=-9999.0) -> Path:
     import numpy as np
     import rasterio
 
+    import os
+
     prof = dict(profile)
     prof.update(dtype="float32", count=1, nodata=nodata, compress="deflate", tiled=True)
     out = np.where(np.isnan(arr), nodata, arr).astype("float32")
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    with rasterio.open(path, "w", **prof) as dst:
-        dst.write(out, 1)
-    return Path(path)
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # ATOMIC. Two reasons, both of which have teeth:
+    #   1. A run killed mid-write (container restart, OOM) used to leave a TRUNCATED
+    #      .tif behind, and every stage's "skip if it already exists" check would then
+    #      happily reuse the corpse.
+    #   2. The geography cache (#79) hands out HARDLINKS to shared layers. Writing in
+    #      place would edit the shared inode and poison that layer for every future
+    #      job; replace() swaps a fresh inode in and leaves the shared one alone.
+    tmp = path.with_name(path.name + f".tmp{os.getpid()}")
+    try:
+        with rasterio.open(tmp, "w", **prof) as dst:
+            dst.write(out, 1)
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+    return path
 
 
 def normalize(arr, lo=None, hi=None, invert=False):
