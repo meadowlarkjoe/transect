@@ -848,7 +848,7 @@ def run(ctx: Context, manual_areas=None) -> None:
 
     # --- least-cost approach routes: access -> top rut sites (best), -> thermal (midday_hot) ---
     try:
-        _add_routes(ctx, features, cache, prof, access, toll)
+        _add_routes(ctx, features, cache, prof, access, toll, camp_of_area=camp_of_area)
     except Exception as e:  # routing is best-effort
         routes_msg += f" (routes skipped: {e})"
 
@@ -1128,7 +1128,21 @@ def _crew_plan(area_props, sites, party):
             "counts": {"calling": n_call, "glassing": n_glass, "sits": n_feed}}
 
 
-def _add_routes(ctx, features, cache, prof, access, toll):
+def _add_routes(ctx, features, cache, prof, access, toll, camp_of_area=None):
+    """camp_of_area: {rank: (row, col)} — the authoritative hunt anchor per area.
+
+    IT IS AN ARGUMENT AND NOT A FEATURE SCAN FOR A REASON. This used to reconstruct the
+    anchors by looking for `base_camp` pins among the features. Then a hunt from a camp
+    the hunter placed themselves stopped drawing that pin — correctly, because handing
+    someone their own input back as a recommendation is noise — and routing lost the only
+    thing it was anchored to. camp_by_area came back empty, sites_of() skipped every area
+    for want of a camp, and EVERY route silently disappeared: no hunt lines, no access
+    legs, on exactly the hunt style where the camp is the least ambiguous thing on the
+    map. Nothing raised; the layer just read NO DATA.
+
+    Where a hunter sleeps and whether we draw a pin for it are two different questions.
+    Only the first one belongs to routing.
+    """
     from skimage.graph import route_through_array
 
     cost = _walk_cost(ctx, cache)
@@ -1145,9 +1159,12 @@ def _add_routes(ctx, features, cache, prof, access, toll):
 
     # Camps are the base you hunt FROM. Approach (still-hunt) lines run CAMP → each
     # hunt position, never road → position. Road/water access is a separate leg.
-    camps = [f["geometry"]["coordinates"] for f in features
-             if f["properties"]["legend"] == "base_camp"]
-    camp_rc = [lonlat_to_rc(lo, la) for lo, la in camps]
+    if camp_of_area:
+        camp_rc = list(dict.fromkeys(camp_of_area.values()))
+    else:
+        camps = [f["geometry"]["coordinates"] for f in features
+                 if f["properties"]["legend"] == "base_camp"]
+        camp_rc = [lonlat_to_rc(lo, la) for lo, la in camps]
     # Per-area staging, emitted upstream. The old code used a single
     # np.argmin(access) for the whole AOI, so every access leg started from the
     # same arbitrary cell and the map showed one path threading all the areas.
@@ -1164,8 +1181,10 @@ def _add_routes(ctx, features, cache, prof, access, toll):
     # For a spike hunt this is the base camp; for a vehicle hunt there is no camp and
     # the truck (the staging pin) is where every day starts and ends. Either way the
     # hunt lines must originate INSIDE the area they serve.
-    camp_by_area = {f["properties"].get("focus_area"): lonlat_to_rc(*f["geometry"]["coordinates"])
-                    for f in features if f["properties"]["legend"] == "base_camp"}
+    camp_by_area = dict(camp_of_area) if camp_of_area else {}
+    if not camp_by_area:
+        camp_by_area = {f["properties"].get("focus_area"): lonlat_to_rc(*f["geometry"]["coordinates"])
+                        for f in features if f["properties"]["legend"] == "base_camp"}
     if not camp_by_area:
         camp_by_area = {f["properties"].get("focus_area"): lonlat_to_rc(*f["geometry"]["coordinates"])
                         for f in features if f["properties"]["legend"] == "parking"}

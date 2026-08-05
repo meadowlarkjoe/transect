@@ -13,11 +13,21 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 19
+ENGINE_REVISION = 20
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    20: "Hunts from a camp you placed get their routes back. If you told us where your "
+        "camp or cabin is, the plan was drawing your stands and then nothing joining "
+        "them — no approach lines from camp, no access leg in. The cause was ours and "
+        "it was recent: we had just stopped dropping a 'base camp' pin on a camp you "
+        "had told us about yourself, which was right, except that the router was "
+        "finding the camp by looking for that pin. Take the pin away and it could no "
+        "longer see where you sleep, so it drew nothing at all — silently, with the "
+        "layer simply reading no data. Where you sleep and whether we draw a marker "
+        "for it are now two separate things. Expect approach lines from camp to every "
+        "stand, and the walk-in leg, on camp and cabin hunts.",
     19: "Funnels are real necks now, and every one can tell you how wide it is. Two "
         "things were wrong. A bog was being treated as a barrier, on the assumption that "
         "a moose routes around marsh — it does not; it walks through. Treating bog as a "
