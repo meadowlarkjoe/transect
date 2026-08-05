@@ -168,7 +168,12 @@ function render(){
   $('grid').querySelectorAll('[data-del]').forEach(b=>b.onclick=async e=>{
     e.preventDefault();
     const id=b.dataset.del;
-    if(!confirm('Delete this plan?\n\nThe cached analysis goes with it — re-running takes 3–5 minutes, it is not instant.')) return;
+    const p=PLANS.find(x=>x.id===id), st=p?status(p):{k:'notrun'};
+    if(await ask({kind:'danger', title:'Delete “'+esc((p&&p.name)||'this plan')+'”?',
+      body:st.k==='computed'
+        ? 'The cached analysis goes with it. Recomputing is 3–5 minutes of engine time, not a reload.'
+        : 'Your box, dates, hunt style and drawings for this plan go with it.',
+      actions:[{id:'no',label:'Keep it'},{id:'yes',label:'Delete',danger:true}]}) !== 'yes') return;
     if(tok()&&API){ try{ await fetch(API+'/plans/'+encodeURIComponent(id),
       {method:'DELETE',headers:{Authorization:'Bearer '+tok()}}); }catch(e){} }
     try{ const local=JSON.parse(localStorage.getItem('transect_plans')||'[]');
@@ -176,6 +181,28 @@ function render(){
     PLANS=PLANS.filter(p=>p.id!==id); render();
   });
 }
+/* One styled dialog instead of native confirm()/alert() — same contract as the app's
+   askModal: resolves to the id of the button pressed, or null if dismissed. */
+let _mc=null;
+function ask(o){
+  if(_mc) _mc(null);
+  return new Promise(res=>{
+    const w=document.createElement('div'); w.className='modalwrap';
+    w.setAttribute('role','dialog'); w.setAttribute('aria-modal','true');
+    const acts=o.actions||[{id:'ok',label:'Got it',primary:true}];
+    w.innerHTML=`<div class="modal" data-kind="${o.kind||'info'}"><div class="mtitle">${o.title||''}</div>
+      <div class="mbody">${o.body||''}</div><div class="macts">${acts.map(a=>
+      `<button data-id="${a.id}" class="${a.primary?'primary':(a.danger?'danger':'ghost')}">${a.label}</button>`).join('')}</div></div>`;
+    const done=v=>{ if(!_mc) return; _mc=null; document.removeEventListener('keydown',key); w.remove(); res(v); };
+    const key=e=>{ if(e.key==='Escape'){e.preventDefault();done(null);} };
+    _mc=done;
+    w.onclick=e=>{ if(e.target===w) done(null); };
+    w.querySelectorAll('button[data-id]').forEach(b=>b.onclick=()=>done(b.dataset.id));
+    document.addEventListener('keydown',key); document.body.appendChild(w);
+    const p=w.querySelector('button.primary')||w.querySelector('button'); if(p) p.focus();
+  });
+}
+
 /* ---- rename (in place, persists) ---- */
 /* Write a plan back to WHERE IT CAME FROM. Being signed in does not mean every plan
    on screen is a server plan — the local store is the fallback when the account has
@@ -206,7 +233,8 @@ function startRename(id){
       p.name=v;
       if(p.data) p.data.name=v;
       try{ await persist(p); }
-      catch(e){ p.name=old; alert('Could not rename: '+e.message); }
+      catch(e){ p.name=old; ask({kind:'danger',title:'Could not rename',
+        body:'The server did not accept the change ('+esc(e.message)+'). The old name is still in place.'}); }
     }
     render();
   };
@@ -257,7 +285,11 @@ function openShare(btn){
     const a=(e.target.closest('button')||{}).dataset;
     if(!a||!a.a) return;
     if(a.a==='link'){ navigator.clipboard.writeText(link).then(()=>{
-      btn.textContent='Copied'; setTimeout(()=>{btn.textContent='Share';},1400); },()=>prompt('Copy this link',link)); }
+      btn.textContent='Copied'; setTimeout(()=>{btn.textContent='Share';},1400); },
+      ()=>{ ask({title:'Copy this link',
+        body:'The browser would not let the page write to your clipboard, so here it is to copy by hand.'
+          +'<input class="nmedit" style="margin-top:10px;font:500 11px/1.4 var(--mono)" readonly value="'+esc(link)+'">'})
+        .then(()=>{}); setTimeout(()=>{const i=document.querySelector('.modal input'); if(i){i.focus();i.select();}},30); }); }
     if(a.a==='json') dl(slug(p.name)+'.transect.json','application/json',JSON.stringify(p.data||p,null,1));
     if(a.a==='gpx'&&g) dl(slug(p.name)+'.gpx','application/gpx+xml',g);
     closeShare();

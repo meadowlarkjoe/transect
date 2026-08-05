@@ -218,6 +218,34 @@ input[type=range]:focus{box-shadow:none;border:0}
 #detail .sec:first-child{padding-top:var(--s-3)}
 
 /* callouts — caveats are the integrity claim; they get a border and a title */
+/* rename the plan in place, instead of a native prompt() (#75) */
+.planedit{font:inherit;color:var(--text);background:var(--surface-3);
+  border:1px solid var(--accent);border-radius:var(--r-sm);padding:1px 6px;min-width:14ch;max-width:34ch}
+
+/* one styled dialog, replacing the chain of native alert/confirm popups (#75) */
+.modalwrap{position:fixed;inset:0;z-index:120;display:grid;place-items:center;
+  background:rgba(6,9,11,.62);backdrop-filter:blur(2px);padding:24px}
+.modal{width:min(460px,100%);background:var(--surface-2);border:1px solid var(--line-2);
+  border-radius:var(--r-lg);box-shadow:0 24px 64px rgba(0,0,0,.55);padding:20px 22px 16px}
+.modal[data-kind="warn"]{border-color:var(--warn-line)}
+.modal[data-kind="danger"]{border-color:var(--danger-line)}
+.modal .mtitle{font:600 15px/1.35 var(--sans);color:var(--text);margin-bottom:8px}
+.modal[data-kind="warn"] .mtitle{color:var(--warn)}
+.modal[data-kind="danger"] .mtitle{color:var(--danger)}
+.modal .mbody{font:400 12.5px/1.65 var(--sans);color:var(--text-2);text-wrap:pretty}
+.modal .mbody b{color:var(--text)}
+.modal .mbody ul{margin:8px 0 0;padding-left:18px}
+.modal .mbody li{margin:3px 0}
+.modal .mbody .note{display:block;margin-top:10px;font:500 10.5px/1.5 var(--mono);
+  letter-spacing:.02em;color:var(--text-4)}
+.modal .macts{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;flex-wrap:wrap}
+.modal .macts button{padding:8px 14px;border-radius:var(--r-sm);cursor:pointer;
+  font:600 11.5px/1 var(--sans);border:1px solid var(--line-2);background:var(--surface-3);color:var(--text-2)}
+.modal .macts button:hover{border-color:var(--text-4);color:var(--text)}
+.modal .macts button.primary{background:var(--accent);border-color:var(--accent);color:#10130f}
+.modal .macts button.primary:hover{filter:brightness(1.08)}
+.modal .macts button.danger{border-color:var(--danger-line);color:var(--danger)}
+
 .callout{display:grid;grid-template-columns:auto 1fr;gap:10px;border-radius:var(--r-md);
   padding:11px 12px;margin:var(--s-2) 0}
 .callout>.mark{font:600 12px/1.4 var(--mono)}

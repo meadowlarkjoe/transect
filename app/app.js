@@ -2591,14 +2591,27 @@ function missingSetup(){
     miss.push('an end date after the start date');
   return miss;
 }
-function runAnalysis(){
-  // A completed analysis cost 3–5 minutes; don't let it evaporate on a stray click.
+/* A completed analysis cost 3–5 minutes; don't let it evaporate on a stray click.
+   The confirmation is a dialog, so this half is async — everything after the guard
+   lives in _runAnalysis and is unchanged. */
+async function runAnalysis(){
   if(hasResult()){
-    const keep = PLAN_SAVED ? '' :
-      '\n\nThis plan is UNSAVED — if you want to keep the current results, cancel and save it first.';
-    if(!confirm('Run a new analysis?\n\nThe current areas, zones, sites and brief will be cleared '
-      +'and replaced with results for the box you have set now.'+keep)) return;
+    const est=estimateMinutes(draft.radius,draft.resM);
+    const a=await askModal({kind:'warn', title:'Replace the current analysis?',
+      body:`The areas, zones, sites and brief on screen now will be cleared and recomputed
+        for the box you have set. About ${est.lo}–${est.hi} min.
+        ${PLAN_SAVED
+          ? '<span class="note">This plan is saved, so the current results stay on the saved copy until the new run finishes.</span>'
+          : '<span class="note"><b>This plan is UNSAVED.</b> Save it first if you want to keep the current results — otherwise they are gone.</span>'}`,
+      actions:PLAN_SAVED
+        ? [{id:'no',label:'Cancel'},{id:'go',label:'Run new analysis',primary:true}]
+        : [{id:'no',label:'Cancel'},{id:'save',label:'Save, then run'},{id:'go',label:'Run anyway',danger:true}]});
+    if(a==='save'){ await savePlanNow(true); }
+    else if(a!=='go') return;
   }
+  return _runAnalysis();
+}
+function _runAnalysis(){
   const miss=missingSetup();
   if(miss.length){
     const box=document.getElementById('setupErr');
@@ -2650,7 +2663,11 @@ function runAnalysis(){
   fetch(API_URL+'/scout',{method:'POST',headers:_ah,body:JSON.stringify(req)})
     .then(async r=>{
       if(r.status===401){ stop(); setBtn('RUN ANALYSIS →',false);
-        if(confirm('You need to be signed in to run an analysis.\n\nGo to the sign-in page?')) location.href='signin';
+        askModal({title:'Sign in to run an analysis',
+          body:`A run costs real engine time, so it needs an account. Your setup is kept —
+            sign in and come straight back to it.`,
+          actions:[{id:'no',label:'Not now'},{id:'go',label:'Go to sign in',primary:true}]})
+          .then(a=>{ if(a==='go') location.href='signin?next=app'; });
         throw new Error('auth'); }
       return r.json();
     }).then(j=>{
@@ -2664,8 +2681,11 @@ function runAnalysis(){
       rememberJob(j.job_id);
       pollJob(j.job_id,_jh,STAGE,stop,setBtn,line,h=>{lastHead=h;});
     })
-    .catch(()=>{ setBtn('RUN ANALYSIS →',false);
-      alert('Engine API not reachable — showing the current scout. (RUN ANALYSIS needs the engine online.)');
+    .catch(e=>{ if(e && e.message==='auth') return;      // already handled above
+      setBtn('RUN ANALYSIS →',false);
+      tellModal('The engine is not answering',
+        `Nothing was lost — your setup is exactly as you left it. RUN ANALYSIS needs the
+         engine online; try again in a moment.`,'warn');
       setTab('overview'); });
 }
 
@@ -3072,7 +3092,21 @@ function setPlanName(n,saved){
   PLAN_NAME=n; if(saved!=null) PLAN_SAVED=saved;
   const el=document.getElementById('planName'), d=document.getElementById('saveDot');
   if(el){ el.textContent=PLAN_NAME; el.title='Click to rename'; el.style.cursor='text';
-    el.onclick=()=>{ const v=prompt('Rename this plan',PLAN_NAME); if(v&&v.trim()) setPlanName(v.trim(),false); }; }
+    // rename in place — a native prompt() for a one-word edit was the loudest possible
+    // way to ask the smallest possible question
+    el.onclick=()=>{
+      if(el.querySelector('input')) return;
+      const old=PLAN_NAME;
+      el.innerHTML='<input class="planedit" maxlength="90">';
+      const i=el.querySelector('input'); i.value=old; i.focus(); i.select();
+      let done=false;
+      const fin=commit=>{ if(done) return; done=true;
+        const v=(i.value||'').trim();
+        setPlanName(commit&&v?v:old, commit&&v&&v!==old ? false : PLAN_SAVED); };
+      i.onkeydown=e=>{ e.stopPropagation();
+        if(e.key==='Enter'){e.preventDefault();fin(true);} if(e.key==='Escape'){e.preventDefault();fin(false);} };
+      i.onblur=()=>fin(true);
+    }; }
   if(d){ d.dataset.s=PLAN_SAVED?'saved':'unsaved'; d.textContent=PLAN_SAVED?'SAVED':'UNSAVED';
     // UNSAVED is now a button, not just a verdict: click it and the plan is saved,
     // analysis or not.
@@ -3131,7 +3165,10 @@ function planSummary(doc){
   return s;
 }
 function loadPlans(){ try{return JSON.parse(localStorage.getItem('transect_plans')||'[]');}catch(e){return [];} }
-function savePlans(a){ try{localStorage.setItem('transect_plans',JSON.stringify(a));}catch(e){alert('Could not save (storage full).');} }
+function savePlans(a){ try{localStorage.setItem('transect_plans',JSON.stringify(a));}
+  catch(e){ tellModal('This browser is out of storage',
+    `The plan could not be saved locally. Signing in stores plans on your account instead,
+     which also keeps the computed analysis with them.`,'warn'); } }
 /* The plan currently on screen, if it came from (or was saved to) the store. Keeps
    a re-run updating that plan instead of spawning a duplicate every time. */
 let CUR_PLAN_ID=null;
@@ -3143,8 +3180,13 @@ function markDirtySoft(){ try{ setPlanName(PLAN_NAME,false); }catch(e){} }
 async function rescopeWithDrawnAreas(){
   const polys=(drawSaved||[]).filter(f=>f.geometry&&f.geometry.type==='Polygon')
     .map(f=>f.geometry.coordinates[0]);
-  if(!polys.length){ alert('Draw one or more focus areas first (the ▱ area tool), then Recalculate.'); return; }
-  if(!LAST_JOB_ID){ alert('Run an analysis first — Recalculate re-plans that analysis inside your drawn areas.'); return; }
+  if(!polys.length){ tellModal('Nothing to recalculate in',
+    `Recalculate re-plans your analysis <b>inside areas you draw</b>. Draw one or more with
+     the area tool (▱), then press it again — it reuses the rasters already on the engine,
+     so it takes seconds rather than minutes.`); return; }
+  if(!LAST_JOB_ID){ tellModal('Run an analysis first',
+    `Recalculate re-plans an existing analysis inside your drawn areas — there is nothing to
+     re-plan yet.`); return; }
   const btn=document.getElementById('rescopeBtn'); if(btn){ btn.disabled=true; btn.textContent='Recalculating…'; }
   try{
     const r=await fetch(API_URL+'/rescope',{method:'POST',
@@ -3158,8 +3200,14 @@ async function rescopeWithDrawnAreas(){
     drawSaved=(drawSaved||[]).filter(f=>!(f.geometry&&f.geometry.type==='Polygon')); renderAnnot();
     applyDoc(d.scout); layersDismissed=false; setTab('overview'); syncDocks('overview'); autosavePlan();
   }catch(e){
-    alert('Could not recalculate: '+e.message+
-      (/no longer cached/.test(e.message)?'\n\nThe cached analysis has expired — run a fresh one.':''));
+    const gone=/no longer cached/.test(e.message);
+    if(gone) askModal({kind:'warn', title:'The engine no longer holds this analysis',
+      body:`Recalculate reuses rasters the engine keeps for a while after a run, and this
+        one has aged out. A full run rebuilds them — your drawn areas stay put and the new
+        analysis will use them.`,
+      actions:[{id:'no',label:'Not now'},{id:'run',label:'Run a full analysis',primary:true}]
+    }).then(a=>{ if(a==='run') runAnalysis(); });
+    else tellModal('Could not recalculate', escHtml(e.message), 'danger');
   }finally{ const b=document.getElementById('rescopeBtn'); if(b){ b.disabled=false; b.textContent='↻ Recalculate in my areas'; } }
 }
 function currentPlan(name, withDoc){
@@ -3247,12 +3295,22 @@ function applyPlan(p){
     setPlanName(p.name||planTitle(), true);
     setTab('overview');
   } else {
+    // NO CACHED ANALYSIS. The Setup is already restored and on screen behind this —
+    // so the dialog is an offer to run it, not a notice that something is missing.
     map.flyTo({center:draft.center,zoom:9.5}); drawDraft();
     setPlanName(p.name||planTitle(), true);
     setTab('setup');
-    alert('Loaded "'+p.name+'".\n\nYour Setup and drawings are restored, but this plan was '
-      +'saved without a cached analysis (sign in to keep the results with the plan). '
-      +'Hit RUN ANALYSIS to compute it.');
+    const est=estimateMinutes(draft.radius,draft.resM);
+    askModal({title:'“'+escHtml(p.name||'This plan')+'” is ready to run',
+      body:`Your box, dates, hunt style and drawings are restored below — nothing to re-enter.
+        What is not stored is the computed analysis itself.
+        <ul><li><b>Run it now</b> — about ${est.lo}–${est.hi} min for this ${Math.round(draft.radius)} km box.</li>
+        <li><b>Review the setup first</b> — change dates, radius or detail, then hit RUN ANALYSIS.</li></ul>
+        <span class="note">${isAuthed()
+          ? 'Results are kept with the plan on your account, so the next open is instant.'
+          : 'Signed out, only the setup is stored in this browser. Sign in and results ride along with the plan.'}</span>`,
+      actions:[{id:'setup',label:'Review setup'},{id:'run',label:'Run analysis',primary:true}]
+    }).then(a=>{ if(a==='run') runAnalysis(); });
   }
 }
 /* accounts — token in localStorage; plans sync to the server when signed in */
@@ -3651,15 +3709,19 @@ function pollJob(jid,headers,STAGE,stop,setBtn,line,onHead){
           autosavePlan();
         } else if(s.status==='error'){
           stop(); forgetJob(); setBtn('RUN ANALYSIS →',false);
-          alert('Analysis failed: '+(s.error||'unknown'));
+          tellModal('The analysis failed',
+            `The engine reported: <b>${escHtml(s.error||'unknown error')}</b><br>
+             Your setup is untouched — nothing to re-enter before trying again.`,'danger');
         } else if(s.status==='cancelled'){
           stop(); forgetJob(); setBtn('RUN ANALYSIS →',false);
-          if(s.orphaned) alert('That run was stopped because nothing was watching it.\n\n'
-            +'The engine cancels an analysis when the tab that started it goes away, so it '
-            +'is not computing for nobody. Run it again when you are ready.');
+          if(s.orphaned) tellModal('That run was stopped',
+            `The engine cancels an analysis when the tab that started it goes away, so it is
+             never computing for nobody. Nothing is lost but the time — run it again when
+             you are ready.`,'warn');
         } else if(s.status==='unknown'){
           stop(); forgetJob(); setBtn('RUN ANALYSIS →',false);
-          alert('The engine restarted — please run again.');
+          tellModal('The engine restarted mid-run',
+            `Your setup survived; the run did not. Hit RUN ANALYSIS to start it again.`,'warn');
         } else {
           const st=s.stage||'', nm=STAGE[st]||st;
           // acquire has no sub-progress to report, so say what it's doing, not 0%
@@ -3674,9 +3736,11 @@ function pollJob(jid,headers,STAGE,stop,setBtn,line,onHead){
         const out=now-failedSince;
         if(out>POLL_GIVEUP_MS){
           stop(); setBtn('RUN ANALYSIS →',false);
-          alert('The engine stopped answering for three minutes.\n\n'+
-                'Your analysis is probably still running — reload the page and it will '+
-                'reconnect to it automatically.');
+          askModal({kind:'warn', title:'Lost contact with the engine',
+            body:`Nothing has answered for three minutes. Your analysis is most likely still
+              running — reloading reconnects to it automatically rather than starting over.`,
+            actions:[{id:'stay',label:'Stay here'},{id:'reload',label:'Reload and reconnect',primary:true}]
+          }).then(a=>{ if(a==='reload') location.reload(); });
           return;
         }
         // say so on the button rather than silently stalling, and back off
@@ -3687,6 +3751,48 @@ function pollJob(jid,headers,STAGE,stop,setBtn,line,onHead){
   };
   tick();
 }
+/* ---------------------------------------------------------------------------
+   ONE DIALOG (#75).
+   Opening a saved plan used to fire a chain of native popups — an alert about the
+   missing cache, then a confirm about the engine revision, then maybe another about
+   a job still running — each one an OS box in a typeface the app never uses, each
+   one blocking, and none of them able to say what the choice actually costs.
+
+   askModal is a single styled dialog: a title, a short body that explains the
+   trade-off, and named buttons instead of OK/Cancel. It resolves to the id of the
+   button pressed, or null if dismissed, so callers read as a decision and not as a
+   pile of nested ifs. Only one is ever on screen; a second call replaces the first.
+--------------------------------------------------------------------------- */
+const escHtml=s=>String(s==null?'':s).replace(/[<>&"]/g,c=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]));
+let _modalClose=null;
+function askModal(o){
+  if(_modalClose) _modalClose(null);
+  return new Promise(resolve=>{
+    const wrap=document.createElement('div');
+    wrap.className='modalwrap'; wrap.setAttribute('role','dialog'); wrap.setAttribute('aria-modal','true');
+    const acts=(o.actions||[{id:'ok',label:'OK',primary:true}]);
+    wrap.innerHTML=`<div class="modal" data-kind="${o.kind||'info'}">
+      <div class="mtitle">${o.title||''}</div>
+      <div class="mbody">${o.body||''}</div>
+      <div class="macts">${acts.map(a=>
+        `<button data-id="${a.id}" class="${a.primary?'primary':(a.danger?'danger':'ghost')}">${a.label}</button>`
+      ).join('')}</div></div>`;
+    const done=v=>{ if(!_modalClose) return; _modalClose=null;
+      document.removeEventListener('keydown',key); wrap.remove(); resolve(v); };
+    const key=e=>{ if(e.key==='Escape'){ e.preventDefault(); done(null); } };
+    _modalClose=done;
+    wrap.onclick=e=>{ if(e.target===wrap && o.dismissable!==false) done(null); };
+    wrap.querySelectorAll('button[data-id]').forEach(b=>b.onclick=()=>done(b.dataset.id));
+    document.addEventListener('keydown',key);
+    document.body.appendChild(wrap);
+    const p=wrap.querySelector('button.primary')||wrap.querySelector('button'); if(p) p.focus();
+  });
+}
+/* a plain replacement for alert(): one dialog, one button, still non-blocking */
+function tellModal(title,body,kind){
+  return askModal({title,body,kind:kind||'info',actions:[{id:'ok',label:'Got it',primary:true}]});
+}
+
 /* ENGINE REVISION — a saved plan is never broken by an engine update, but it must
    not quietly pretend to be current either. On opening a plan we compare the
    revision it was computed under against the live engine and OFFER a re-run,
@@ -3704,11 +3810,17 @@ async function checkEngineRevision(){
     }
     if(LIVE_REVISION==null || LIVE_REVISION<=was) return;
     const note=(await (await fetch(API_URL+'/health',{cache:'no-store'})).json()).revision_notes||'';
-    const ok=confirm('The analysis engine has been updated since this plan was computed.\n\n'
-      +(note?'What changed:\n'+note+'\n\n':'')
-      +'Your plan is unchanged and still works. Re-analyse now with the current engine?\n\n'
-      +'OK = re-analyse   ·   Cancel = keep this plan as it is');
-    if(ok) runAnalysis();
+    const lines=String(note).split('\n').map(s=>s.replace(/^[-•*]\s*/,'').trim()).filter(Boolean);
+    const est=estimateMinutes(draft.radius,draft.resM);
+    const a=await askModal({kind:'warn',
+      title:'The engine has improved since this plan was computed',
+      body:`This plan still works exactly as it did — nothing about it is broken or gone.
+        It was computed under engine revision <b>${was}</b>; the live engine is <b>${LIVE_REVISION}</b>.
+        ${lines.length?'<ul>'+lines.slice(0,6).map(l=>'<li>'+escHtml(l)+'</li>').join('')+'</ul>':''}
+        <span class="note">Re-analysing takes about ${est.lo}–${est.hi} min and replaces the current
+        areas, sites and brief. Your drawings and notes are kept either way.</span>`,
+      actions:[{id:'keep',label:'Keep this plan'},{id:'run',label:'Re-analyse',primary:true}]});
+    if(a==='run') runAnalysis();
     else DOC._revisionDismissed=true;         // don't nag on every tab switch
   }catch(e){ /* never let a version check break opening a plan */ }
 }
@@ -3751,17 +3863,24 @@ function resumeJob(){
       return;
     }
     setTab('setup');
-    if(!confirm('An analysis for this plan is still running on the engine.\n\n'
-               +'Reconnect and watch it finish?\n\nCancel to abandon it and set up a new one.')){
-      forgetJob(); return;
-    }
-    const setBtn=(t,d)=>{const b=document.getElementById('runBtn'); if(b){b.textContent=t;b.disabled=!!d;}};
-    const line=t=>t;
-    const STAGE={acquire:'fetching terrain, imagery, burns & hydro',terrain:'terrain analysis',
-      habitat:'habitat model',behavior:'behavioural surfaces',access:'access & pack-out',
-      synth:'placing areas & sites',contract:'building your plan'};
-    pollJob(jid,hdr,STAGE,()=>{},setBtn,line,()=>{});
+    askModal({title:'This plan has a run still going',
+      body:`An analysis you started for this plan is still working on the engine
+        ${s.pct!=null?`(<b>${Math.round(s.pct)}%</b> done)`:''}. Reconnect and it finishes where it is;
+        abandon it and that engine time is spent for nothing.`,
+      actions:[{id:'drop',label:'Abandon it'},{id:'watch',label:'Reconnect',primary:true}]
+    }).then(a=>{
+      if(a!=='watch'){ forgetJob(); return; }
+      _watchJob(jid,hdr);
+    });
   }).catch(()=>{});
+}
+function _watchJob(jid,hdr){
+  const setBtn=(t,d)=>{const b=document.getElementById('runBtn'); if(b){b.textContent=t;b.disabled=!!d;}};
+  const line=t=>t;
+  const STAGE={acquire:'fetching terrain, imagery, burns & hydro',terrain:'terrain analysis',
+    habitat:'habitat model',behavior:'behavioural surfaces',access:'access & pack-out',
+    synth:'placing areas & sites',contract:'building your plan'};
+  pollJob(jid,hdr,STAGE,()=>{},setBtn,line,()=>{});
 }
 
 /* ---------------------------------------------------------------------------

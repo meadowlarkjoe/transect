@@ -129,6 +129,24 @@ input::placeholder{color:var(--text-4)}
 .chip.stale{background:var(--warn-bg);color:var(--warn)}
 .chip.notrun{background:var(--surface-3);color:var(--text-3)}
 .chip.uncached{background:var(--surface-3);color:var(--warn)}
+/* one styled dialog, replacing native confirm()/alert() (#75) */
+.modalwrap{position:fixed;inset:0;z-index:120;display:grid;place-items:center;
+  background:rgba(6,9,11,.62);backdrop-filter:blur(2px);padding:24px}
+.modal{width:min(460px,100%);background:var(--surface-2);border:1px solid var(--line-2);
+  border-radius:var(--r-lg);box-shadow:0 24px 64px rgba(0,0,0,.55);padding:20px 22px 16px}
+.modal[data-kind="warn"]{border-color:var(--warn-line)}
+.modal[data-kind="danger"]{border-color:var(--danger-line)}
+.modal .mtitle{font:600 15px/1.35 var(--sans);color:var(--text);margin-bottom:8px}
+.modal[data-kind="warn"] .mtitle{color:var(--warn)}
+.modal[data-kind="danger"] .mtitle{color:var(--danger)}
+.modal .mbody{font:400 12.5px/1.65 var(--sans);color:var(--text-2);text-wrap:pretty}
+.modal .mbody b{color:var(--text)}
+.modal .macts{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;flex-wrap:wrap}
+.modal .macts button{padding:8px 14px;border-radius:var(--r-sm);cursor:pointer;
+  font:600 11.5px/1 var(--sans);border:1px solid var(--line-2);background:var(--surface-3);color:var(--text-2)}
+.modal .macts button:hover{border-color:var(--text-4);color:var(--text)}
+.modal .macts button.primary{background:var(--accent);border-color:var(--accent);color:#10130f}
+.modal .macts button.danger{border-color:var(--danger-line);color:var(--danger)}
 /* the preview is the plan's own focus-area geometry, drawn as inline SVG */
 .pthumb .tsvg{position:absolute;inset:0;width:100%;height:100%}
 /* keep the species/zone strip readable over whatever geometry lands under it */
