@@ -328,12 +328,30 @@ def _reach_km(hunter, kit):
     return reach
 
 
-def _capability_gate(dr, hunter, kit):
+def _capability_gate(dr, hunter, kit, camp_km=None):
     """Can this hunter actually GET here and get an animal OUT, given what they told
     us they have? Returns (ok, reason). A "no" is not a judgement about the ground —
     the area still ships, flagged, so the hunter can decide whether the kit is worth
     bringing (user: 'interesting to know they're there ... but not helpful to formally
-    suggest sites the hunter cannot access')."""
+    suggest sites the hunter cannot access').
+
+    FIXED CAMP CHANGES THE QUESTION. If the hunter told us where camp is, they are not
+    walking in from a road — they are already there, and what they said they'd cover is
+    the distance from CAMP. Gating those areas on distance-to-road excluded ground 2.3 km
+    from the tent because it was 4.2 km from a logging road nobody was going to use, and
+    the card said so while its own header read "PACK-IN ≤ 2.3 KM". Road distance is not
+    a capability limit for a camp hunt; it is trivia.
+    """
+    if camp_km is not None:
+        reach = float(getattr(hunter, "hunt_radius_km", None)
+                      or getattr(hunter, "walk_hunt_km", 3.0) or 3.0)
+        if kit["atv"]:
+            reach = reach * 2.5 + 5.0
+        if camp_km > reach:
+            return False, (f"Beyond your range — ~{camp_km:.1f} km from camp, past the "
+                           f"~{reach:.0f} km you said you'd walk from it"
+                           + (" (even by ATV)." if kit["atv"] else "."))
+        return True, None
     if dr is None:
         return True, None
     reach = _reach_km(hunter, kit)
@@ -483,7 +501,18 @@ def run(ctx: Context, manual_areas=None) -> None:
     _areas = [f for f in features if f["properties"]["legend"] == "focus_area"]
     for f in _areas:
         st = (f["properties"].get("stats") or {})
-        ok, why_not = _capability_gate(st.get("dist_road_m"), ctx.aoi.hunter, _kit)
+        # With a fixed camp the reach is measured from the CAMP, not from a road: the
+        # nearest cell of the area, so a big area counts as reachable when its near edge
+        # is in range rather than being judged on its far corner.
+        _camp_km = None
+        if fixed_camp_rc is not None:
+            _sel = mask_by_rank.get(f["properties"]["rank"])
+            if _sel is not None and _sel.any():
+                _rc = np.argwhere(_sel)
+                _d = np.hypot(_rc[:, 0] - fixed_camp_rc[0], _rc[:, 1] - fixed_camp_rc[1])
+                _camp_km = float(_d.min()) * res / 1000.0
+        ok, why_not = _capability_gate(st.get("dist_road_m"), ctx.aoi.hunter, _kit,
+                                       camp_km=_camp_km)
         f["properties"]["status"] = "ok" if ok else "excluded"
         f["properties"]["excluded_reason"] = why_not
     _ok = [f for f in _areas if f["properties"]["status"] == "ok"]
