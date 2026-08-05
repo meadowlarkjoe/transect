@@ -82,7 +82,45 @@ def run(ctx: Context) -> None:
     BROWSE_LC = {20: 1.0, 30: 0.7, 90: 0.6, 100: 0.3, 40: 0.5, 10: 0.2, 60: 0.05, 80: 0.0}
     COVER_LC = {10: 0.9, 20: 0.35, 90: 0.15}
     edge = np.full(shape, 0.3, dtype="float32")
-    if lc is not None:
+    # NATIVE-RESOLUTION CLASS FRACTIONS (#77/#78), when acquire measured them. Land
+    # cover is 10 m and this grid is typically 40 m; the categorical map records the
+    # winner of a 16-way vote, the fractions record the actual mixture. Interspersion is
+    # the model's dominant term, so the mixture is the signal — not a nicety.
+    FRAC_NAME = {10: "tree", 20: "shrub", 30: "grass", 40: "crop",
+                 60: "bare", 80: "water", 90: "wetland", 100: "moss"}
+    fr = {}
+    for code, nm in FRAC_NAME.items():
+        a = _opt(cache / f"lcfrac_{nm}.tif")
+        if a is not None:
+            fr[code] = np.nan_to_num(a, nan=0.0)
+    have_frac = len(fr) >= 4
+
+    if have_frac:
+        # Fraction-weighted mixtures: a cell that is 60 % regen shrub and 40 % conifer
+        # now scores as both, instead of as whichever class won the vote.
+        browse_lc = np.zeros(shape, "float32")
+        cover_lc = np.zeros(shape, "float32")
+        for k, v in BROWSE_LC.items():
+            if k in fr:
+                browse_lc += v * fr[k]
+        for k, v in COVER_LC.items():
+            if k in fr:
+                cover_lc += v * fr[k]
+        browse_lc = np.clip(browse_lc, 0, 1)
+        cover_lc = np.clip(cover_lc, 0, 1)
+        p_tree = np.clip(fr.get(10, np.zeros(shape, "float32")), 0, 1)
+        # TWO scales of interspersion, and they are different things:
+        #   sub-cell — this 40 m cell is itself part tree, part opening: a seam we could
+        #              not see at all before, and the tightest edge a moose actually uses;
+        #   neighbourhood — the ~200 m mosaic the old code approximated from binary cells,
+        #              now averaged from real fractions instead of 0/1 votes.
+        sub = np.clip(4 * p_tree * (1 - p_tree), 0.0, 1.0)
+        nbr_p = uniform_filter(p_tree, size=max(3, int(round(200 / res)) | 1))
+        nbr = np.clip(4 * nbr_p * (1 - nbr_p), 0.0, 1.0)
+        edge = np.clip(np.maximum(nbr, 0.85 * sub), 0.0, 1.0)
+        print(f"[habitat] edge from NATIVE 10 m fractions "
+              f"(sub-cell mean {float(np.nanmean(sub)):.3f}, neighbourhood {float(np.nanmean(nbr)):.3f})")
+    elif lc is not None:
         browse_lc = np.zeros(shape, "float32")
         cover_lc = np.zeros(shape, "float32")
         for k, v in BROWSE_LC.items():

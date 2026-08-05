@@ -73,6 +73,95 @@ def reproject_window(src, dst_crs, dst_transform, W, H, aoi_wgs84,
     return dst, np.isfinite(dst)
 
 
+def class_fractions(src, classes, dst_crs, dst_transform, W, H, aoi_wgs84,
+                    budget_px=24_000_000):
+    """AREAL FRACTION of each class, measured at the source's NATIVE resolution and
+    averaged into the analysis grid. Returns {class: float32 (H, W) in 0..1}, plus a
+    coverage mask.
+
+    WHY THIS EXISTS (#77/#78). Land cover is 10 m; the analysis grid is typically 40 m.
+    `reproject_window` decimates and then takes the NEAREST native pixel, so one pixel
+    in sixteen decided the class of the whole cell — a cell that is genuinely half
+    conifer and half regen came out as "conifer" or "shrub" on a coin flip. That is not
+    a rounding error: cover↔food INTERSPERSION is the dominant term in the habitat
+    model, and the sub-cell mixture is exactly the signal it wants. Measuring the
+    fraction keeps it.
+
+    Aggregation is areal mean of a binary mask, which is the definition of "what
+    fraction of this cell is class k" — not a resample of a category, which has no
+    meaningful average.
+
+    TILED (#76) over destination row-bands so the native-resolution read is bounded no
+    matter how big the box: the whole point is to raise the resolution ceiling without
+    raising peak memory with it.
+    """
+    import numpy as np
+    from rasterio.enums import Resampling
+    from rasterio.transform import Affine
+    from rasterio.warp import reproject, transform_bounds
+    from rasterio.windows import Window, from_bounds
+
+    minlon, minlat, maxlon, maxlat = aoi_wgs84
+    out = {k: np.zeros((H, W), dtype="float32") for k in classes}
+    seen = np.zeros((H, W), dtype=bool)
+
+    # How many destination rows can we do at once? Estimate the native pixels each dest
+    # row pulls in, from the source/destination resolution ratio.
+    try:
+        src_res = abs(src.transform.a)
+        dst_res = abs(dst_transform.a)
+        ratio = max(1.0, dst_res / max(src_res, 1e-9))
+    except Exception:
+        ratio = 4.0
+    per_row = max(1.0, W * ratio * ratio)
+    band = int(max(1, min(H, budget_px // per_row)))
+
+    for r0 in range(0, H, band):
+        r1 = min(H, r0 + band)
+        sub_tr = dst_transform * Affine.translation(0, r0)
+        # bounds of this destination band, in the source CRS
+        left, top = sub_tr * (0, 0)
+        right, bottom = sub_tr * (W, r1 - r0)
+        try:
+            l, b, rr, t = transform_bounds(dst_crs, src.crs, left, bottom, right, top)
+        except Exception:
+            continue
+        win = from_bounds(l, b, rr, t, src.transform)
+        c0 = max(0, int(np.floor(win.col_off)) - 1)
+        rw0 = max(0, int(np.floor(win.row_off)) - 1)
+        c1 = min(src.width, int(np.ceil(win.col_off + win.width)) + 1)
+        rw1 = min(src.height, int(np.ceil(win.row_off + win.height)) + 1)
+        if c1 <= c0 or rw1 <= rw0:
+            continue
+        win = Window(c0, rw0, c1 - c0, rw1 - rw0)
+        # NATIVE resolution — no decimation. That is the entire point; decimating here
+        # would throw away the sub-cell detail we came to measure.
+        arr = src.read(1, window=win)
+        src_tr = src.window_transform(win)
+        bh = r1 - r0
+
+        cov = np.zeros((bh, W), dtype="float32")
+        reproject(np.ones(arr.shape, dtype="float32"), cov,
+                  src_transform=src_tr, src_crs=src.crs,
+                  dst_transform=sub_tr, dst_crs=dst_crs,
+                  src_nodata=None, dst_nodata=0.0, resampling=Resampling.average)
+        band_seen = cov > 0.01
+        seen[r0:r1] |= band_seen
+
+        for k in classes:
+            m = (arr == k).astype("float32")
+            dst = np.zeros((bh, W), dtype="float32")
+            reproject(m, dst, src_transform=src_tr, src_crs=src.crs,
+                      dst_transform=sub_tr, dst_crs=dst_crs,
+                      src_nodata=None, dst_nodata=0.0, resampling=Resampling.average)
+            # Destination bands are disjoint, so this writes each cell once. Mosaicking
+            # ACROSS sources is the caller's job (tiles of one product don't overlap).
+            blk = out[k][r0:r1]
+            blk[band_seen] = dst[band_seen]
+            out[k][r0:r1] = blk
+    return out, seen
+
+
 def read(path) -> tuple:
     """Return (array float32 with nodata->nan, profile)."""
     import numpy as np

@@ -40,6 +40,9 @@ from pathlib import Path
 ARTIFACTS = (
     "dem.tif",                                                  # dem.py
     "landcover.tif", "water.tif", "wetland.tif",                # hydro.py
+    # native 10 m class fractions (#77/#78) — same grid, measured not sampled
+    "lcfrac_tree.tif", "lcfrac_shrub.tif", "lcfrac_grass.tif", "lcfrac_crop.tif",
+    "lcfrac_bare.tif", "lcfrac_water.tif", "lcfrac_wetland.tif", "lcfrac_moss.tif",
     "ndvi.tif",                                                 # sentinel.py
     "burn_year.tif",                                            # fire.py
     "cut_year.tif", "stand_closure.tif", "stand_type.tif",      # ecoforestiere.py

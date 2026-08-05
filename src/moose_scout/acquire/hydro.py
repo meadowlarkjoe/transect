@@ -31,7 +31,7 @@ def fetch(ctx: Context) -> None:
     # STAC catalogue and re-warped WorldCover on every run, and it was the last source
     # still spending real time on a fully cached box.
     if all((cache / n).exists() and (cache / n).stat().st_size > 0
-           for n in ("landcover.tif", "water.tif", "wetland.tif")):
+           for n in ("landcover.tif", "water.tif", "wetland.tif", "lcfrac_tree.tif")):
         print("[hydro] cached — skipping WorldCover")
         return
 
@@ -52,11 +52,34 @@ def fetch(ctx: Context) -> None:
     newest = max(i.properties.get("start_datetime", "") for i in items)
     tiles = [i for i in items if i.properties.get("start_datetime", "") == newest] or items
 
+    # WorldCover classes that carry habitat meaning for us. Kept explicit: an unlisted
+    # class simply has no fraction layer, rather than silently folding into another.
+    FRAC_CLASSES = {10: "tree", 20: "shrub", 30: "grass", 40: "crop",
+                    60: "bare", 80: "water", 90: "wetland", 100: "moss"}
+
     lc = np.zeros((H, W), dtype="uint8")
+    frac = {name: np.zeros((H, W), dtype="float32") for name in FRAC_CLASSES.values()}
+    covered = np.zeros((H, W), dtype=bool)
+
     for it in tiles:
         with rasterio.open(it.assets["map"].href) as src:
             arr, mask = ru.reproject_window(src, dst_crs, dst_transform, W, H, aoi_wgs,
                                             resampling="nearest")
+            # NATIVE-RESOLUTION FRACTIONS (#77/#78). WorldCover is 10 m and the analysis
+            # grid is typically 40 m, so the nearest-neighbour read above lets ONE native
+            # pixel in sixteen decide the cell. The habitat model's dominant term is
+            # cover↔food interspersion, which is precisely the sub-cell mixture that
+            # throws away. Measure the real areal fraction of each class instead, at the
+            # source's own resolution, and aggregate late.
+            try:
+                f, seen = ru.class_fractions(src, list(FRAC_CLASSES), dst_crs,
+                                             dst_transform, W, H, aoi_wgs)
+                for code, name in FRAC_CLASSES.items():
+                    fill = seen & ~covered
+                    frac[name][fill] = f[code][fill]
+                covered |= seen
+            except Exception as ex:      # degrade to the class map alone, and say so
+                print(f"[hydro] native-resolution fractions unavailable: {ex}")
         if arr is None:
             continue
         fill = mask & (lc == 0)                       # first tile to cover a cell wins
@@ -71,5 +94,18 @@ def fetch(ctx: Context) -> None:
             dst.write(arr.astype("uint8"), 1)
 
     _save("landcover.tif", lc)
+    # Water and wetland stay categorical here for the layers that expect a mask, but the
+    # FRACTION is what the barrier and browse terms should read: a cell that is 40 %
+    # beaver flowage is neither dry land nor a lake, and rounding it either way is a
+    # decision the model should not be making for the hunter.
     _save("water.tif", (lc == 80).astype("uint8"))
     _save("wetland.tif", (lc == 90).astype("uint8"))
+
+    if covered.any():
+        fprof = dict(prof, dtype="float32", nodata=-9999.0)
+        for name, a in frac.items():
+            with rasterio.open(cache / f"lcfrac_{name}.tif", "w", **fprof) as dst:
+                dst.write(np.where(covered, a, -9999.0).astype("float32"), 1)
+        pct = 100.0 * float(covered.mean())
+        print(f"[hydro] native 10 m class fractions written for {len(frac)} classes "
+              f"({pct:.0f}% of cells) — analysis grid {abs(dst_transform.a):.0f} m")

@@ -13,11 +13,22 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 16
+ENGINE_REVISION = 17
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    17: "Land cover is now read at its OWN resolution instead of being flattened to the "
+        "analysis grid. The satellite product is 10 m and the analysis grid is usually "
+        "40 m, so every cell used to be decided by ONE pixel in sixteen — a patch that "
+        "is genuinely half regen and half conifer came out as whichever the coin landed "
+        "on. The engine now measures what fraction of each cell is tree, shrub, wetland "
+        "and so on, and scores the mixture. That matters most for the cover-to-food EDGE, "
+        "which is the single strongest term in the model: seams inside a cell were "
+        "invisible before and are now the tightest edges on the map. Expect browse and "
+        "edge to shift, some focus areas to move onto ground that was previously "
+        "averaged away, and stand placement to follow. Processing is tiled, so the finer "
+        "measurement does not cost more memory on a big box.",
     16: "Adds SCENT placement to every calling setup. A bull that answers a call swings "
         "downwind to scent-check the cow before he shows himself — the plan now marks "
         "where to hang wicks across that arc (45 m downwind of the call, 25 m either "
