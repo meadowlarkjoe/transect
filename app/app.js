@@ -113,8 +113,18 @@ function patternTile(kind,hex){
     c.strokeStyle=col(.87);c.lineWidth=1.5;
     for(let o=-S;o<S*2;o+=6){c.beginPath();c.moveTo(o,0);c.lineTo(o+S,S);c.stroke();}
   } else if(kind==='soft'){
+    // FEATHERED, NOT INVISIBLE. This peaked at 0.30 alpha and fell to 0.10 — and the
+    // fill is then multiplied by the group opacity (0.9 x 0.55), so its effective peak
+    // over satellite imagery was about 0.15. Funnels are the only 'soft' layer and they
+    // are SMALL (a neck is <=300 m), so they were technically drawn and practically
+    // unfindable: the only way to see them was to dim the basemap.
+    //
+    // The feathered edge is the point — a funnel is inferred from the DEM and must not
+    // get a crisp outline, which would turn a soft inference into a surveyed boundary
+    // (the 'never outline a guess' rule). So keep the gradient to zero at the tile edge
+    // and raise the CORE instead: still edgeless, now actually visible.
     const g=c.createRadialGradient(S/2,S/2,0,S/2,S/2,S/2);
-    g.addColorStop(0,col(.30));g.addColorStop(.55,col(.10));g.addColorStop(1,col(0));
+    g.addColorStop(0,col(.78));g.addColorStop(.55,col(.34));g.addColorStop(1,col(0));
     c.fillStyle=g;c.fillRect(0,0,S,S);
   }
   const d=c.getImageData(0,0,S,S);
