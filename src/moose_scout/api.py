@@ -48,6 +48,9 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                    allow_headers=["*"])
 
 JOBS: dict[str, dict] = {}
+# Set by POST /admin/drain during a deploy: refuse NEW analyses so the in-flight ones
+# can finish before the container is replaced. Process-local by design (#17).
+DRAINING = False
 STAGES = ["acquire", "terrain", "habitat", "behavior", "access", "synth", "contract"]
 SPECIES = {"moose", "whitetail_deer", "black_bear"}
 
@@ -244,6 +247,11 @@ def scout(req: ScoutReq, x_api_key: str = Header(default=None),
     uid = _uid(authorization)
     if REQUIRE_ACCOUNT and not uid:
         raise HTTPException(status_code=401, detail="sign in to run an analysis")
+    if DRAINING:
+        # 503 + Retry-After is the honest answer: the work is fine, this process is
+        # about to be replaced and starting a run now would only get it killed.
+        raise HTTPException(status_code=503, detail="engine-updating",
+                            headers={"Retry-After": "120"})
     jid = uuid.uuid4().hex[:12]
     JOBS[jid] = {"status": "running", "stage": "queued", "progress": 0.0, "uid": uid,
                  "started": time.time(), "seen": time.time()}
@@ -390,12 +398,39 @@ def rescope(rq: RescopeReq, x_api_key: str = Header(default=None),
         raise HTTPException(500, f"rescope failed: {e}")
 
 
+def _active_jobs() -> int:
+    """Runs that would DIE if this process restarted. The analysis is a daemon thread
+    inside uvicorn (see #17), so that is every job not yet in a terminal state."""
+    return sum(1 for j in JOBS.values()
+               if j.get("status") not in ("done", "error", "cancelled"))
+
+
 @app.get("/health")
 def health():
     from .version import ENGINE_REVISION, REVISIONS
     return {"ok": True, "species": sorted(SPECIES),
             "engine_revision": ENGINE_REVISION,
-            "revision_notes": REVISIONS.get(ENGINE_REVISION, "")}
+            "revision_notes": REVISIONS.get(ENGINE_REVISION, ""),
+            # Deploy safety (see scripts/deploy_engine.sh). An analysis is minutes of
+            # someone's evening; restarting the container under one throws it away with
+            # no way to get it back. The deploy asks these two questions before it does
+            # anything, instead of a human eyeballing CPU and guessing — which is exactly
+            # how a live run got killed at 49% CPU.
+            "active_jobs": _active_jobs(),
+            "draining": DRAINING}
+
+
+@app.post("/admin/drain")
+def drain(on: bool = True, x_api_key: str = Header(default=None)):
+    """Stop accepting NEW analyses so the running ones can finish.
+
+    Without this a drain never converges: you wait for the last job while the app
+    happily starts more. The flag is process-local on purpose — a fresh container comes
+    up accepting work, which is the state you want after a deploy."""
+    _require_key(x_api_key)
+    global DRAINING
+    DRAINING = bool(on)
+    return {"draining": DRAINING, "active_jobs": _active_jobs()}
 
 
 # ---- auth ----

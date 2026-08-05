@@ -2752,6 +2752,14 @@ function _runAnalysis(){
   if(authTok()) _ah['Authorization']='Bearer '+authTok();
   fetch(API_URL+'/scout',{method:'POST',headers:_ah,body:JSON.stringify(req)})
     .then(async r=>{
+      if(r.status===503){
+        // The engine is draining for a deploy (scripts/deploy_engine.sh). Nothing is
+        // wrong and nothing was lost — say that, rather than the generic "not
+        // answering", which reads like the run failed.
+        stop(); RUN_ACTIVE=false; setBtn('RUN ANALYSIS →',false);
+        tellModal(t('dlg.updatingTitle'), t('dlg.updatingBody'), 'warn');
+        throw new Error('auth');   // reuse the already-handled sentinel
+      }
       if(r.status===401){ stop(); RUN_ACTIVE=false; setBtn('RUN ANALYSIS →',false);
         askModal({title:t('dlg.signinTitle'),
           body:t('dlg.signinBody'),
