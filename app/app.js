@@ -1738,16 +1738,17 @@ function setupDraw(){
   // Width is per-drawing (data-driven `lw`). STYLE (solid/dashed/dotted) can't be data-driven
   // for line-dasharray, so the outline is split into three layers filtered on the `style`
   // property; a drawing routes to whichever matches (default solid). Dark casing under all.
+  // Paint may use EXPRESSIONS; the FILTERS here are LEGACY syntax (['==','$type',…]), so
+  // they must NOT contain expression forms like ['!',…] or ['get',…] — mixing the two makes
+  // addLayer throw and the layer silently never gets added (that broke the outline).
   const _lw=['coalesce',['get','lw'],2.6], _lc=['coalesce',['get','stroke'],'#5fe6ff'], _lo=['coalesce',['get','lo'],1];
-  const _isLine=['==','$type','LineString'];
-  const _solid=['all',_isLine,['any',['!',['has','style']],['==',['get','style'],'solid']]];
-  map.addLayer({id:'annot-line-case',type:'line',source:'annot',filter:_isLine,
+  map.addLayer({id:'annot-line-case',type:'line',source:'annot',filter:['==','$type','LineString'],
     paint:{'line-color':'#08131a','line-width':['+',_lw,2.4],'line-opacity':['*',0.6,_lo]}});
-  map.addLayer({id:'annot-line',type:'line',source:'annot',filter:_solid,
+  map.addLayer({id:'annot-line',type:'line',source:'annot',filter:['all',['==','$type','LineString'],['any',['!has','style'],['==','style','solid']]],
     paint:{'line-color':_lc,'line-width':_lw,'line-opacity':_lo}});
-  map.addLayer({id:'annot-line-dashed',type:'line',source:'annot',filter:['all',_isLine,['==',['get','style'],'dashed']],
+  map.addLayer({id:'annot-line-dashed',type:'line',source:'annot',filter:['all',['==','$type','LineString'],['==','style','dashed']],
     paint:{'line-color':_lc,'line-width':_lw,'line-opacity':_lo,'line-dasharray':[2,1.4]}});
-  map.addLayer({id:'annot-line-dotted',type:'line',source:'annot',filter:['all',_isLine,['==',['get','style'],'dotted']],
+  map.addLayer({id:'annot-line-dotted',type:'line',source:'annot',filter:['all',['==','$type','LineString'],['==','style','dotted']],
     layout:{'line-cap':'round'},paint:{'line-color':_lc,'line-width':_lw,'line-opacity':_lo,'line-dasharray':[0.1,2]}});
   map.addLayer({id:'annot-pt',type:'circle',source:'annot',filter:['==','$type','Point'],
     paint:{'circle-radius':['case',['==',['get','grab'],1],8,['==',['get','vertex'],1],5,6],
