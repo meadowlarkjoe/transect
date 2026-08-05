@@ -13,11 +13,21 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 17
+ENGINE_REVISION = 18
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    18: "Glassing knobs are actually on high points now. The prominence term saturated "
+        "at 12 m above the surrounding country — a low bar in rolling boreal ground, so "
+        "a large share of cells tied at maximum and the choice came down entirely to "
+        "which had the most feeding habitat nearby. Height had stopped discriminating. "
+        "It now scales over ~30 m, AND the spot has to sit near the local summit rather "
+        "than merely above average height, which had been putting knobs mid-slope with "
+        "a hillside behind them blocking half the view. Expect fewer glassing points, on "
+        "better ground. Also: a hunt from a camp you placed yourself no longer draws a "
+        "'base camp' pin on top of it — you told us where camp is, and handing that back "
+        "as a recommendation was noise.",
     17: "Land cover is now read at its OWN resolution instead of being flattened to the "
         "analysis grid. The satellite product is 10 m and the analysis grid is usually "
         "40 m, so every cell used to be decided by ONE pixel in sixteen — a patch that "

@@ -588,10 +588,32 @@ def run(ctx: Context, manual_areas=None) -> None:
     # timber scores ~0; a modest rise over a willow flat scores high. On flat/closed AOIs
     # this is ~0 everywhere, so the min_score floor below places NO glassing points —
     # honest (the tactic degrades to calling/still-hunting).
+    from scipy.ndimage import maximum_filter as _mxg
     from scipy.ndimage import uniform_filter as _ufg
     _res = float(ctx.model.raster_resolution_m)
-    prom = np.clip(np.nan_to_num(tpi) / 12.0, 0.0, 1.0) if tpi is not None else \
-        np.where(np.isfinite(hunt), ru.normalize(dem), 0.0)
+    # PROMINENCE, and two things it has to get right (user: "they need to be on high
+    # points and it feels like they often aren't").
+    #
+    # 1. SCALE. This clamped at TPI/12 m, and 12 m above a 500 m neighbourhood is a low
+    #    bar in rolling boreal country — a large share of cells hit 1.0 and TIED. Once
+    #    prominence saturates, the product below is decided entirely by openness, so the
+    #    model was really picking "most browse within 1.2 km" and height had stopped
+    #    discriminating at all. Scaling over ~30 m lets a real knob outrank a bump.
+    #
+    # 2. BEING ACTUALLY HIGH. TPI is elevation minus the neighbourhood MEAN, which is
+    #    positive anywhere above average — including the middle of a uniform slope, with
+    #    a hillside at your back blocking half the view. Require the cell to sit near the
+    #    neighbourhood MAXIMUM as well: full credit at the local summit, fading out ~15 m
+    #    below it. Mid-slope ground stops qualifying as a knob.
+    if tpi is not None:
+        prom = np.clip(np.nan_to_num(tpi) / 30.0, 0.0, 1.0)
+        if dem is not None:
+            _win_p = max(3, int(round(600 / _res)) | 1)
+            _demf = np.nan_to_num(dem, nan=np.nanmin(dem) if np.isfinite(dem).any() else 0.0)
+            _below = _mxg(_demf, size=_win_p) - _demf          # metres below the local high
+            prom = prom * np.clip(1.0 - _below / 15.0, 0.0, 1.0)
+    else:
+        prom = np.where(np.isfinite(hunt), ru.normalize(dem), 0.0)
     if browse is not None:
         win_g = max(3, int(round(1200 / _res)) | 1)          # ~1.2 km glassing radius
         openness = _ufg(np.clip(np.nan_to_num(browse), 0.0, 1.0), size=win_g)
@@ -802,14 +824,16 @@ def run(ctx: Context, manual_areas=None) -> None:
                                         "walk_km": round(walk_px * res / 1000.0, 2)}})
 
     if fixed_camp_rc is not None:
-        # The hunter fixed the camp: emit ONE pin there, and every area is hunted from
-        # it. (Overrides the vehicle/auto logic — they told us exactly where.)
+        # The hunter fixed the camp: every area is hunted from it, and we emit NO pin.
+        #
+        # We used to drop a "Base camp" marker on the spot they had just told us about,
+        # which handed their own input back as if the model had found it — and under a
+        # legend row reading "Where you sleep. Spike hunts only." A hunting-camp hunt has
+        # no base camp to recommend; it HAS a camp, and the hunter knows where, because
+        # they put it there. Routing still starts from it (camp_of_area below); it simply
+        # stops pretending to be a recommendation.
         camp_of_area = {rank: fixed_camp_rc for rank, _sel in area_masks}
-        lon, lat = toll(fixed_camp_rc)
-        features.append({"type": "Feature",
-                         "geometry": {"type": "Point", "coordinates": [lon, lat]},
-                         "properties": {"legend": "base_camp", "anchor": "fixed",
-                                        "fixed": True}})
+        camp_cells = [fixed_camp_rc]
     elif vehicle_style:
         # No base_camp features at all: routes originate from the staging pin.
         camp_of_area = {rank: st for rank, (st, _c) in area_stage.items()}

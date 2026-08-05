@@ -3991,6 +3991,14 @@ function _watchJob(jid,hdr){
    under the cursor also lifts, so the label and the geometry can't be mismatched.
 --------------------------------------------------------------------------- */
 const IDENTIFY = [
+  // ORDER IS PRIORITY, and it is the inverse of GENERALITY — most specific first, so the
+  // thing you are pointing AT wins over the thing it sits inside. The huntability band
+  // used to sit 7th and therefore beat refuge, browse, burns, cuts, funnels, wetlands,
+  // beaver ponds, tenure, roads, trails and water: it covers most of the map, so hovering
+  // any real feature inside it just reported the band and there was no way to drill down.
+  // It is a broad model surface and belongs LAST — the answer when nothing better is
+  // under the cursor. (Paint order already had it at the bottom; this is the same idea
+  // applied to the cursor.)
   // order matters: points first, so a site beats the polygon under it
   {lyr:'sites',        row:p=>SITE_ROW[p.type], title:p=>SITE_LABEL[p.type]||p.type||'Hunt site',
                        sub:p=>p.when||''},
@@ -4021,8 +4029,6 @@ const IDENTIFY = [
                                                    :'Inferred from the waterway class alone — no width or ford data ships here.',
                                p.route?`On the ${p.route.replace('route_','')} leg.`:''
                               ].filter(Boolean).join(' ')},
-  {lyr:'huntZones',    row:null,       title:p=>(HUNT_CLS[p.cls]||{}).label||'Likelihood band',
-                       sub:p=>`${p.area_km2} km² · model band, no surveyed edge`},
   {lyr:'refugeZones',  row:'refuge',   title:()=>'Thermal refuge',   sub:p=>`${p.area_km2} km²`},
   {lyr:'browseZones',  row:'browse',   title:()=>'Browse / feeding', sub:p=>`${p.area_km2} km²`},
   {lyr:'burnZones',    row:'burns',    title:p=>`Burn regeneration · ${p.cls||''}`, sub:p=>`${p.area_km2} km²`},
@@ -4046,7 +4052,10 @@ const IDENTIFY = [
   {lyr:'trails',       row:'trails',   title:p=>p.name||'Foot trail',
                        sub:()=>'OSM path — walk-in only, not drivable'},
   {lyr:'rivers',       row:'water',    title:p=>p.name||'Watercourse',sub:()=>'mapped hydrography (OSM)'},
-  {lyr:'lakes',        row:'water',    title:p=>p.name||'Waterbody', sub:()=>'mapped hydrography (OSM)'}
+  {lyr:'lakes',        row:'water',    title:p=>p.name||'Waterbody', sub:()=>'mapped hydrography (OSM)'},
+  // LAST ON PURPOSE — see the note above.
+  {lyr:'huntZones',    row:null,       title:p=>(HUNT_CLS[p.cls]||{}).label||'Likelihood band',
+                       sub:p=>`${p.area_km2} km² · model band, no surveyed edge`},
 ];
 const SITE_ROW={rut_calling:'st-rut',saline_blind:'st-saline',glassing:'st-glass',
   validate_ground:'st-ground'};
