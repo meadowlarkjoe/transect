@@ -1725,10 +1725,15 @@ function areaFmt(km2){ return UNITS==='imperial'?(km2*0.386102).toFixed(2)+' mi�
 function setupDraw(){
   if(map.getSource('annot')) return;   // idempotent: chromeFallback() may have built it already
   map.addSource('annot',{type:'geojson',data:fc([])});
+  // Area FILLS live in their OWN source. A polygon in the SAME source as the lines/points
+  // was taking the whole annotation layer down the instant it appeared (the "vanishes at the
+  // 3rd point" bug) — so the outline + vertices (which the hunter must see) are kept polygon-
+  // free here and always render; the fill is isolated and can fail alone without hiding them.
+  map.addSource('annotFill',{type:'geojson',data:fc([])});
   // Data-driven paint: every drawing carries its own stroke/fill/opacity (the click-to-edit
   // panel writes them), with sane fallbacks. A dark CASING under the bright line so the
   // drawing reads on ANY background — a thin white line was lost on satellite + the overlay.
-  map.addLayer({id:'annot-fill',type:'fill',source:'annot',filter:['==','$type','Polygon'],
+  map.addLayer({id:'annot-fill',type:'fill',source:'annotFill',filter:['==','$type','Polygon'],
     paint:{'fill-color':['coalesce',['get','fill'],'#4de1ff'],'fill-opacity':['coalesce',['get','fo'],0.16]}});
   map.addLayer({id:'annot-line-case',type:'line',source:'annot',filter:['==','$type','LineString'],
     paint:{'line-color':'#08131a','line-width':5,'line-opacity':['*',0.6,['coalesce',['get','lo'],1]]}});
@@ -1814,19 +1819,23 @@ function renderAnnot(){
   // the SAME colour, because a `line` layer won't paint polygon rings — that's why the area
   // outline (and its closing edge back to point 1) kept vanishing. The ring is closed from
   // the moment there are ≥2 points, so an area always reads as a shape while you draw it.
-  const feats=[];
+  const feats=[];    // lines + points -> `annot` (never a polygon, so it never breaks)
+  const fills=[];    // polygons -> `annotFill` (isolated)
   const vis=f=>!(f.properties&&(f.properties.hidden||hiddenDrawTypes.has(f.properties.dtype)));
   drawSaved.filter(vis).forEach(f=>{
-    feats.push(f);
-    if(f.geometry.type==='Polygon')   // boundary carries NO label (the polygon already has it)
-      (f.geometry.coordinates||[]).forEach(ring=>feats.push(_styledLine(ring,{id:f.properties.id,stroke:f.properties.stroke,lo:f.properties.lo})));
+    if(f.geometry.type==='Polygon'){
+      fills.push(f);   // fill in its own source
+      (f.geometry.coordinates||[]).forEach(ring=>feats.push(_styledLine(ring,{id:f.properties.id,stroke:f.properties.stroke,lo:f.properties.lo,label:f.properties.label})));
+    } else {
+      feats.push(f);   // committed line / pin renders directly
+    }
     if(drawEditId && f.properties.id===drawEditId) _vertsOf(f).forEach(v=>feats.push(_vertFeat(v,f.properties)));
   });
   if(drawPts.length){
     const st=DRAW_STYLE[drawTool]||DRAW_STYLE.area;
     if(drawTool==='area' && drawPts.length>=2){
       const ring=drawPts.concat([drawPts[0]]);                 // ALWAYS closed while drawing
-      if(drawPts.length>=3) feats.push({type:'Feature',geometry:{type:'Polygon',coordinates:[ring]},properties:{fill:st.fill,fo:st.fo}});
+      if(drawPts.length>=3) fills.push({type:'Feature',geometry:{type:'Polygon',coordinates:[ring]},properties:{fill:st.fill,fo:st.fo}});
       feats.push(_styledLine(ring,{stroke:st.stroke,lo:st.lo,label:drawPts.length>=3?areaFmt(ringKm2(drawPts)):''}));
     } else {
       feats.push(_styledLine(drawPts.slice(),{stroke:st.stroke,lo:st.lo,label:drawPts.length>=2?km(polyKm(drawPts)):''}));
@@ -1834,6 +1843,7 @@ function renderAnnot(){
     drawPts.forEach(p=>feats.push(_vertFeat(p,st)));
   }
   map.getSource('annot').setData(fc(feats));
+  const fsrc=map.getSource('annotFill'); if(fsrc) fsrc.setData(fc(fills));
   renderDrawManager();
 }
 function setDrawTool(t){
