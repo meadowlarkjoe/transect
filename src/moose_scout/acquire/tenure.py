@@ -43,11 +43,17 @@ def fetch(ctx: Context) -> None:
     """Download the province-wide TFS once, clip to the AOI, normalize the tenure
     class, and write cache/<aoi>/tenure.geojson (always — an empty result means
     'all crown land', which is a valid, huntable answer)."""
+    out = cache_dir(ctx.aoi.name) / CACHE
+    # Already clipped for this box → done. Re-reading and re-clipping the province-wide
+    # TFS took ~15 s on every run, including runs where the geography cache had just
+    # handed us the finished file.
+    if out.exists() and out.stat().st_size > 0:
+        return
+
     shared = _client.shared_dir() / "TFS.geojson"
     _client.download(TFS_URL, shared)
 
     gdf = _client.read_clip(shared, ctx)
-    out = cache_dir(ctx.aoi.name) / CACHE
 
     if len(gdf) == 0:
         out.write_text(json.dumps({"type": "FeatureCollection", "features": []}))

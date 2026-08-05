@@ -94,15 +94,10 @@ def run(ctx: Context) -> dict[str, str]:
             ox.settings.max_query_area_size = 5_000_000_000  # m² (5,000 km²)
         except Exception:
             pass
-        # Overpass mirror selection, by measurement rather than hope.
-        # overpass-api.de (osmnx's default) and kumi BLOCK this droplet's DigitalOcean
-        # IP outright, which silently emptied every OSM layer. mail.ru answers but is
-        # catastrophically slow on road-dense boxes — a single 70 km AOI took 2.2 HOURS.
-        # So probe the candidates with a tiny query and take the first fast responder.
-        try:
-            ox.settings.overpass_url = _pick_overpass()
-        except Exception:
-            pass
+        # Mirror selection happens LATER, and only if some OSM layer is actually
+        # missing — see below. (Why it is measured at all: overpass-api.de and kumi
+        # BLOCK this droplet's IP outright, silently emptying every OSM layer, and
+        # mail.ru answers but took 2.2 HOURS on one 70 km box.)
     except Exception:
         pass
 
@@ -131,6 +126,21 @@ def run(ctx: Context) -> dict[str, str]:
             print(f"[acquire] geocache MISS {k} — fetching this box cold")
     except Exception as e:  # noqa: BLE001
         print(f"[acquire] geocache restore skipped: {e}")
+
+    # Only probe Overpass if we are actually going to ASK it something. The probe walks
+    # up to five mirrors at 20 s apiece, and it was running unconditionally at startup —
+    # ~50 s of the 72 s a fully-cached run was taking, spent choosing a server no query
+    # would ever be sent to.
+    try:
+        _osm_outs = ("rail.gpkg", "trails.gpkg", "waterways.gpkg", "waterbodies.gpkg",
+                     "roads.gpkg")
+        if any(not (cache / n).exists() for n in _osm_outs):
+            import osmnx as _ox
+            _ox.settings.overpass_url = _pick_overpass()
+        else:
+            print("[acquire] every OSM layer cached — skipping the mirror probe")
+    except Exception:
+        pass
 
     steps = [
         ("zones", zones.fetch),
