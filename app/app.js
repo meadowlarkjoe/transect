@@ -1732,7 +1732,7 @@ function areaFmt(km2){ return UNITS==='imperial'?(km2*0.386102).toFixed(2)+' mi�
 // A POLYGON sharing the geojson source with the line/point features BLANKS the whole drawing the
 // instant it appears — that is the "everything vanishes at the 3rd point when it becomes a polygon"
 // bug. It was originally fixed in e8148c7 and regressed when the sources were merged. Keep apart.
-const _ANNOT_LAYERS=['annot-line-case','annot-line','annot-pt','annot-label'];
+const _ANNOT_LAYERS=['annot-line-case','annot-line','annot-line-dash','annot-line-dot','annot-pt','annot-label'];
 const _ANNOTFILL_LAYERS=['annot-fill'];
 function _addAnnotFillLayers(){
   // Insert the fill BELOW the outline casing so the outline/vertices always sit on top of it.
@@ -1747,9 +1747,19 @@ function _addAnnotLayers(){
   map.addLayer({id:'annot-line-case',type:'line',source:'annot',filter:['==','$type','LineString'],
     layout:{'line-cap':'round','line-join':'round'},
     paint:{'line-color':'#08131a','line-width':['+',LW,2.6],'line-opacity':['*',0.6,LO]}});
-  map.addLayer({id:'annot-line',type:'line',source:'annot',filter:['==','$type','LineString'],
+  // One line layer per outline STYLE (line-dasharray is a constant, not data-driven). Filters are
+  // PURE expression syntax — never mix legacy '$type' with ['get',…] in one filter (silent fail).
+  const isLine=['==',['geometry-type'],'LineString'];
+  const styleIs=v=>['all',isLine,['==',['coalesce',['get','style'],'solid'],v]];
+  map.addLayer({id:'annot-line',type:'line',source:'annot',filter:styleIs('solid'),
     layout:{'line-cap':'round','line-join':'round'},
     paint:{'line-color':SC,'line-width':LW,'line-opacity':LO}});
+  map.addLayer({id:'annot-line-dash',type:'line',source:'annot',filter:styleIs('dashed'),
+    layout:{'line-join':'round'},
+    paint:{'line-color':SC,'line-width':LW,'line-opacity':LO,'line-dasharray':[2,1.4]}});
+  map.addLayer({id:'annot-line-dot',type:'line',source:'annot',filter:styleIs('dotted'),
+    layout:{'line-cap':'round','line-join':'round'},
+    paint:{'line-color':SC,'line-width':LW,'line-opacity':LO,'line-dasharray':[0.1,1.8]}});
   map.addLayer({id:'annot-pt',type:'circle',source:'annot',filter:['==','$type','Point'],
     paint:{'circle-radius':['case',['==',['get','grab'],1],7,['==',['get','vertex'],1],5,6],
       'circle-color':['case',['==',['get','grab'],1],'#ffffff',SC],
@@ -1793,7 +1803,7 @@ function setupDraw(){
     map.on('dblclick',e=>{ if(drawTool&&drawTool!=='waypoint'){ e.preventDefault(); finishDraw(); } });
     // Click a finished drawing (no tool armed) to open its editor; fills, outlines and vertices
     // all carry the parent id, so a click anywhere on the drawing resolves to it.
-    ['annot-fill','annot-line','annot-pt'].forEach(l=>{
+    ['annot-fill','annot-line','annot-line-dash','annot-line-dot','annot-pt'].forEach(l=>{
       map.on('click',l,e=>{ if(drawTool||drawEditId) return;
         const id=e.features&&e.features[0]&&e.features[0].properties.id;
         if(id!=null&&id!==''){ if(e.originalEvent)e.originalEvent.stopPropagation(); openDrawEditor(+id); } });
@@ -1982,6 +1992,10 @@ function openDrawEditor(id){
     +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Outline</span><input id="deStroke" type="color" value="${p.stroke||'#5fe6ff'}" style="width:30px;height:22px;border:none;background:none;padding:0"></div>`
     +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Line opacity</span><input id="deLo" type="range" min="0" max="1" step="0.05" value="${p.lo!=null?p.lo:1}" style="width:100px"></div>`
     +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Weight</span><input id="deLw" type="range" min="1" max="8" step="0.5" value="${p.lw!=null?p.lw:3.4}" style="width:100px"></div>`
+    +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Style</span>`
+      +`<select id="deStyle" style="background:#1c2429;border:1px solid #2a343a;color:#cde;border-radius:5px;padding:2px 6px;cursor:pointer">`
+      +['solid','dashed','dotted'].map(v=>`<option value="${v}" ${(p.style||'solid')===v?'selected':''}>${v[0].toUpperCase()+v.slice(1)}</option>`).join('')
+      +`</select></div>`
     +(isArea?`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Fill</span><input id="deFill" type="color" value="${p.fill||'#4de1ff'}" style="width:30px;height:22px;border:none;background:none;padding:0"></div>`
       +`<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">Fill opacity</span><input id="deFo" type="range" min="0" max="0.7" step="0.02" value="${p.fo!=null?p.fo:0.28}" style="width:100px"></div>`:'')
     +`<label style="display:flex;align-items:center;gap:8px;margin:7px 0;cursor:pointer"><input id="deHide" type="checkbox" ${p.hidden?'checked':''}> Hide on map</label>`
@@ -1994,6 +2008,7 @@ function openDrawEditor(id){
   el.querySelector('#deStroke').oninput=e=>set('stroke',e.target.value);
   el.querySelector('#deLo').oninput=e=>set('lo',+e.target.value);
   el.querySelector('#deLw').oninput=e=>set('lw',+e.target.value);
+  el.querySelector('#deStyle').onchange=e=>set('style',e.target.value);
   if(isArea){ el.querySelector('#deFill').oninput=e=>set('fill',e.target.value); el.querySelector('#deFo').oninput=e=>set('fo',+e.target.value); }
   el.querySelector('#deHide').onchange=e=>{ set('hidden',e.target.checked); renderDrawManager(); };
   el.querySelector('#deDel').onclick=()=>{ drawSaved=drawSaved.filter(x=>x.properties.id!==id); if(drawEditId===id)exitDrawEdit(); el.remove(); renderAnnot(); };
