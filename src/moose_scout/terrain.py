@@ -137,10 +137,18 @@ def run(ctx: Context) -> None:
         db = distance_transform_edt(passable) * res
         ridge = (db >= maximum_filter(db, size=3) - 1e-6) & passable & (db > res)
         full_w = 2.0 * db
-        # Moose readily cross a few-hundred-metre gap, so only necks under ~300 m full
-        # width count, strongest well below that (a 300 m cap = db < 150 m).
-        NECK_M = 300.0
-        narrow = np.clip((NECK_M - full_w) / NECK_M, 0.0, 1.0)
+        # HOW TIGHT IS TIGHT. This was (300 - w)/300, which scores a 250 m land bridge at
+        # 0.17 — under the threshold that polygonizes a funnel at all. A 250 m neck
+        # between two lakes is a strong funnel, not a marginal one. The old scaling
+        # survived only because the topographic saddle was supplying most of the signal;
+        # removing that term exposed it.
+        #
+        # Now: full strength at or below ~250 m, fading out by ~600 m. Below 250 m a
+        # travelling bull is genuinely pinched; by 600 m he has room to go around, which
+        # is the distinction the number is trying to capture.
+        NECK_M = 600.0
+        FULL_AT = 250.0
+        narrow = np.clip((NECK_M - full_w) / (NECK_M - FULL_AT), 0.0, 1.0)
         # Local minimum: compare db to its ~600 m neighbourhood average; where the corridor
         # is markedly narrower than nearby, it is squeezing — that is the pinch.
         db_local = uniform_filter(db, size=max(3, int(round(600 / res)) | 1))
