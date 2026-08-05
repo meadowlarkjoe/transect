@@ -596,18 +596,25 @@ function init(){
   // a truck down. `_PAVED`/`_TRACK` filters split them; width scales off one base by class.
   const _PAVED=['all',['==',['get','t'],'road'],['match',['get','cls'],['artery','road'],true,false]];
   const _TRACK=['all',['==',['get','t'],'road'],['==',['get','cls'],'track']];
-  const _rw=['interpolate',['linear'],['zoom'],8,0.9,12,2.1,15,3.6];
+  // Width must be a TOP-LEVEL zoom interpolate — MapLibre forbids nesting a zoom expression
+  // inside ['*',…] (that threw on every frame and broke rendering). So bake the per-class
+  // factor into the interpolate STOP OUTPUTS via `match`, exactly like the rivers layer above.
+  const _cw=(a,r)=>['interpolate',['linear'],['zoom'],
+    8, ['match',['get','cls'],'artery',0.9*a,0.9*r],
+    12,['match',['get','cls'],'artery',2.1*a,2.1*r],
+    15,['match',['get','cls'],'artery',3.6*a,3.6*r]];
+  const _tw=k=>['interpolate',['linear'],['zoom'],8,0.9*k,12,2.1*k,15,3.6*k];
   map.addSource('infra',{type:'geojson',data:S.infra});
   map.addLayer({id:'roads-case',type:'line',source:'infra',filter:_PAVED,
-    paint:{'line-color':'#20160a','line-width':['*',_rw,['match',['get','cls'],'artery',2.0,1.5]],'line-opacity':0.5}});
+    paint:{'line-color':'#20160a','line-width':_cw(2.0,1.5),'line-opacity':0.5}});
   map.addLayer({id:'roads',type:'line',source:'infra',filter:_PAVED,
     paint:{'line-color':['match',['get','cls'],'artery','#f6e7bd','#e4cf94'],
-      'line-width':['*',_rw,['match',['get','cls'],'artery',1.4,1.0]],'line-opacity':0.95}});
+      'line-width':_cw(1.4,1.0),'line-opacity':0.95}});
   map.addLayer({id:'roads-track',type:'line',source:'infra',filter:_TRACK,
-    paint:{'line-color':'#c39a5e','line-width':['*',_rw,0.75],'line-dasharray':[3,2.2],'line-opacity':0.9}});
+    paint:{'line-color':'#c39a5e','line-width':_tw(0.75),'line-dasharray':[3,2.2],'line-opacity':0.9}});
   map.addLayer({id:'trails',type:'line',source:'infra',filter:['==',['get','t'],'trail'],
     layout:{visibility:'none'},
-    paint:{'line-color':'#9db36a','line-width':['*',_rw,0.7],'line-dasharray':[1,2.2],'line-opacity':0.9}});
+    paint:{'line-color':'#9db36a','line-width':_tw(0.7),'line-dasharray':[1,2.2],'line-opacity':0.9}});
   map.addLayer({id:'rail',type:'line',source:'infra',filter:['==',['get','t'],'rail'],
     paint:{'line-color':'#c7cdc3','line-width':1.5,'line-dasharray':[2,3],'line-opacity':0.9}});
 
