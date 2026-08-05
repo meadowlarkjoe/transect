@@ -1431,6 +1431,23 @@ function buildLayersDock(){
     const g=e.target.dataset.g; groupOpacity[g]=+e.target.value/100;
     LAYERS.filter(r=>r.group===g).forEach(applyLayer);
   });
+  // THE PANEL IS THE TRUTH. applyLayer() only ever ran from a click, so nothing
+  // reconciled what the map is drawing with what the checkboxes say — and every
+  // applyDoc() rebuilds this panel. Any drift between the two then persisted: a row
+  // reading OFF over a layer still painting (reported for Trails & sentiers), or the
+  // reverse. Worse, a row whose count is 0 renders DISABLED and gets no handler at all,
+  // so clicking it silently does nothing forever.
+  //
+  // Reconciling on every build makes the panel authoritative by construction, whatever
+  // caused the drift. A disabled row is forced hidden: there is nothing to show, and
+  // leaving it painted is how a layer becomes unturn-off-able.
+  d.querySelectorAll('.layer-row').forEach(row=>{
+    const r0=LAYERS.find(x=>x.k===row.dataset.k);
+    if(r0 && r0.lyr){
+      const dis0=row.querySelector('input').disabled;
+      setVis(LYR_MAP[r0.lyr], !!r0.on && !dis0);
+    }
+  });
   d.querySelectorAll('.layer-row').forEach(row=>{
     const cb=row.querySelector('input'); if(cb.disabled) return;
     cb.onchange=()=>{
