@@ -13,11 +13,23 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 18
+ENGINE_REVISION = 19
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    19: "Funnels are real necks now, and every one can tell you how wide it is. Two "
+        "things were wrong. A bog was being treated as a barrier, on the assumption that "
+        "a moose routes around marsh — it does not; it walks through. Treating bog as a "
+        "wall invented a funnel out of every strip of dry ground between two bogs. And "
+        "the topographic saddle could create a funnel entirely on its own: on one real "
+        "area that produced 59% of all funnel ground, none of it with any measurable "
+        "constriction, on terrain too flat for a saddle to mean anything. Funnels are now "
+        "built only from genuine water necks, a saddle only strengthens a neck that is "
+        "already there, and wet ground weakens one — a crossing a moose CAN make but has "
+        "no reason to prefer. Each funnel now reports its neck width, so you can check it "
+        "against the map instead of taking our word for it. Expect far fewer funnels, all "
+        "of them on ground you can see the reason for.",
     18: "Glassing knobs are actually on high points now. The prominence term saturated "
         "at 12 m above the surrounding country — a low bar in rolling boreal ground, so "
         "a large share of cells tied at maximum and the choice came down entirely to "

@@ -69,7 +69,15 @@ def run(ctx: Context) -> None:
     barrier = np.zeros(dem.shape, bool)
     # wetland_grhq.tif = MRNF GRHQ mapped wetlands (milieu humide) — real marsh/bog/fen a
     # moose routes AROUND, so it forms land-bridge funnels the soft wetness proxy misses (#62).
-    for nm in ("water.tif", "wetland.tif", "wetland_grhq.tif"):
+    # WATER ONLY. Wetland used to be in here on the assumption that "a moose routes
+    # AROUND marsh/bog/fen" — my assumption, never measured, and wrong: a moose walks
+    # through a bog perfectly well. It is just not a FUNNEL, because nothing is forced
+    # through it. Treating bog as a barrier manufactured necks out of every strip of dry
+    # ground between two bogs, which is a constriction only on paper.
+    #
+    # Bog still matters — it damps funnel quality further down, because a neck across wet
+    # ground is not a preferred travel route — but it does not create one.
+    for nm in ("water.tif",):
         try:
             w = ru.read(cache_dir(aoi) / nm)[0]
         except Exception:
@@ -180,8 +188,33 @@ def run(ctx: Context) -> None:
     steep_gate = ru.normalize(slope, lo=5.0, hi=20.0)      # 0 below 5°, ramps to 20°
     topo = ru.normalize(saddle) * steep_gate
 
-    # Constriction is the primary signal; topo passes add where the ground is steep.
-    funnel = np.maximum(constriction, 0.6 * topo).astype("float32")
+    # A FUNNEL MUST HAVE A NECK YOU CAN MEASURE.
+    #
+    # This was max(constriction, 0.6*topo), which let the topographic saddle create
+    # funnels ON ITS OWN. Measured on a real AOI, that term produced 18,328 of 31,089
+    # funnel cells — 59% — none of which had any measurable constriction, on ground whose
+    # own code comment calls the saddle signal "largely resampling noise". Those are the
+    # funnels that show up in the middle of a bog and cannot say how wide they are.
+    #
+    # Topo is now a BOOSTER of a real constriction, never a source of one: a saddle makes
+    # an existing neck more compelling, but "steep-ish and slightly concave" is not a
+    # funnel. Every funnel that survives can state its width.
+    funnel = (constriction * (1.0 + 0.30 * np.clip(topo, 0.0, 1.0))).astype("float32")
+    # Wet ground damps it: a neck a moose CAN cross but has no reason to prefer is a
+    # weaker funnel than the same neck on dry ground.
+    try:
+        _wetpen = np.zeros(dem.shape, "float32")
+        for nm in ("wetland.tif", "wetland_grhq.tif"):
+            try:
+                w = ru.read(cache_dir(aoi) / nm)[0]
+                if w is not None and w.shape == dem.shape:
+                    _wetpen = np.maximum(_wetpen, np.nan_to_num(w) > 0)
+            except Exception:
+                pass
+        funnel = (funnel * (1.0 - 0.55 * _wetpen)).astype("float32")
+    except Exception:
+        pass
+    funnel = np.clip(funnel, 0.0, 1.0).astype("float32")
 
     # --- cool (north-facing) aspect 0..1 for thermal refuge ---
     cool = (np.cos(np.radians(aspect)) + 1) / 2  # 1 at N(0/360), 0 at S(180)
