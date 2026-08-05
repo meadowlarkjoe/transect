@@ -112,7 +112,12 @@ def class_fractions(src, classes, dst_crs, dst_transform, W, H, aoi_wgs84,
         dst_res = abs(dst_transform.a)
         ratio = max(1.0, dst_res / max(src_res, 1e-9))
     except Exception:
-        ratio = 4.0
+        src_res, dst_res, ratio = 10.0, 40.0, 4.0
+    # Block factor: collapse native pixels to ~half a destination cell before warping.
+    # Constant for the whole call, and the source window is snapped to a multiple of it,
+    # so block boundaries sit on a GLOBAL grid and cannot shift with the tiling — that is
+    # what makes the tiled result identical to the untiled one.
+    bf = int(max(1, np.floor(dst_res / (2.0 * src_res))))
     per_row = max(1.0, W * ratio * ratio)
     band = int(max(1, min(H, budget_px // per_row)))
 
@@ -131,6 +136,9 @@ def class_fractions(src, classes, dst_crs, dst_transform, W, H, aoi_wgs84,
         rw0 = max(0, int(np.floor(win.row_off)) - 1)
         c1 = min(src.width, int(np.ceil(win.col_off + win.width)) + 1)
         rw1 = min(src.height, int(np.ceil(win.row_off + win.height)) + 1)
+        # snap DOWN to the global block grid so blocks never move between tilings
+        c0 -= c0 % bf
+        rw0 -= rw0 % bf
         if c1 <= c0 or rw1 <= rw0:
             continue
         win = Window(c0, rw0, c1 - c0, rw1 - rw0)
@@ -140,8 +148,40 @@ def class_fractions(src, classes, dst_crs, dst_transform, W, H, aoi_wgs84,
         src_tr = src.window_transform(win)
         bh = r1 - r0
 
+        # AGGREGATE IN SOURCE SPACE FIRST.
+        #
+        # The obvious implementation — warp one full-resolution binary mask per class —
+        # is correct and far too slow: eight ~50-megapixel warps per tile took over ten
+        # minutes on a 70 km box and blew the per-source time budget, which would have
+        # silently degraded the layer to nothing.
+        #
+        # But a class FRACTION block-averages exactly: the mean of a binary mask over a
+        # block IS the fraction of that block in the class. So collapse the native array
+        # to about half the destination cell size with a plain numpy block mean (cheap,
+        # no reprojection), then warp the small float fraction maps. Same answer, a
+        # fraction of the work — and it is still "measured at native resolution,
+        # aggregated late", just aggregated in two cheap steps instead of one dear one.
+        _bf = bf
+        if bf > 1:
+            hh = (arr.shape[0] // bf) * bf
+            ww = (arr.shape[1] // bf) * bf
+            if hh >= bf and ww >= bf:
+                sub = arr[:hh, :ww]
+                src_tr = src_tr * Affine.scale(bf, bf)
+            else:
+                _bf, sub = 1, arr
+        else:
+            sub = arr
+
+        def _blockmean(m, _bf=None):
+            """Exact areal fraction over bf×bf native blocks."""
+            f = _bf if _bf else 1
+            if f == 1:
+                return m
+            return m.reshape(m.shape[0] // f, f, m.shape[1] // f, f).mean(axis=(1, 3))
+
         cov = np.zeros((bh, W), dtype="float32")
-        reproject(np.ones(arr.shape, dtype="float32"), cov,
+        reproject(_blockmean(np.ones(sub.shape, dtype="float32"), _bf), cov,
                   src_transform=src_tr, src_crs=src.crs,
                   dst_transform=sub_tr, dst_crs=dst_crs,
                   src_nodata=None, dst_nodata=0.0, resampling=Resampling.average)
@@ -149,7 +189,7 @@ def class_fractions(src, classes, dst_crs, dst_transform, W, H, aoi_wgs84,
         seen[r0:r1] |= band_seen
 
         for k in classes:
-            m = (arr == k).astype("float32")
+            m = _blockmean((sub == k).astype("float32"), _bf)
             dst = np.zeros((bh, W), dtype="float32")
             reproject(m, dst, src_transform=src_tr, src_crs=src.crs,
                       dst_transform=sub_tr, dst_crs=dst_crs,
