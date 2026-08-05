@@ -1722,13 +1722,20 @@ function ringKm2(ring){ // spherical polygon area
   return Math.abs(s*R*R/2);
 }
 function areaFmt(km2){ return UNITS==='imperial'?(km2*0.386102).toFixed(2)+' mi²':km2.toFixed(2)+' km²'; }
+let _annotReady=false;
+try{ map.on('styledata',()=>{ _annotReady=false; }); }catch(e){}   // a style reload wipes the sources
 function setupDraw(){
-  if(map.getSource('annot')) return;   // idempotent: chromeFallback() may have built it already
+  // REBUILD the annotation sources + layers FRESH every time. THE key fix: a geojson source
+  // created before the style was fully ready — or carried across a basemap style reload — winds
+  // up in a state where LINE features never paint (points still do), so the drawing outline was
+  // invisible. Removing and re-adding the source is the only reliable cure, verified live. Map
+  // event handlers are wired ONCE (re-wiring would stack duplicate click handlers).
+  ['annot-fill','annot-line-case','annot-line','annot-pt','annot-label'].forEach(l=>{ if(map.getLayer(l)) map.removeLayer(l); });
+  if(map.getSource('annot')) map.removeSource('annot');
+  if(map.getSource('annotFill')) map.removeSource('annotFill');
   map.addSource('annot',{type:'geojson',data:fc([])});
-  // Area FILLS live in their OWN source. A polygon in the SAME source as the lines/points
-  // was taking the whole annotation layer down the instant it appeared (the "vanishes at the
-  // 3rd point" bug) — so the outline + vertices (which the hunter must see) are kept polygon-
-  // free here and always render; the fill is isolated and can fail alone without hiding them.
+  // Area FILLS live in their OWN source (a polygon beside the lines/points once looked like it
+  // broke them; kept split for safety — the outline + vertices are what the hunter must see).
   map.addSource('annotFill',{type:'geojson',data:fc([])});
   // Data-driven paint: every drawing carries its own stroke/fill/opacity (the click-to-edit
   // panel writes them), with sane fallbacks. A dark CASING under the bright line so the
@@ -1754,18 +1761,21 @@ function setupDraw(){
   map.addLayer({id:'annot-label',type:'symbol',source:'annot',filter:['has','label'],
     layout:{'text-field':['get','label'],'text-size':12,'text-offset':[0,-1.2],'text-font':['Open Sans Bold'],'text-allow-overlap':true},
     paint:{'text-color':'#ffe6a8','text-halo-color':'#0b0f0d','text-halo-width':2}});
-  map.on('click',onDrawClick);
-  map.on('dblclick',e=>{ if(drawTool&&drawTool!=='waypoint'){ e.preventDefault(); finishDraw(); } });
-  // Click a finished drawing (when no tool is armed) to open its editor. Vertex drag is
-  // wired in enterDrawEdit(). The boundary lines + vertices carry the parent id, so a click
-  // anywhere on the drawing resolves to it.
-  ['annot-fill','annot-line','annot-pt'].forEach(l=>{
-    map.on('click',l,e=>{ if(drawTool||drawEditId) return;
-      const id=e.features&&e.features[0]&&e.features[0].properties.id;
-      if(id!=null&&id!==''){ if(e.originalEvent)e.originalEvent.stopPropagation(); openDrawEditor(+id); } });
-    map.on('mouseenter',l,()=>{ if(!drawTool&&!drawEditId) map.getCanvas().style.cursor='pointer'; });
-    map.on('mouseleave',l,()=>{ if(!drawTool&&!drawEditId) map.getCanvas().style.cursor=''; });
-  });
+  if(!window._annotWired){
+    window._annotWired=true;
+    map.on('click',onDrawClick);
+    map.on('dblclick',e=>{ if(drawTool&&drawTool!=='waypoint'){ e.preventDefault(); finishDraw(); } });
+    // Click a finished drawing (no tool armed) to open its editor; the boundary lines +
+    // vertices carry the parent id, so a click anywhere on the drawing resolves to it.
+    ['annot-fill','annot-line','annot-pt'].forEach(l=>{
+      map.on('click',l,e=>{ if(drawTool||drawEditId) return;
+        const id=e.features&&e.features[0]&&e.features[0].properties.id;
+        if(id!=null&&id!==''){ if(e.originalEvent)e.originalEvent.stopPropagation(); openDrawEditor(+id); } });
+      map.on('mouseenter',l,()=>{ if(!drawTool&&!drawEditId) map.getCanvas().style.cursor='pointer'; });
+      map.on('mouseleave',l,()=>{ if(!drawTool&&!drawEditId) map.getCanvas().style.cursor=''; });
+    });
+  }
+  _annotReady=true;
 }
 // Per-drawing editable style. Every committed drawing carries its own id, type, colours
 // and opacities so the click-to-edit panel can recolour just that one, and so a type can
@@ -1805,7 +1815,7 @@ function renderAnnot(){
   // path that calls setupDraw() ever aborts early, `annot` is missing and every draw tool
   // silently no-ops (the tip readout still updates from drawPts, so the panel looked alive
   // while the map stayed blank) — the measure/line/route/area bug. Idempotent.
-  if(!map.getSource('annot')){ try{ setupDraw(); }catch(e){} }
+  if(!_annotReady || !map.getSource('annot')){ try{ setupDraw(); }catch(e){} }
   if(!map.getSource('annot')) return;
   // ...and make sure the annotation layers sit ON TOP. setupDraw() runs during map load,
   // before the data layers are added, so the drawings were being painted UNDERNEATH the
