@@ -27,6 +27,14 @@ def fetch(ctx: Context) -> None:
 
     os.environ.setdefault("GDAL_DISABLE_READDIR_ON_OPEN", "EMPTY_DIR")
     cache = cache_dir(ctx.aoi.name)
+    # All three outputs present → nothing to do. Without this, hydro re-queried the
+    # STAC catalogue and re-warped WorldCover on every run, and it was the last source
+    # still spending real time on a fully cached box.
+    if all((cache / n).exists() and (cache / n).stat().st_size > 0
+           for n in ("landcover.tif", "water.tif", "wetland.tif")):
+        print("[hydro] cached — skipping WorldCover")
+        return
+
     minlon, minlat, maxlon, maxlat = ctx.aoi.bbox_wgs84()
     aoi_wgs = (minlon, minlat, maxlon, maxlat)
     dst_crs, dst_transform, W, H = target_grid(ctx)
