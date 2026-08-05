@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 import threading
 import traceback
 import uuid
@@ -47,7 +48,28 @@ app = FastAPI(title="Transect Scout API")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                    allow_headers=["*"])
 
-JOBS: dict[str, dict] = {}
+import signal
+import subprocess
+
+from . import jobstore
+
+# In-memory job state is GONE (#17): it lived and died with this process, so a deploy or
+# a crash took every running analysis with it and left nothing to reconnect to. State is
+# now a file the worker keeps writing, and the run is its own process.
+MAX_CONCURRENT = int(os.environ.get("TRANSECT_MAX_CONCURRENT", "2"))
+
+
+def _spawn_worker(jid: str) -> None:
+    """Start the analysis as an independent process.
+
+    start_new_session detaches it from this process group, so a signal aimed at uvicorn
+    (a deploy, a container stop) does NOT cascade into the running analysis — which is
+    the whole reason this exists."""
+    proc = subprocess.Popen(
+        [sys.executable, "-m", "moose_scout.worker", jid],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        start_new_session=True)
+    jobstore.update(jid, pid=proc.pid)
 # Set by POST /admin/drain during a deploy: refuse NEW analyses so the in-flight ones
 # can finish before the container is replaced. Process-local by design (#17).
 DRAINING = False
@@ -159,84 +181,6 @@ def _clean_sites(s):
     return out or None
 
 
-def _run(job_id: str, req: ScoutReq) -> None:
-    name = f"job_{job_id}"
-    try:
-        species = req.species if req.species in SPECIES else "moose"
-        aoi = AOI(
-            name=name, title=f"{req.lat:.3f}, {req.lon:.3f}", species=species,
-            center=LatLon(lat=req.lat, lon=req.lon),
-            bbox_halfwidth_km=max(3.0, min(120.0, req.radius_km)),
-            zone_hint=req.zone_hint,
-            season=SeasonCfg(year=2026,
-                             target_dates=req.target_dates or ["2026-09-25", "2026-10-05"]),
-            hunter=HunterCfg(
-                residency=req.residency,
-                watercraft=req.watercraft if req.watercraft in ("none", "canoe", "motor") else "none",
-                hunt_style=req.hunt_style if req.hunt_style in ("spike", "vehicle") else "spike",
-                transport=_clean_transport(req.transport),
-                sites=_clean_sites(req.sites),
-                walk_access_km=max(0.5, min(30.0, float(req.walk_access_km))),
-                walk_hunt_km=max(0.3, min(20.0, float(req.walk_hunt_km))),
-                party_size=max(1, min(12, int(req.party_size))),
-                fixed_camp=(tuple(req.fixed_camp[:2]) if req.fixed_camp
-                            and len(req.fixed_camp) >= 2 else None),
-                hunt_radius_km=(max(1.0, min(30.0, float(req.hunt_radius_km)))
-                                if req.hunt_radius_km else None),
-            ),
-        )
-        # Scale analysis resolution with AOI size so a big area doesn't blow past RAM.
-        # The grid is (2*halfwidth*1000 / res) px per side, and memory grows with px² —
-        # a 120 km-radius run at 40 m is 6000²=36M px/raster and OOMs. Cap the grid to
-        # ~TARGET_PX per side (never finer than the configured resolution).
-        import math
-        model = load_model()
-        TARGET_PX = 2400
-        auto_res = max(float(model.raster_resolution_m),
-                       math.ceil(2 * aoi.bbox_halfwidth_km * 1000 / TARGET_PX))
-        if req.resolution_m:
-            # User override from the Setup slider: finer = more detail but slower.
-            # Clamp so the grid can never exceed ~3200 px/side (OOM guard) nor go
-            # coarser than 500 m (below that the model is meaningless).
-            finest = max(20.0, math.ceil(2 * aoi.bbox_halfwidth_km * 1000 / 3200))
-            res = max(finest, min(500.0, float(req.resolution_m)))
-        else:
-            res = auto_res
-        if res != model.raster_resolution_m:
-            try:
-                model = model.model_copy(update={"raster_resolution_m": res})
-            except Exception:
-                model.raster_resolution_m = res
-            JOBS[job_id]["res_m"] = res
-        ctx = Context(aoi=aoi, species=load_species(species), model=model)
-        for i, stage in enumerate(STAGES):
-            # Checked between stages rather than inside them: a stage is the smallest
-            # unit we can abandon without leaving half-written rasters behind.
-            if JOBS.get(job_id, {}).get("cancel"):
-                JOBS[job_id].update(status="cancelled", stage="cancelled")
-                return
-            JOBS[job_id].update(stage=stage, progress=round(i / len(STAGES), 2))
-            pipeline.run_stage(stage, ctx)
-        # return the app's data contract (transect.json), same shape the app binds to
-        doc = json.loads((outputs_dir(name) / "transect.json").read_text())
-        JOBS[job_id].update(status="done", stage="done", progress=1.0, scout=doc)
-        # Persist enough to rebuild this ctx later, and KEEP the cache so /rescope can
-        # re-plan (manual areas, moved camp) against the already-acquired rasters
-        # without a full minutes-long re-fetch. Pruned below to bound disk.
-        try:
-            (cache_dir(name) / "job_meta.json").write_text(json.dumps({
-                "req": req.model_dump(), "uid": JOBS[job_id].get("uid"),
-                "res_m": JOBS[job_id].get("res_m"), "at": time.time()}))
-            _prune_caches()
-        except Exception:
-            pass
-    except Exception as e:  # noqa: BLE001
-        JOBS[job_id].update(status="error", error=str(e),
-                            trace=traceback.format_exc()[-1200:])
-        shutil.rmtree(cache_dir(name), ignore_errors=True)   # a failed run keeps nothing
-        shutil.rmtree(outputs_dir(name), ignore_errors=True)
-
-
 @app.post("/scout")
 def scout(req: ScoutReq, x_api_key: str = Header(default=None),
           authorization: str = Header(default=None)):
@@ -252,41 +196,66 @@ def scout(req: ScoutReq, x_api_key: str = Header(default=None),
         # about to be replaced and starting a run now would only get it killed.
         raise HTTPException(status_code=503, detail="engine-updating",
                             headers={"Retry-After": "120"})
+    # A run holds hundreds of MB of raster. Two at once fits a 4 GB box; more is how you
+    # OOM it. The thread model had no cap at all — it just got lucky with one user.
+    if len(jobstore.active_ids()) >= MAX_CONCURRENT:
+        raise HTTPException(status_code=503, detail="engine-busy",
+                            headers={"Retry-After": "180"})
     jid = uuid.uuid4().hex[:12]
-    JOBS[jid] = {"status": "running", "stage": "queued", "progress": 0.0, "uid": uid,
-                 "started": time.time(), "seen": time.time()}
-    threading.Thread(target=_run, args=(jid, req), daemon=True).start()
+    jobstore.create(jid, req.model_dump(), uid)
+    _spawn_worker(jid)
     return {"job_id": jid}
 
 
 @app.get("/jobs/{jid}")
 def job(jid: str, authorization: str = Header(default=None)):
-    j = JOBS.get(jid)
+    j = jobstore.read(jid)
     if not j:
         return {"status": "unknown"}
+    # What the status ACTUALLY is: a worker killed outright never wrote a terminal
+    # status, so the file still claims "running". Checking the pid turns that into
+    # `interrupted` instead of a spinner that never stops.
+    j = dict(j, status=jobstore.effective_status(j))
     # Every poll is a heartbeat. The front end polls a running job every 2.5 s, so
     # "nobody has asked in ORPHAN_S" means the tab is gone — closed, crashed or
     # navigated away — and the run is being computed for nobody. Using the existing
     # poll avoids a second mechanism, and it survives a reload: the new page
     # reconnects and resumes the heartbeat well inside the window.
-    j["seen"] = time.time()
+    jobstore.update(jid, seen=time.time())
     # Don't hand one account's analysis to another; jobs are readable by their owner.
     if REQUIRE_ACCOUNT and j.get("uid") is not None:
         if _uid(authorization) != j.get("uid"):
             raise HTTPException(status_code=403, detail="not your job")
+    # The finished contract lives on disk, not in the job state — state.json stays a few
+    # hundred bytes instead of megabytes. Load it only when the client can use it.
+    if j.get("status") == "done" and j.get("result"):
+        try:
+            j["scout"] = json.loads(Path(j["result"]).read_text())
+        except Exception as e:  # noqa: BLE001
+            j["status"] = "error"
+            j["error"] = f"result unreadable: {e}"
     return j
 
 
 @app.delete("/jobs/{jid}")
 def cancel_job(jid: str, authorization: str = Header(default=None)):
     """Explicit abandon — sent by the page as it unloads, and usable from the UI."""
-    j = JOBS.get(jid)
+    j = jobstore.read(jid)
     if not j:
         return {"status": "unknown"}
     if REQUIRE_ACCOUNT and j.get("uid") is not None:
         if _uid(authorization) != j.get("uid"):
             raise HTTPException(status_code=403, detail="not your job")
-    j["cancel"] = True
+    jobstore.set_cancel(jid)
+    # The worker checks between stages, which can be minutes on `acquire`. SIGTERM makes
+    # abandoning immediate; the cancel file is what stops a restart resuming it.
+    pid = j.get("pid")
+    if pid and jobstore.alive(pid):
+        try:
+            os.kill(int(pid), signal.SIGTERM)
+        except OSError:
+            pass
+    jobstore.update(jid, status="cancelled", stage="cancelled")
     return {"status": "cancelling"}
 
 
@@ -300,13 +269,23 @@ def _reap_orphans():
     while True:
         time.sleep(30)
         now = time.time()
-        for jid, j in list(JOBS.items()):
-            if j.get("status") != "running" or j.get("cancel"):
-                continue
-            seen = j.get("seen") or j.get("started") or now
-            if now - seen > ORPHAN_S:
-                j["cancel"] = True
-                j["orphaned"] = True
+        try:
+            for jid, j in list(jobstore.all_states()):
+                if jobstore.effective_status(j) != "running" or jobstore.cancelled(jid):
+                    continue
+                seen = j.get("seen") or j.get("started") or now
+                if now - seen > ORPHAN_S:
+                    jobstore.set_cancel(jid)
+                    jobstore.update(jid, orphaned=True)
+                    pid = j.get("pid")
+                    if pid and jobstore.alive(pid):
+                        try:
+                            os.kill(int(pid), signal.SIGTERM)
+                        except OSError:
+                            pass
+            jobstore.prune()
+        except Exception:  # noqa: BLE001 — a reaper must never take the API down
+            pass
 
 
 threading.Thread(target=_reap_orphans, daemon=True).start()
@@ -399,10 +378,10 @@ def rescope(rq: RescopeReq, x_api_key: str = Header(default=None),
 
 
 def _active_jobs() -> int:
-    """Runs that would DIE if this process restarted. The analysis is a daemon thread
-    inside uvicorn (see #17), so that is every job not yet in a terminal state."""
-    return sum(1 for j in JOBS.values()
-               if j.get("status") not in ("done", "error", "cancelled"))
+    """Runs still going. Since #17 these are separate processes that SURVIVE an API
+    restart, so this is no longer "what a deploy would destroy" — but a deploy still
+    waits for them, because the worker and the image it runs from should match."""
+    return len(jobstore.active_ids())
 
 
 @app.get("/health")

@@ -13,28 +13,29 @@ pytest.importorskip("fastapi")
 from moose_scout import api
 
 
+from moose_scout import jobstore
+
+
 @pytest.fixture(autouse=True)
-def _clean():
-    api.JOBS.clear()
+def _clean(tmp_path, monkeypatch):
+    # Job state is on DISK now (#17), so isolate it per test rather than clearing a dict.
+    monkeypatch.setenv("MOOSE_SCOUT_CACHE", str(tmp_path))
     api.DRAINING = False
     yield
-    api.JOBS.clear()
     api.DRAINING = False
 
 
-def test_active_jobs_counts_only_runs_that_would_die():
-    api.JOBS.update({
-        "a": {"status": "running"},
-        "b": {"status": "done"},
-        "c": {"status": "error"},
-        "d": {"status": "cancelled"},
-        "e": {"status": "running"},
-    })
-    assert api._active_jobs() == 2, "finished jobs are not at risk; running ones are"
+def test_active_jobs_counts_only_live_runs():
+    import os
+    jobstore.create("a", {}, uid=None); jobstore.update("a", pid=os.getpid())
+    jobstore.create("b", {}, uid=None); jobstore.update("b", status="done")
+    jobstore.create("c", {}, uid=None); jobstore.update("c", pid=999_999_999)
+    assert api._active_jobs() == 1, "finished and dead jobs are not in flight"
 
 
 def test_health_reports_what_the_deploy_needs():
-    api.JOBS["x"] = {"status": "running"}
+    import os
+    jobstore.create("x", {}, uid=None); jobstore.update("x", pid=os.getpid())
     h = api.health()
     assert h["active_jobs"] == 1
     assert h["draining"] is False
