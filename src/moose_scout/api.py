@@ -115,13 +115,40 @@ class ScoutReq(BaseModel):
     residency: str = "quebec_resident"
     zone_hint: str | None = None
     # Setup constraints that shape the analysis (not just the display)
-    watercraft: str = "none"          # none | canoe | motor
+    watercraft: str = "none"          # none | canoe | motor (derived from transport; kept for back-compat)
     hunt_style: str = "spike"         # spike | vehicle
+    # Multi-select transportation from Setup: {"canoe": bool, "motor": bool, "atv": bool}.
+    # ATV/SxS is the one that changes the spatial model (tracks/trails become drivable).
+    transport: dict | None = None
+    # Known-sites mode: up to 4 [lat, lon] centres the hunter already has in mind,
+    # compared against each other. sites[0] is the AOI centre.
+    sites: list[list[float]] | None = None
     walk_access_km: float = 6.0
     walk_hunt_km: float = 3.0
     party_size: int = 2
     fixed_camp: list[float] | None = None   # [lat, lon] — hunt-from-camp mode
     hunt_radius_km: float | None = None
+
+
+def _clean_transport(t) -> dict:
+    """Sanitize the transport multi-select to exactly three bools."""
+    t = t if isinstance(t, dict) else {}
+    return {k: bool(t.get(k)) for k in ("canoe", "motor", "atv")}
+
+
+def _clean_sites(s):
+    """Clamp known sites to <=4 valid (lat, lon) pairs, or None."""
+    if not isinstance(s, list):
+        return None
+    out = []
+    for p in s[:4]:
+        try:
+            lat, lon = float(p[0]), float(p[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if -90 <= lat <= 90 and -180 <= lon <= 180:
+            out.append((lat, lon))
+    return out or None
 
 
 def _run(job_id: str, req: ScoutReq) -> None:
@@ -139,6 +166,8 @@ def _run(job_id: str, req: ScoutReq) -> None:
                 residency=req.residency,
                 watercraft=req.watercraft if req.watercraft in ("none", "canoe", "motor") else "none",
                 hunt_style=req.hunt_style if req.hunt_style in ("spike", "vehicle") else "spike",
+                transport=_clean_transport(req.transport),
+                sites=_clean_sites(req.sites),
                 walk_access_km=max(0.5, min(30.0, float(req.walk_access_km))),
                 walk_hunt_km=max(0.3, min(20.0, float(req.walk_hunt_km))),
                 party_size=max(1, min(12, int(req.party_size))),
@@ -326,6 +355,8 @@ def rescope(rq: RescopeReq, x_api_key: str = Header(default=None),
                       residency=r.residency,
                       watercraft=r.watercraft if r.watercraft in ("none", "canoe", "motor") else "none",
                       hunt_style=r.hunt_style if r.hunt_style in ("spike", "vehicle") else "spike",
+                      transport=_clean_transport(r.transport),
+                      sites=_clean_sites(r.sites),
                       walk_access_km=max(0.5, min(30.0, float(r.walk_access_km))),
                       walk_hunt_km=max(0.3, min(20.0, float(r.walk_hunt_km))),
                       party_size=max(1, min(12, int(r.party_size))),

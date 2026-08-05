@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 import yaml
 from pydantic import BaseModel, Field
@@ -70,6 +70,13 @@ class HunterCfg(BaseModel):
     # Setup constraints that must actually shape the spatial analysis:
     watercraft: Watercraft = "none"      # none → rivers are foot barriers, no water access
     hunt_style: HuntStyle = "spike"      # spike = can camp out; vehicle = return to truck nightly
+    # Multi-select transportation from Setup ({"canoe","motor","atv"} -> bool). ATV/SxS is the
+    # one that changes the model: tracks/trails become drivable, camp can sit further in, and
+    # camp->hunt routes split into ride vs walk legs (see synth).
+    transport: Dict[str, bool] = Field(default_factory=dict)
+    # Known-sites mode: up to 4 (lat, lon) centres the hunter already has in mind, ranked
+    # against each other. sites[0] doubles as the AOI centre.
+    sites: Optional[List[Tuple[float, float]]] = None
     walk_access_km: float = 6.0          # how far off a road you'll walk in (road → camp/area)
     walk_hunt_km: float = 3.0            # how far from camp you'll hunt (camp → site)
     # HUNT-FROM-A-FIXED-CAMP. When set, the hunter has already chosen where they're

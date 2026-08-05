@@ -520,6 +520,8 @@ def build(ctx: Context) -> dict:
                  "extraction_modes": ctx.aoi.hunter.extraction_modes,
                  "watercraft": getattr(ctx.aoi.hunter, "watercraft", "none"),
                  "hunt_style": getattr(ctx.aoi.hunter, "hunt_style", "spike"),
+                 "transport": getattr(ctx.aoi.hunter, "transport", {}) or {},
+                 "sites": [list(s) for s in (getattr(ctx.aoi.hunter, "sites", None) or [])] or None,
                  "walk_access_km": getattr(ctx.aoi.hunter, "walk_access_km", 6.0),
                  "walk_hunt_km": getattr(ctx.aoi.hunter, "walk_hunt_km", 3.0),
                  "rut_emphasis": None},

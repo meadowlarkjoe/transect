@@ -47,7 +47,8 @@ const API_URL = (new URLSearchParams(location.search).get('api')) ||
 const API_KEY = (typeof window!=='undefined' && window.TRANSECT_API_KEY) || '';
 
 /* ---------------- hunt setup state ---------------- */
-let SETUP = { watercraft:'none', huntStyle:'spike' };   // watercraft: none|canoe|motor ; huntStyle: spike|vehicle
+let SETUP = { watercraft:'none', huntStyle:'spike',
+  transport:{canoe:false,motor:false,atv:false} };   // multi-select; watercraft stays derived (motor>canoe>none) for engine back-compat
 
 /* ---------------- units ---------------- */
 let UNITS = 'metric';                       // 'metric' | 'imperial'
@@ -1811,13 +1812,15 @@ function setupDraw(){
       map.on('mousemove',l,e=>{ if(drawTool||drawEditId) return; _drawHover(e); });
       map.on('mouseleave',l,()=>{ if(!drawTool&&!drawEditId) map.getCanvas().style.cursor=''; _drawHover(null); });
     });
-    // ESC FINISHES the in-progress drawing — commits it and disarms the tool (same as
-    // double-click, but one key). Losing your points on ESC was the wrong default; delete
-    // is always available from the drawing's own panel. In vertex-edit mode, ESC exits edit.
+    // ENTER saves the in-progress drawing (commit + disarm, same as double-click);
+    // ESC cancels it (drops the points, commits nothing). In vertex-edit, either exits.
     window.addEventListener('keydown',e=>{
-      if(e.key!=='Escape') return;
+      if(e.key!=='Enter'&&e.key!=='Escape') return;
+      if(e.target&&/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;   // don't eat form keys
       if(drawEditId){ exitDrawEdit(); const de=document.getElementById('drawEdit'); if(de)de.remove(); return; }
-      if(drawTool) setDrawTool(drawTool);   // toggles OFF; setDrawTool commits drawPts via finishDraw()
+      if(!drawTool) return;
+      if(e.key==='Escape') drawPts=[];      // cancel: nothing to commit
+      setDrawTool(drawTool);                // toggles OFF; commits any remaining drawPts via finishDraw()
     });
   }
 }
@@ -2138,100 +2141,111 @@ function hav(a,b){const R=6371,dLat=(b[1]-a[1])*Math.PI/180,dLon=(b[0]-a[0])*Mat
 /* ---------------- Setup (redesigned) ---------------- */
 let draft={center: DOC.blank ? null : [DOC.meta.center.lon,DOC.meta.center.lat],
   radius:DOC.meta.radius_km||50,
-  walkAccess:null, walkHunt:null, leaving:'', party:2, fixedCampMode:false, huntRadius:null,
+  walkAccess:null, walkHunt:null, party:2, fixedCampMode:false, huntRadius:null,
+  siteMode:'find',                 // 'find' = model finds sites in a box · 'known' = hunter names up to 4 sites
+  sites:[],                        // known-site centres [[lon,lat],...] (max 4); sites[0] mirrors draft.center
   dates: (USING_EXAMPLE && DOC.meta && DOC.meta.target_dates) ? DOC.meta.target_dates.slice() : []};
+/* The hunt style is one 3-way choice: a HUNTING CAMP (cabin — a fixed camp you drive to),
+   BASECAMP @ VEHICLE (you sleep at the truck), or SPIKE CAMP (pack in and sleep out).
+   Internally: camp => fixedCampMode + spike semantics (as before), the other two map to
+   the engine's spike|vehicle hunt_style. */
+function hstyleOf(){ return draft.fixedCampMode ? 'camp' : SETUP.huntStyle; }
 function renderSetup(){
   const el=document.getElementById('setup');
+  const hs=hstyleOf();
+  const known=draft.siteMode==='known';
+  const siteChip=(s,i)=>`<div class="row" style="align-items:center;margin-top:6px">
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        <b class="mono" style="color:#e2c044">${i+1}</b>&nbsp; ${s.label?s.label:(s.ll[1].toFixed(4)+', '+s.ll[0].toFixed(4))}</span>
+      <button data-delsite="${i}" class="btn btn--secondary btn--sm" title="${t('setup.removeSite','Remove site')}">×</button></div>`;
   el.innerHTML=`
     <div class="sec">
       <h2 class="t-h1" style="margin:0 0 6px">${t('setup.title')}</h2>
       <p class="lede">${t('setup.lede')}</p>
     </div>
 
-    <!-- 01 HUNTING STYLE — who's hunting and how. Moved to the top: it shapes what the
-         "where & when" even means (a fixed camp narrows the whole analysis). -->
+    <!-- 01 SPECIES + DATES — the hunt itself comes first. -->
     <div class="sec">
-      <div class="sechead"><span class="num">01</span><h3>${t('setup.s3','Hunting style')}</h3></div>
+      <div class="sechead"><span class="num">01</span><h3>${t('setup.sSpecies','Species & dates')}</h3></div>
+      <label class="fld">${t('setup.species','Species')}</label>
+      <div class="seg"><button aria-pressed="true">${t('setup.moose','Moose')}</button></div>
+      <label class="fld">${t('setup.dates')}</label>
+      <div class="numrow" style="border:1px solid var(--line,#2a343a);border-radius:8px;padding:4px 8px">
+        <input id="dateStart" type="date" required value="${draft.dates[0]||''}" style="border:none;background:none">
+        <span>→</span>
+        <input id="dateEnd" type="date" required value="${draft.dates[1]||''}" style="border:none;background:none"></div>
+      <div class="s" style="margin-top:6px">${t('setup.datesnote','Drives rut timing, weather and behaviour. Peak breeding ≈ Oct 2 at this latitude — but bulls are most callable in the two weeks before it.')}</div>
+    </div>
 
-      <label class="fld">${t('setup.camp','Hunt from a fixed camp?')}</label>
-      <div class="seg"><button id="campAuto" ${!draft.fixedCampMode?'aria-pressed="true"':''}>${t('setup.campAuto','Let the model place camp')}</button>
-        <button id="campFixed" ${draft.fixedCampMode?'aria-pressed="true"':''}>${t('setup.campFixed','I have a fixed camp')}</button></div>
-      <div id="campRow" class="${draft.fixedCampMode?'':'hidden'}">
-        <div class="s" style="margin:6px 0">${t('setup.campNote',
-          'The point you set below IS your camp. The analysis narrows to what you can hunt from it — focus areas, sites and routes all fall within your hunt radius of camp.')}</div>
-        <label class="fld">${t('setup.campRadius','Hunt radius from camp (max)')}</label>
-        <div class="numrow"><input id="campRadius" type="number" step="0.5" min="1" max="30"
-          placeholder="e.g. 5" value="${draft.huntRadius!=null?toU(draft.huntRadius).toFixed(1):''}"><span>${unitBig()}</span></div>
+    <!-- 02 HUNT STYLE — three cards with icons; distances follow from the choice. -->
+    <div class="sec">
+      <div class="sechead"><span class="num">02</span><h3>${t('setup.sStyle','Hunt style')}</h3></div>
+      <div class="seg" id="hstyleSeg" style="display:flex">
+        <button id="hsCamp"  style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px" ${hs==='camp'?'aria-pressed="true"':''}>${railIcon('cabin',20)}<span>${t('setup.styleCamp','Hunting camp')}</span></button>
+        <button id="hsVeh"   style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px" ${hs==='vehicle'?'aria-pressed="true"':''}>${railIcon('pickup',20)}<span>${t('setup.styleVeh','Basecamp @ vehicle')}</span></button>
+        <button id="hsSpike" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px" ${hs==='spike'?'aria-pressed="true"':''}>${railIcon('tent',20)}<span>${t('setup.styleSpike','Spike camp')}</span></button>
       </div>
-
+      <div class="s" id="hsNote" style="margin-top:6px"></div>
+      <div id="stageCampRow" class="${hs==='spike'?'':'hidden'}">
+        <label class="fld">${t('setup.stageCamp','Vehicle staging → base camp (max)')}</label>
+        <div class="numrow"><input id="stageCamp" type="number" step="0.1" min="0.3" placeholder="e.g. 2"
+          value="${draft.walkAccess!=null?toU(draft.walkAccess).toFixed(1):''}"><span>${unitBig()}</span></div>
+      </div>
+      <label class="fld">${t('setup.campHunt','Camp → hunting (max)')}</label>
+      <div class="numrow"><input id="campHunt" type="number" step="0.1" min="0.3" placeholder="e.g. 4"
+        value="${draft.walkHunt!=null?toU(draft.walkHunt).toFixed(1):''}"><span>${unitBig()}</span></div>
       <label class="fld">${t('setup.party','Hunters in the party')}</label>
       <div class="numrow"><input id="partySize" type="number" min="1" max="12" step="1"
         value="${draft.party||2}"><span>${t('setup.partyU','hunters')}</span></div>
       <div class="s" style="margin-top:6px">${t('setup.partyNote',
         'Party size changes the analysis, not just the wording: focus areas are sized to hold the crew, and each area gets a calling stand per hunter plus glassing positions to pair up on.')}</div>
-
-      <!-- Hidden when a fixed camp is set: you already told us the camp, so "spike vs
-           return-to-vehicle" is moot — everything is hunted from that camp. -->
-      <div id="hsRow" class="${draft.fixedCampMode?'hidden':''}">
-        <label class="fld">How you'll hunt</label>
-        <div class="seg"><button id="hsSpike" ${SETUP.huntStyle==='spike'?'aria-pressed="true"':''}>${t('setup.spike')}</button>
-          <button id="hsVeh" ${SETUP.huntStyle==='vehicle'?'aria-pressed="true"':''}>${t('setup.vehicle')}</button></div>
-        <div class="s" id="hsNote" style="margin-top:6px"></div>
-      </div>
     </div>
 
-    <!-- 02 WHERE & WHEN -->
+    <!-- 03 TRANSPORTATION — multi-select; each one changes what the model can reach. -->
     <div class="sec">
-      <div class="sechead"><span class="num">02</span><h3>${t('setup.s1','Where & when')}</h3></div>
-      <label class="fld">Search a place</label>
-      <div class="row"><input id="placeSearch" placeholder="Search a place, lake, mine…">
-        <button id="searchBtn" class="btn btn--secondary btn--sm">Search</button></div>
-      <div id="searchRes" class="results"></div>
-      <button id="dragBox" class="btn btn--secondary btn--block" style="margin-top:8px">▛ Drag a box on the map</button>
-      <label class="fld" id="coordLbl">Or paste coordinates</label>
-      <input id="coord" placeholder="lat, lon" value="${draft.center?draft.center[1].toFixed(4)+', '+draft.center[0].toFixed(4):''}">
-      <label class="fld">${t('setup.dates')}</label>
-      <div class="numrow"><input id="dateStart" type="date" required value="${draft.dates[0]||''}">
-        <span>→</span><input id="dateEnd" type="date" required value="${draft.dates[1]||''}"></div>
-      <div class="s" style="margin-top:6px">Drives rut timing, weather and behaviour. Peak breeding ≈ Oct 2 at this latitude — but bulls are most <i>callable</i> in the two weeks before it.</div>
-      <label class="fld">Species</label>
-      <div class="seg"><button aria-pressed="true">Moose</button></div>
-      <label class="fld">Search radius — <b class="mono" id="radVal">${Math.round(toU(draft.radius))} ${unitBig()}</b></label>
+      <div class="sechead"><span class="num">03</span><h3>${t('setup.sTransport','Available transportation')}</h3></div>
+      <div class="seg" id="transportSeg" style="display:flex">
+        <button id="trCanoe" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px" ${SETUP.transport.canoe?'aria-pressed="true"':''}>${railIcon('canoe',20)}<span>${t('setup.trCanoe','Canoe')}</span></button>
+        <button id="trMotor" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px" ${SETUP.transport.motor?'aria-pressed="true"':''}>${railIcon('motorboat',20)}<span>${t('setup.trMotor','Motorboat')}</span></button>
+        <button id="trAtv"   style="flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px" ${SETUP.transport.atv?'aria-pressed="true"':''}>${railIcon('atv',20)}<span>${t('setup.trAtv','ATV / SxS')}</span></button>
+      </div>
+      <div class="s" style="margin-top:6px">${t('setup.transportNote',
+        'Pick everything you\'ll have. No boat: rivers become foot barriers. ATV/SxS: tracks and trails become drivable, so camp can sit further in and routes split into ride vs walk legs.')}</div>
+    </div>
+
+    <!-- 04 HUNT LOCATION — known sites (up to 4, compared) or find sites in an area. -->
+    <div class="sec">
+      <div class="sechead"><span class="num">04</span><h3>${t('setup.sWhere','Hunt location')}</h3></div>
+      <div class="seg"><button id="lmFind" ${!known?'aria-pressed="true"':''}>${t('setup.findSites','Find sites')}</button>
+        <button id="lmKnown" ${known?'aria-pressed="true"':''}>${t('setup.knownSites','Known sites')}</button></div>
+
+      <div id="locKnown" class="${known?'':'hidden'}">
+        <div id="siteList">${draft.sites.map(siteChip).join('')}</div>
+        <div class="row" id="siteEntryRow" style="margin-top:8px;${draft.sites.length>=4?'display:none':''}">
+          <input id="siteEntry" placeholder="${t('setup.sitePh','Search a place or paste lat, lon')}">
+          <button id="siteDrop" class="btn btn--secondary btn--sm" title="${t('setup.siteDrop','Drop a waypoint on the map')}">${railIcon('pin',15)}</button>
+        </div>
+        <div id="siteRes" class="results"></div>
+        ${draft.sites.length>0&&draft.sites.length<4?`<button id="siteAdd" class="btn btn--secondary btn--block" style="margin-top:8px">${t('setup.siteAdd','+ Add another site to compare')}</button>`:''}
+        <div class="s" style="margin-top:6px">${t('setup.knownNote','Up to 4 sites — each gets its own analysis, ranked against the others.')}</div>
+      </div>
+
+      <div id="locFind" class="${known?'hidden':''}">
+        <div class="row">
+          <input id="locEntry" placeholder="${t('setup.sitePh','Search a place or paste lat, lon')}"
+            value="${draft.center?draft.center[1].toFixed(4)+', '+draft.center[0].toFixed(4):''}">
+          <button id="dragBox" class="btn btn--secondary btn--sm" title="${t('setup.boxSel','Select an area on the map')}">${railIcon('boxselect',15)}</button>
+        </div>
+        <div id="locRes" class="results"></div>
+      </div>
+
+      <label class="fld">${t('setup.radius','Radius')} — <b class="mono" id="radVal">${Math.round(toU(draft.radius))} ${unitBig()}</b></label>
       <input id="radius" type="range" min="${UNITS==='imperial'?3:5}" max="${UNITS==='imperial'?75:120}" step="1" value="${Math.round(toU(draft.radius))}">
       <div class="t-micro" style="display:flex;justify-content:space-between;margin-top:4px">
-        <span>${UNITS==='imperial'?3:5}</span><span>~20 km+ resolves focus areas</span></div>
+        <span>${UNITS==='imperial'?3:5}</span><span>${t('setup.radiushint','~20 km+ resolves focus areas')}</span></div>
     </div>
 
-    <!-- 03 AVAILABLE EQUIPMENT -->
     <div class="sec">
-      <div class="sechead"><span class="num">03</span><h3>${t('setup.s2','Available equipment')}</h3></div>
-
-      <label class="fld">${t('setup.watercraft')}</label>
-      <div class="seg"><button id="wcNone" ${SETUP.watercraft==='none'?'aria-pressed="true"':''}>${t('setup.noboat')}</button>
-        <button id="wcCanoe" ${SETUP.watercraft==='canoe'?'aria-pressed="true"':''}>${t('setup.canoe')}</button>
-        <button id="wcMotor" ${SETUP.watercraft==='motor'?'aria-pressed="true"':''}>${t('setup.motor')}</button></div>
-      <div class="s" style="margin-top:6px">With no boat, rivers become foot barriers — ground across one from the road drops out of the ranking.</div>
-
-      <!-- Returning to the vehicle means there IS no base camp, so "access -> base
-           camp" is a question about a thing that does not exist. Hidden in that mode and
-           in fixed-camp mode; the remaining walk is relabelled to say what it measures. -->
-      <div id="walkAccessRow" class="hidden">
-        <label class="fld">Walk: access → base camp (max)</label>
-        <div class="numrow"><input id="walkAccess" type="number" step="0.1" placeholder="e.g. 2" value="${draft.walkAccess!=null?toU(draft.walkAccess).toFixed(1):''}"><span id="uAccess">${unitBig()}</span></div>
-      </div>
-      <!-- In FIXED-CAMP mode this is the same number as "Hunt radius from camp" above —
-           both are "how far from camp you'll hunt" — so the row is hidden and the hunt
-           radius drives the camp→site walk (avoids asking the same question twice). -->
-      <div id="walkHuntRow">
-        <label class="fld" id="walkHuntLbl">Walk: base camp → hunting (max)</label>
-        <div class="numrow"><input id="walkHunt" type="number" step="0.1" placeholder="e.g. 4" value="${draft.walkHunt!=null?toU(draft.walkHunt).toFixed(1):''}"><span id="uHunt">${unitBig()}</span></div>
-      </div>
-
-      <label class="fld">${t('setup.leaving')}</label>
-      <div class="row"><input id="leaveSearch" placeholder="Search departure town…" value="${draft.leaving||''}">
-        <button id="leaveBtn" class="btn btn--secondary btn--sm">Search</button></div>
-      <div id="leaveRes" class="results"></div>
-
       <label class="fld">${t('setup.units')}</label>
       <div class="seg"><button id="uMetric" ${UNITS==='metric'?'aria-pressed="true"':''}>${t('setup.metric')}</button>
         <button id="uImperial" ${UNITS==='imperial'?'aria-pressed="true"':''}>${t('setup.imperial')}</button></div>
@@ -2252,90 +2266,115 @@ function renderSetup(){
         download stage, which is normal.</div></div>
     </div>`;
 
-  // wiring
-  const doSearch=(inputId,resId,cb)=>{
-    const inp=document.getElementById(inputId), res=document.getElementById(resId);
-    const run=()=>geocode(inp.value).then(list=>{
-      res.innerHTML=list.slice(0,5).map((r,i)=>`<div class="rres" data-i="${i}">${r.display_name}</div>`).join('');
-      res.querySelectorAll('.rres').forEach(d=>d.onclick=()=>{const r=list[+d.dataset.i];res.innerHTML='';cb(r);});});
-    return run;
-  };
-  document.getElementById('searchBtn').onclick=doSearch('placeSearch','searchRes',r=>{
-    draft.center=[+r.lon,+r.lat];
-    document.getElementById('coord').value=(+r.lat).toFixed(4)+', '+(+r.lon).toFixed(4);
-    map.flyTo({center:draft.center,zoom:10}); drawDraft();});
-  document.getElementById('leaveBtn').onclick=doSearch('leaveSearch','leaveRes',r=>{
-    draft.leaving=r.display_name.split(',')[0]; document.getElementById('leaveSearch').value=draft.leaving;});
-  document.getElementById('placeSearch').addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('searchBtn').onclick();});
-  document.getElementById('coord').onchange=e=>{const m=e.target.value.split(',').map(s=>parseFloat(s.trim()));
-    if(m.length===2&&!isNaN(m[0])&&!isNaN(m[1])){draft.center=[m[1],m[0]];map.flyTo({center:draft.center,zoom:10});drawDraft();}};
-  const rad=document.getElementById('radius');
-  rad.oninput=()=>{draft.radius=fromU(+rad.value);document.getElementById('radVal').textContent=(+rad.value)+' '+unitBig();drawDraft();};
-  const setCampMode=(on)=>{ draft.fixedCampMode=on;
-    document.getElementById('campAuto').setAttribute('aria-pressed', String(!on));
-    document.getElementById('campFixed').setAttribute('aria-pressed', String(on));
-    const row=document.getElementById('campRow'); if(row) row.classList.toggle('hidden',!on);
-    // A fixed camp IS the base: "spike vs return-to-vehicle" no longer applies, so hide
-    // that choice and force a camp-based style; restore the prior style if they turn it off.
-    const hs=document.getElementById('hsRow'); if(hs) hs.classList.toggle('hidden',on);
-    if(on){ if(SETUP.huntStyle!=='spike') draft._prevHuntStyle=SETUP.huntStyle; SETUP.huntStyle='spike'; }
-    else if(draft._prevHuntStyle){ SETUP.huntStyle=draft._prevHuntStyle; }
-    segPick(SETUP.huntStyle==='spike'?'hsSpike':'hsVeh');
-    syncWalkFields(); updateHsNote(); markDirtySoft();
-  };
-  document.getElementById('campAuto').onclick=()=>setCampMode(false);
-  document.getElementById('campFixed').onclick=()=>setCampMode(true);
-  const cr=document.getElementById('campRadius');
-  if(cr) cr.onchange=e=>{ draft.huntRadius=fromU(+e.target.value)||null; markDirtySoft(); };
-  document.getElementById('partySize').onchange=e=>{
-    draft.party=Math.max(1,Math.min(12,Math.round(+e.target.value||2)));
-    e.target.value=draft.party; setPlanName(PLAN_NAME,false);};   // edited => unsaved
-  document.getElementById('walkAccess').onchange=e=>{draft.walkAccess=fromU(+e.target.value);applyHunt();};
-  document.getElementById('walkHunt').onchange=e=>draft.walkHunt=fromU(+e.target.value);
+  // ---- wiring ----
   const clearErr=()=>{const b=document.getElementById('setupErr'); if(b){b.className='';b.innerHTML='';}};
   document.getElementById('dateStart').onchange=e=>{if(e.target.value)draft.dates[0]=e.target.value;clearErr();};
   document.getElementById('dateEnd').onchange=e=>{if(e.target.value)draft.dates[1]=e.target.value;clearErr();};
-  document.getElementById('dragBox').onclick=(e)=>{
-    const b=e.currentTarget;
-    if(b.classList.contains('on')){ cancelBoxDraw(); return; }   // click again to leave
-    b.classList.add('on'); b.textContent='▛ Drawing — drag on the map (Esc to cancel)';
-    startBoxDraw();
+
+  // hunt style (3-way)
+  const setHstyle=(h)=>{
+    draft.fixedCampMode=(h==='camp');
+    if(h!=='camp') SETUP.huntStyle=h;          // camp keeps spike semantics engine-side
+    else SETUP.huntStyle='spike';
+    renderSetup(); applyHunt(); markDirtySoft();
   };
+  document.getElementById('hsCamp').onclick=()=>setHstyle('camp');
+  document.getElementById('hsVeh').onclick=()=>setHstyle('vehicle');
+  document.getElementById('hsSpike').onclick=()=>setHstyle('spike');
+  const note=document.getElementById('hsNote');
+  note.textContent = hs==='camp' ? t('setup.noteCamp','Your first hunt-location point IS the camp — the analysis narrows to what you can hunt from it.')
+    : hs==='vehicle' ? t('setup.noteVeh','You sleep at the truck. Areas beyond your reach of a road are dimmed.')
+    : t('setup.noteSpike','Pack-in camps allowed — remote areas stay in play.');
+
+  const sc=document.getElementById('stageCamp');
+  if(sc) sc.onchange=e=>{draft.walkAccess=fromU(+e.target.value);applyHunt();};
+  document.getElementById('campHunt').onchange=e=>{
+    draft.walkHunt=fromU(+e.target.value);
+    if(draft.fixedCampMode) draft.huntRadius=draft.walkHunt;   // one number, both meanings
+    applyHunt();};
+  document.getElementById('partySize').onchange=e=>{
+    draft.party=Math.max(1,Math.min(12,Math.round(+e.target.value||2)));
+    e.target.value=draft.party; setPlanName(PLAN_NAME,false);};
+
+  // transportation multi-select
+  const syncTr=()=>{
+    SETUP.watercraft = SETUP.transport.motor?'motor':(SETUP.transport.canoe?'canoe':'none');
+    ['trCanoe','trMotor','trAtv'].forEach((id,i)=>{
+      const k=['canoe','motor','atv'][i];
+      const b=document.getElementById(id);
+      if(SETUP.transport[k]) b.setAttribute('aria-pressed','true'); else b.removeAttribute('aria-pressed');
+    });
+    applyHunt(); markDirtySoft();
+  };
+  document.getElementById('trCanoe').onclick=()=>{SETUP.transport.canoe=!SETUP.transport.canoe;syncTr();};
+  document.getElementById('trMotor').onclick=()=>{SETUP.transport.motor=!SETUP.transport.motor;syncTr();};
+  document.getElementById('trAtv').onclick=()=>{SETUP.transport.atv=!SETUP.transport.atv;syncTr();};
+
+  // location: one entry field per mode — coords parse first, else geocode
+  const parseLL=v=>{const m=String(v||'').split(',').map(s=>parseFloat(s.trim()));
+    return (m.length===2&&!isNaN(m[0])&&!isNaN(m[1])&&Math.abs(m[0])<=90)?[m[1],m[0]]:null;};
+  const wireEntry=(inputId,resId,commit)=>{
+    const inp=document.getElementById(inputId), res=document.getElementById(resId);
+    if(!inp) return;
+    const go=()=>{
+      const ll=parseLL(inp.value);
+      if(ll){ commit(ll,null); return; }
+      geocode(inp.value).then(list=>{
+        res.innerHTML=list.slice(0,5).map((r,i)=>`<div class="rres" data-i="${i}">${r.display_name}</div>`).join('');
+        res.querySelectorAll('.rres').forEach(d=>d.onclick=()=>{const r=list[+d.dataset.i];res.innerHTML='';
+          commit([+r.lon,+r.lat], r.display_name.split(',')[0]);});});
+    };
+    inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();go();}});
+    inp.onchange=()=>{ const ll=parseLL(inp.value); if(ll) commit(ll,null); };
+  };
+  document.getElementById('lmFind').onclick=()=>{draft.siteMode='find';renderSetup();};
+  document.getElementById('lmKnown').onclick=()=>{draft.siteMode='known';
+    // carry an existing centre in as site 1 so switching modes doesn't lose it
+    if(!draft.sites.length&&draft.center) draft.sites=[{ll:draft.center.slice(),label:''}];
+    renderSetup();};
+  if(known){
+    wireEntry('siteEntry','siteRes',(ll,label)=>addSite(ll,label));
+    const drop=document.getElementById('siteDrop');
+    if(drop) drop.onclick=()=>{ window._siteDropArm=true; drop.classList.add('on');
+      map.getCanvas().style.cursor='crosshair'; };
+    const add=document.getElementById('siteAdd');
+    if(add) add.onclick=()=>{ const r=document.getElementById('siteEntryRow'); if(r){r.style.display='';
+      document.getElementById('siteEntry').focus(); add.remove(); } };
+    // fresh KNOWN mode with sites: the entry row hides until "+ Add" (spec) — show it only when empty
+    if(draft.sites.length>0&&draft.sites.length<4){ const r=document.getElementById('siteEntryRow'); if(r) r.style.display='none'; }
+    el.querySelectorAll('button[data-delsite]').forEach(b=>b.onclick=()=>{
+      draft.sites.splice(+b.dataset.delsite,1);
+      draft.center=draft.sites.length?draft.sites[0].ll.slice():null;
+      renderSetup(); drawDraft(true); });
+  } else {
+    wireEntry('locEntry','locRes',(ll,label)=>{
+      draft.center=ll; document.getElementById('locEntry').value=ll[1].toFixed(4)+', '+ll[0].toFixed(4);
+      map.flyTo({center:ll,zoom:10}); drawDraft(); clearErr(); });
+    document.getElementById('dragBox').onclick=(e)=>{
+      const b=e.currentTarget;
+      if(b.classList.contains('on')){ cancelBoxDraw(); return; }
+      b.classList.add('on'); startBoxDraw();
+    };
+  }
+  // one-shot map click to drop a known site (wired once, checked per click)
+  if(!window._siteClickWired){ window._siteClickWired=true;
+    map.on('click',e=>{ if(!window._siteDropArm) return;
+      window._siteDropArm=false; map.getCanvas().style.cursor='';
+      addSite([e.lngLat.lng,e.lngLat.lat],null); }); }
+
+  const rad=document.getElementById('radius');
+  rad.oninput=()=>{draft.radius=fromU(+rad.value);document.getElementById('radVal').textContent=(+rad.value)+' '+unitBig();drawDraft();};
   document.getElementById('uMetric').onclick=()=>setUnits('metric');
   document.getElementById('uImperial').onclick=()=>setUnits('imperial');
-  // Basemap picker removed from Setup — it duplicates the map toolbar's Basemap control.
-  const setWC=(w)=>{SETUP.watercraft=w;
-    segPick({none:'wcNone',canoe:'wcCanoe',motor:'wcMotor'}[w]); applyHunt();};
-  document.getElementById('wcNone').onclick=()=>setWC('none');
-  document.getElementById('wcCanoe').onclick=()=>setWC('canoe');
-  document.getElementById('wcMotor').onclick=()=>setWC('motor');
-  const setHS=(h)=>{SETUP.huntStyle=h;
-    segPick(h==='spike'?'hsSpike':'hsVeh'); syncWalkFields(); updateHsNote(); applyHunt();};
-  document.getElementById('hsSpike').onclick=()=>setHS('spike');
-  document.getElementById('hsVeh').onclick=()=>setHS('vehicle');
-  syncWalkFields();
   document.getElementById('runBtn').onclick=()=>runAnalysis();
-  updateHsNote(); drawDraft(); applyHunt();
+  drawDraft(); applyHunt();
 }
-function syncWalkFields(){
-  const fixed=!!draft.fixedCampMode;
-  const veh=!fixed && SETUP.huntStyle==='vehicle';
-  // No "vehicle → base camp" walk when returning to the vehicle, nor with a fixed camp
-  // (you drive to your camp). The remaining walk is measured FROM the camp/vehicle.
-  const row=document.getElementById('walkAccessRow');
-  if(row) row.classList.toggle('hidden', veh||fixed);
-  // Fixed camp: the camp→hunting walk IS the hunt radius from camp (asked above), so hide
-  // this duplicate field — the payload derives walk_hunt_km from huntRadius in that mode.
-  const hr=document.getElementById('walkHuntRow');
-  if(hr) hr.classList.toggle('hidden', fixed);
-  const lbl=document.getElementById('walkHuntLbl');
-  if(lbl) lbl.textContent = veh ? 'Walk: vehicle → hunting (max)'
-                                : 'Walk: camp → hunting (max)';
+function addSite(ll,label){
+  if(draft.sites.length>=4) return;
+  draft.sites.push({ll:ll.slice(),label:label||''});
+  draft.center=draft.sites[0].ll.slice();          // engine centre = first site
+  renderSetup(); drawDraft(true);                  // true => refit the map to all sites
 }
-function updateHsNote(){ const n=document.getElementById('hsNote'); if(!n)return;
-  n.textContent=SETUP.huntStyle==='vehicle'
-    ? 'Analysis favours areas within your access-walk of a road — backcountry spots are dimmed.'
-    : 'Backcountry spike camps allowed — remote areas stay in play.'; }
 /* How far off a road an area may sit and still count as reachable. With no camp
    there is only one walk — truck to hunting ground — so the hidden access field
    must not be the one that governs. Hiding it without this made a vehicle hunt fall
@@ -2419,7 +2458,9 @@ function missingSetup(){
   // Without this an unset centre would quietly become whatever the map happened to
   // be looking at — which is how a new user ended up with someone else's hunt area
   // pre-filled and could have run an analysis on it.
-  if(!draft.center) miss.push('an area — search a place, paste coordinates, or drag a box');
+  if(draft.siteMode==='known'){
+    if(!draft.sites.length) miss.push('a hunt site — search, paste coordinates, or drop a waypoint');
+  } else if(!draft.center) miss.push('an area — search a place, paste coordinates, or select an area');
   if(!(draft.dates && draft.dates.length===2 && draft.dates[0] && draft.dates[1]))
     miss.push('hunt dates');
   else if(new Date(draft.dates[1]) < new Date(draft.dates[0]))
@@ -2455,15 +2496,19 @@ function runAnalysis(){
     residency:'quebec_resident',
     // Setup constraints now shape the analysis (no-boat river barriers, walk range, rut-phase weighting)
     watercraft:SETUP.watercraft, hunt_style:SETUP.huntStyle,
+    // Multi-select transportation (ATV/SxS extends reach + splits routes into ride/walk legs).
+    transport:{canoe:!!SETUP.transport.canoe,motor:!!SETUP.transport.motor,atv:!!SETUP.transport.atv},
+    // Known-sites mode: up to 4 named centres compared; the first one is the AOI centre.
+    sites:(draft.siteMode==='known'&&draft.sites.length)?draft.sites.map(s=>[s.ll[1],s.ll[0]]):null,
     // For a vehicle hunt the staging point IS the camp (see synth.py), so the
     // access-to-camp leg is zero and the only real limit is the walk from the truck.
     walk_access_km:(SETUP.huntStyle==='vehicle'?draft.walkHunt:draft.walkAccess),
-    // Fixed camp: the hunt radius IS how far you walk from camp — one number, not two.
-    walk_hunt_km:(draft.fixedCampMode?(draft.huntRadius||5):draft.walkHunt),
+    // Fixed camp: the hunt radius IS how far you go from camp — one number, not two.
+    walk_hunt_km:(draft.fixedCampMode?(draft.huntRadius||draft.walkHunt||5):draft.walkHunt),
     party_size:draft.party||2,
     // Hunt-from-camp: the AOI centre IS the camp; the analysis narrows to hunt radius.
     fixed_camp:(draft.fixedCampMode && draft.center)?[draft.center[1],draft.center[0]]:null,
-    hunt_radius_km:(draft.fixedCampMode?(draft.huntRadius||5):null)};
+    hunt_radius_km:(draft.fixedCampMode?(draft.huntRadius||draft.walkHunt||5):null)};
   // In fixed-camp mode the box only needs to cover the hunt radius + a data margin,
   // so a tight radius doesn't force a huge (slow) acquire.
   if(req.fixed_camp) req.radius_km=Math.max(6,Math.min(120,(req.hunt_radius_km||5)+4));
@@ -2505,24 +2550,51 @@ function draftBox(){
   const dLat=r/111, dLon=r/(111*Math.cos(lat*Math.PI/180));
   return [[lon-dLon,lat+dLat],[lon+dLon,lat+dLat],[lon+dLon,lat-dLat],[lon-dLon,lat-dLat],[lon-dLon,lat+dLat]];
 }
-function drawDraft(){
-  const box=draftBox();
+/* radius circle around a point, as a 64-seg ring (for the live known-site preview) */
+function _radiusRing(ll,rkm){
+  const [lon,lat]=ll, ring=[];
+  for(let i=0;i<=64;i++){ const a=i/64*2*Math.PI;
+    ring.push([lon+rkm/(111*Math.cos(lat*Math.PI/180))*Math.cos(a), lat+rkm/111*Math.sin(a)]); }
+  return ring;
+}
+function drawDraft(fit){
   const feats=[];
-  if(box) feats.push({type:'Feature',geometry:{type:'Polygon',coordinates:[box]},properties:{}});
-  // Fixed camp: mark WHERE the camp sits (the analysis centre) the moment it's set, before
-  // you run anything — immediate feedback that "this point is my camp" (user-requested).
-  if(draft.fixedCampMode && draft.center)
-    feats.push({type:'Feature',geometry:{type:'Point',coordinates:draft.center.slice()},properties:{camp:1}});
+  if(draft.siteMode==='known' && draft.sites.length){
+    // KNOWN SITES: a dot per site + a live radius circle that tracks the slider.
+    draft.sites.forEach((s,i)=>{
+      feats.push({type:'Feature',geometry:{type:'Point',coordinates:s.ll.slice()},properties:{site:1,n:String(i+1)}});
+      feats.push({type:'Feature',geometry:{type:'Polygon',coordinates:[_radiusRing(s.ll,draft.radius)]},properties:{}});
+    });
+    if(draft.fixedCampMode)
+      feats.push({type:'Feature',geometry:{type:'Point',coordinates:draft.sites[0].ll.slice()},properties:{camp:1}});
+  } else {
+    const box=draftBox();
+    if(box) feats.push({type:'Feature',geometry:{type:'Polygon',coordinates:[box]},properties:{}});
+    // Fixed camp: mark WHERE the camp sits (the analysis centre) the moment it's set.
+    if(draft.fixedCampMode && draft.center)
+      feats.push({type:'Feature',geometry:{type:'Point',coordinates:draft.center.slice()},properties:{camp:1}});
+  }
   const data=fc(feats);
   if(map.getSource('draft')) map.getSource('draft').setData(data);
   else { map.addSource('draft',{type:'geojson',data});
     map.addLayer({id:'draft-fill',type:'fill',source:'draft',filter:['==','$type','Polygon'],paint:{'fill-color':'#e2c044','fill-opacity':0.06}});
     map.addLayer({id:'draft-line',type:'line',source:'draft',filter:['==','$type','Polygon'],
       paint:{'line-color':'#e2c044','line-width':2,'line-dasharray':[3,2]}});
+    map.addLayer({id:'draft-site',type:'circle',source:'draft',filter:['==',['get','site'],1],
+      paint:{'circle-radius':7,'circle-color':'#e2c044','circle-stroke-color':'#0b0f0d','circle-stroke-width':2}});
+    map.addLayer({id:'draft-site-n',type:'symbol',source:'draft',filter:['==',['get','site'],1],
+      layout:{'text-field':['get','n'],'text-size':10,'text-font':['Open Sans Semibold'],'text-allow-overlap':true},
+      paint:{'text-color':'#0b0f0d'}});
     map.addLayer({id:'draft-camp',type:'symbol',source:'draft',filter:['==',['get','camp'],1],
       layout:{'icon-image':'base_camp','icon-size':['interpolate',['linear'],['zoom'],8,0.9,11,1.25,15,2],'icon-allow-overlap':true,
         'text-field':'CAMP','text-offset':[0,1.4],'text-size':11,'text-font':['Open Sans Semibold']},
       paint:{'text-color':'#e6c98a','text-halo-color':'#0b0f0d','text-halo-width':1.5}}); }
+  // Refit so every added site (plus its radius) is on screen.
+  if(fit && draft.siteMode==='known' && draft.sites.length){
+    let w=1e9,s=1e9,e=-1e9,n=-1e9;
+    draft.sites.forEach(st=>_radiusRing(st.ll,draft.radius).forEach(c=>{w=Math.min(w,c[0]);e=Math.max(e,c[0]);s=Math.min(s,c[1]);n=Math.max(n,c[1]);}));
+    map.fitBounds([[w,s],[e,n]],{padding:80,duration:600});
+  }
 }
 let _boxCleanup=null;
 function cancelBoxDraw(){ if(_boxCleanup) _boxCleanup(); }
