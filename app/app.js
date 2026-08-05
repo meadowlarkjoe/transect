@@ -1707,11 +1707,15 @@ function setupDraw(){
   if(map.getSource('annot')) return;   // idempotent: chromeFallback() may have built it already
   map.addSource('annot',{type:'geojson',data:fc([])});
   map.addLayer({id:'annot-fill',type:'fill',source:'annot',filter:['==','$type','Polygon'],
-    paint:{'fill-color':'#f0c069','fill-opacity':0.18}});
+    paint:{'fill-color':'#4de1ff','fill-opacity':0.16}});
+  // A dark CASING under a bright line so the drawing reads on ANY background — a thin white
+  // dashed line was lost against satellite + the analysis overlay (user couldn't see it).
+  map.addLayer({id:'annot-line-case',type:'line',source:'annot',filter:['!=','$type','Point'],
+    paint:{'line-color':'#08131a','line-width':5,'line-opacity':0.6}});
   map.addLayer({id:'annot-line',type:'line',source:'annot',filter:['!=','$type','Point'],
-    paint:{'line-color':'#fff','line-width':2.2,'line-dasharray':[2,1.5]}});
+    paint:{'line-color':'#5fe6ff','line-width':2.6,'line-dasharray':[2,1.4]}});
   map.addLayer({id:'annot-pt',type:'circle',source:'annot',filter:['==','$type','Point'],
-    paint:{'circle-radius':5,'circle-color':'#f0c069','circle-stroke-color':'#0b0f0d','circle-stroke-width':2}});
+    paint:{'circle-radius':6,'circle-color':'#5fe6ff','circle-stroke-color':'#08131a','circle-stroke-width':2.2}});
   map.addLayer({id:'annot-label',type:'symbol',source:'annot',filter:['has','label'],
     layout:{'text-field':['get','label'],'text-size':12,'text-offset':[0,-1.2],'text-font':['Open Sans Bold'],'text-allow-overlap':true},
     paint:{'text-color':'#ffe6a8','text-halo-color':'#0b0f0d','text-halo-width':2}});
@@ -1746,7 +1750,7 @@ function renderAnnot(){
   // satellite + model layers — measuring updated the panel but you saw nothing on the map.
   // Raise them once (idempotent via the flag).
   if(!window._annotRaised){
-    ['annot-fill','annot-line','annot-pt','annot-label'].forEach(l=>{ try{ if(map.getLayer(l)) map.moveLayer(l); }catch(e){} });
+    ['annot-fill','annot-line-case','annot-line','annot-pt','annot-label'].forEach(l=>{ try{ if(map.getLayer(l)) map.moveLayer(l); }catch(e){} });
     window._annotRaised=true;
   }
   // Offer "Recalculate" once the hunter has drawn a focus area to re-plan inside.
@@ -1767,6 +1771,14 @@ function renderAnnot(){
     feats.push({type:'Feature',geometry:geom,properties:lab?{label:lab}:{}});
     drawPts.forEach(p=>feats.push({type:'Feature',geometry:{type:'Point',coordinates:p},properties:{}}));
   }
+  // A `line` layer does NOT reliably paint polygon RINGS, so an area's outline vanished the
+  // instant the 3rd point turned the geometry into a Polygon (only the faint fill remained —
+  // user-reported "lines disappear"). Emit an explicit LineString boundary for every polygon
+  // (in-progress and committed) so the outline is always drawn by annot-line.
+  feats.slice().forEach(f=>{
+    if(f.geometry && f.geometry.type==='Polygon')
+      (f.geometry.coordinates||[]).forEach(ring=>feats.push({type:'Feature',geometry:{type:'LineString',coordinates:ring},properties:{}}));
+  });
   map.getSource('annot').setData(fc(feats));
   renderDrawManager();
 }
