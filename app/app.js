@@ -471,6 +471,9 @@ function buildSources(){
     properties:{type:z.type,what:z.what,when:z.when,area_km2:z.area_km2}})));
   const zFC=(zones)=>fc((zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},properties:{area_km2:z.area_km2}})));
   const refugeZones=zFC(DOC.refuge_zones), funnelZones=zFC(DOC.funnel_zones);
+  // #70: the feeding EDGE is a band, not a dot — draw its real extent alongside the
+  // point markers that say where to actually sit.
+  const feedEdgeZones=zFC(DOC.feed_edge_zones);
   const burnZones=fc((DOC.burn_zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},
     properties:{cls:z.cls,area_km2:z.area_km2}})));
   const cutZones=fc((DOC.cut_zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},
@@ -480,7 +483,7 @@ function buildSources(){
   const infra=fc((DOC.infra||[]).map(o=>({type:'Feature',geometry:{type:'LineString',coordinates:o.ll},properties:{t:o.t,cls:o.cls||o.t,name:o.name||''}})));
   const wetlandZones=zFC(DOC.wetland_zones);
   const beaverPonds=fc((DOC.beaver_ponds||[]).map(p=>({type:'Feature',geometry:{type:'Point',coordinates:p.ll},properties:{}})));
-  return {areas,areaLabels,camps,staging,packin,routes,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones,burnZones,cutZones,wetlandZones,beaverPonds,tenureZones,infra};
+  return {areas,areaLabels,camps,staging,packin,routes,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones,feedEdgeZones,burnZones,cutZones,wetlandZones,beaverPonds,tenureZones,infra};
 }
 
 function init(){
@@ -519,6 +522,11 @@ function init(){
   // edge:'none' — stipple carries the identity; satellite-derived browse has no surveyed edge
   // TENURE — closed ground gets a hatched red wash + hard outline; bookable ground a
   // dashed amber outline only. This is the legal gate made visible.
+  map.addSource('feedEdgeZones',{type:'geojson',data:S.feedEdgeZones});
+  map.addLayer({id:'feedEdgeZones',type:'fill',source:'feedEdgeZones',
+    layout:{visibility:'none'},paint:{'fill-color':'#4FB0E5','fill-opacity':0.18}});
+  map.addLayer({id:'feedEdgeZones-line',type:'line',source:'feedEdgeZones',
+    layout:{visibility:'none'},paint:{'line-color':'#4FB0E5','line-width':1.2,'line-opacity':0.75}});
   map.addSource('tenureZones',{type:'geojson',data:S.tenureZones});
   // edge:'solid' 2px — a legal exclusion is the heaviest mark on the map, and it
   // also feeds the ranking mask: if it draws as excluded it IS excluded.
@@ -677,10 +685,12 @@ function init(){
     paint:{'line-color':'#e6e9e3','line-width':1.2,'line-dasharray':[2,2],'line-opacity':0.85}});
   map.addLayer({id:'shooters',type:'symbol',source:'shooters',
     layout:{'icon-image':'shooter','icon-allow-overlap':true,
-      'icon-size':['interpolate',['linear'],['zoom'],9,0.55,12,0.8,15,1]},
+      // match the other site icons (SITE_SZ) — these were visibly smaller than every
+      // other marker on the map for no reason (user-reported).
+      'icon-size':['interpolate',['linear'],['zoom'],8,0.7,11,1.05,13,1.45,15,1.9]},
     paint:{'icon-opacity':0.95}});
   map.addLayer({id:'shooters-label',type:'symbol',source:'shooters',minzoom:10,
-    layout:{'text-field':'SHOOTER','text-size':10,'text-offset':[0,-1.4],'text-font':['Open Sans Semibold'],'text-allow-overlap':true},
+    layout:{'text-field':'SHOOTER','text-size':11,'text-offset':[0,-1.4],'text-font':['Open Sans Semibold'],'text-allow-overlap':true},
     paint:{'text-color':'#e6e9e3','text-halo-color':'#0b0f0d','text-halo-width':1.5}});
   const SITE_SZ=['interpolate',['linear'],['zoom'],8,0.7,11,1.05,13,1.45,15,1.9];
   // WIND-FIT RING — per-position + time-scrubbed (#27). Green = the chosen day's forecast
@@ -1111,7 +1121,7 @@ function buildLegend(){ /* the separate legend is gone — colour meaning now li
    there is no longer a separate legend to hold in your head.
    `count` lets a row honestly report NO DATA instead of silently showing nothing. */
 function setVis(ids,on){(ids||[]).forEach(id=>map.getLayer(id)&&map.setLayoutProperty(id,'visibility',on?'visible':'none'));}
-const LYR_MAP={areas:['areas-fill','areas-line','area-badges'],sites:['sites','sites-wind'],
+const LYR_MAP={feedEdge:['feedEdgeZones','feedEdgeZones-line'],areas:['areas-fill','areas-line','area-badges'],sites:['sites','sites-wind'],
   camps2:['camps'],staging:['staging'],routes:['route-best','route-hot'],access:['route-access'],
   water:['lakes','lakes-line','rivers'],crossings:['crossings'],
   roads:['roads','roads-case','roads-track','rail','trans'],
@@ -1169,10 +1179,10 @@ const LAYERS=[
  // These were one "Hunt sites" row drawing four different icons — so the map showed
  // four symbols the legend never named, and you could not turn one off. They are four
  // different jobs at four different times of day; they get four rows.
- {k:'st-rut', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Rut / calling',
-  note:'Stands of 30 min or more — where you call from', hex:'#E2231A', icon:'megaphone',
+ {k:'st-rut', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Calling positions',
+  note:'Where you set up and call — stands of 30 min or more. Calling works through the seeking phase too, not just the peak.', hex:'#E2231A', icon:'megaphone',
   on:true, site:'rut_calling', count:()=>siteCount('rut_calling')},
- {k:'st-saline', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Feeding edge',
+ {k:'st-saline', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Feeding edge', lyr:'feedEdge',
   note:'Browse edge / riparian willow at first and last light. Not a detected salt lick — salines are regulated; check the zone.',
   hex:'#0047FF', icon:'droplets', on:true, site:'saline_blind', count:()=>siteCount('saline_blind')},
  {k:'st-glass', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Glassing knobs',
@@ -1191,8 +1201,8 @@ const LAYERS=[
   note:'Where you leave the truck — one per focus area, at its nearest road',
   hex:'#DCA94D', icon:'truck', on:true, lyr:'staging',
   count:()=>(DOC.waypoints||[]).filter(w=>w.type==='parking').length},
- {k:'shooters', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Caller / shooter',
-  note:'Shooter ~70 m downwind of the caller', hex:'#FFD400', icon:'target', on:true, lyr:'shooters',
+ {k:'shooters', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Shooter positions',
+  note:'Where the SHOOTER sets up — ~70 m downwind of its calling position, because a bull circles downwind to scent-check.', hex:'#FFD400', icon:'target', on:true, lyr:'shooters',
   count:()=>'—'},
  {k:'areas', group:'SITES & FEATURES', kind:'dashed', edge:'dashed', name:'Focus-area outlines',
   note:'Plan extent — a hull we drew, not a surveyed edge', hex:'#CBD5DA', on:true, lyr:'areas',
@@ -2928,6 +2938,7 @@ function enterDeep(rank){
   if(!d){ if(badge){badge.style.display='none';} return false; }
   map.getSource('huntZones').setData(_hzFC(d.hunt_zones));
   map.getSource('browseZones').setData(_bzFC(d.browse_zones));
+  {const _fe=map.getSource('feedEdgeZones'); if(_fe) _fe.setData(fc((d.feed_edge_zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},properties:{area_km2:z.area_km2}}))));}
   if(d.refuge_zones) map.getSource('refugeZones').setData(_hzFC(d.refuge_zones));
   if(d.funnel_zones) map.getSource('funnelZones').setData(_hzFC(d.funnel_zones));
   if(d.hydro){ map.getSource('rivers').setData(_rvFC(d.hydro.rivers)); map.getSource('lakes').setData(_lkFC(d.hydro.lakes)); }
@@ -3747,8 +3758,8 @@ const IDENTIFY = [
 ];
 const SITE_ROW={rut_calling:'st-rut',saline_blind:'st-saline',glassing:'st-glass',
   validate_ground:'st-ground'};
-const SITE_LABEL={rut_calling:'Rut / calling stand',thermal_refuge:'Thermal refuge',
-  saline_blind:'Saline / feeding',funnel:'Funnel / pass',glassing:'Glassing knob',
+const SITE_LABEL={rut_calling:'Calling position',thermal_refuge:'Thermal refuge',
+  saline_blind:'Feeding edge',funnel:'Funnel / pass',glassing:'Glassing knob',
   validate_ground:'Ground-truth check',base_camp:'Base camp',parking:'Staging / parking'};
 let idHover=null;
 function buildIdentify(){

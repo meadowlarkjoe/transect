@@ -723,6 +723,16 @@ def build(ctx: Context) -> dict:
         doc["browse_zones"] = _browse_zones(ctx, cache)
     except Exception:
         doc["browse_zones"] = []
+    # FEEDING EDGE as the BAND it is (#70). A single icon on a seam that runs for
+    # kilometres misrepresents the finding — the point marker still says "sit here",
+    # but the polygon shows how far the workable edge actually extends. Small + thin,
+    # so a low min area and light smoothing.
+    try:
+        doc["feed_edge_zones"] = _polygonize(ctx, cache, "feed_edge.tif",
+                                             [("feed_edge", 0.35)], min_km2=0.25,
+                                             smooth_m=160, per_class=14, simp=0.0005)
+    except Exception:
+        doc["feed_edge_zones"] = []
     # thermal refuge (cool-conifer bedding) and funnels are AREAS, not points.
     try:
         doc["refuge_zones"] = _polygonize(ctx, cache, "hsm_thermal.tif",

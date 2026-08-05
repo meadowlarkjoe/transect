@@ -149,13 +149,13 @@ legend:
   - {key: burns,     group: "MODEL ZONES", name: "Burn regeneration", note: "Fire perimeters by age — browse peaks 15–22 yr after a burn. Strongest single predictor here."}
   - {key: cuts,      group: "MODEL ZONES", name: "Recent cuts", note: "Logging cutblocks by age (écoforestière) — pale = fresh, bright green = 10–25 yr prime browse, dark = closing in. South of ~52°N."}
   - {key: funnel,    group: "MODEL ZONES", name: "Funnels / passes", note: "Land necks between water/wetland where travelling bulls squeeze through"}
-  - {key: st-rut,    group: "SITES & FEATURES", name: "Rut / calling", note: "Stands of 30 min or more — where you call from"}
-  - {key: st-saline, group: "SITES & FEATURES", name: "Feeding edge", note: "Browse edge / riparian willow at first and last light. Not a detected salt lick — salines are regulated; check the zone."}
+  - {key: st-rut,    group: "SITES & FEATURES", name: "Calling positions", note: "Where you set up and call — stands of 30 min or more. Calling works right through the seeking phase, not just the peak, so this is not a rut-only site."}
+  - {key: st-saline, group: "SITES & FEATURES", name: "Feeding edge", note: "The browse edge / riparian willow band worked at first and last light — drawn as the BAND it is, not a single point. Not a detected salt lick; salines are regulated, check the zone."}
   - {key: st-glass,  group: "SITES & FEATURES", name: "Glassing knobs", note: "Computed viewshed — high ground worth sitting behind glass"}
   - {key: st-ground, group: "SITES & FEATURES", name: "Ground-truth checks", note: "Go stand here and see if the model was right — sign, tracks, rubs"}
   - {key: camps2,    group: "SITES & FEATURES", name: "Base camp", note: "Where you sleep. Spike hunts only — a vehicle hunt has no camp."}
   - {key: staging,   group: "SITES & FEATURES", name: "Staging / parking", note: "Where you leave the truck — one per focus area, at its nearest road"}
-  - {key: shooters,  group: "SITES & FEATURES", name: "Caller / shooter", note: "Shooter ~70 m downwind of the caller"}
+  - {key: shooters,  group: "SITES & FEATURES", name: "Shooter positions", note: "Where the SHOOTER sets up — about 70 m downwind of its calling position, because a bull circles downwind to scent-check before he shows. The calling position is its own layer."}
   - {key: areas,     group: "SITES & FEATURES", name: "Focus-area outlines", note: "Plan extent — a hull we drew, not a surveyed edge"}
   - {key: thermal,   group: "SITES & FEATURES", name: "Thermal drift", note: "Modelled slope airflow — Field tab, zoom in to read it"}
   - {key: routes,    group: "ACCESS & HYDRO", name: "Hunt lines", note: "The best line to walk in on, from camp to the stand"}

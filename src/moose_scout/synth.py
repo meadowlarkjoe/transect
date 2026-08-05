@@ -602,6 +602,14 @@ def run(ctx: Context, manual_areas=None) -> None:
                  if _aquatic_relevant() else
                  "first & last light — feeding along the browse edge / riparian willow")
     add_points_per_area(feed_surf, "saline_blind", n_feed, {"when": feed_when})
+    # A feeding EDGE is a band, not a dot. The point marker says "sit here", which is
+    # useful, but drawing only a point misrepresents what was found — the whole seam is
+    # workable and the hunter should see its extent and shape. Persist the surface so the
+    # contract can polygonize it into the band it actually is (the points stay).
+    try:
+        ru.write(cache / "feed_edge.tif", np.where(np.isfinite(feed_surf), feed_surf, np.nan), prof)
+    except Exception as _ex:
+        print(f"[synth] feed_edge surface not written: {_ex}")
     add_points_per_area(funnel, "funnel", n_funnel,
                         {"when": "travel corridor — any time, best when animals are moving"},
                         min_score=0.15)   # only where a real neck exists (tightened surface)
