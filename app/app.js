@@ -1722,8 +1722,6 @@ function ringKm2(ring){ // spherical polygon area
   return Math.abs(s*R*R/2);
 }
 function areaFmt(km2){ return UNITS==='imperial'?(km2*0.386102).toFixed(2)+' mi²':km2.toFixed(2)+' km²'; }
-let _annotReady=false;
-try{ map.on('styledata',()=>{ _annotReady=false; }); }catch(e){}   // a style reload wipes the sources
 function setupDraw(){
   // REBUILD the annotation sources + layers FRESH every time. THE key fix: a geojson source
   // created before the style was fully ready — or carried across a basemap style reload — winds
@@ -1775,8 +1773,11 @@ function setupDraw(){
       map.on('mouseleave',l,()=>{ if(!drawTool&&!drawEditId) map.getCanvas().style.cursor=''; });
     });
   }
-  _annotReady=true;
 }
+// Cure the source ONCE the map is fully idle — a rebuild done cleanly after the style is
+// ready is what makes lines render (doing it mid-init or on every styledata thrashes it).
+try{ map.on('idle',()=>{ if(window._annotCured) return; window._annotCured=true;
+  try{ setupDraw(); if(drawSaved&&drawSaved.length) renderAnnot(); }catch(e){} }); }catch(e){}
 // Per-drawing editable style. Every committed drawing carries its own id, type, colours
 // and opacities so the click-to-edit panel can recolour just that one, and so a type can
 // be hidden wholesale from the legend. Defaults per tool; the user overrides them.
@@ -1815,7 +1816,7 @@ function renderAnnot(){
   // path that calls setupDraw() ever aborts early, `annot` is missing and every draw tool
   // silently no-ops (the tip readout still updates from drawPts, so the panel looked alive
   // while the map stayed blank) — the measure/line/route/area bug. Idempotent.
-  if(!_annotReady || !map.getSource('annot')){ try{ setupDraw(); }catch(e){} }
+  if(!map.getSource('annot')){ try{ setupDraw(); }catch(e){} }
   if(!map.getSource('annot')) return;
   // ...and make sure the annotation layers sit ON TOP. setupDraw() runs during map load,
   // before the data layers are added, so the drawings were being painted UNDERNEATH the
