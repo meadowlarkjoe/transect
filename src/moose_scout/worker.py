@@ -27,7 +27,7 @@ import time
 import traceback
 
 from . import jobstore, pipeline
-from .config import (AOI, Context, HunterCfg, LatLon, SeasonCfg, load_model,
+from .config import (AOI, Context, HunterCfg, LatLon, SeasonCfg, _walk, load_model,
                      load_species, outputs_dir)
 
 STAGES = ["acquire", "terrain", "habitat", "behavior", "access", "synth", "contract"]
@@ -56,13 +56,16 @@ def build_ctx(jid: str, req: dict):
             hunt_style=req.get("hunt_style") if req.get("hunt_style") in ("spike", "vehicle") else "spike",
             transport={k: bool(tr.get(k)) for k in ("canoe", "motor", "atv")},
             sites=[tuple(s) for s in sites] if sites else None,
-            walk_access_km=max(0.5, min(30.0, float(req.get("walk_access_km", 6.0)))),
-            walk_hunt_km=max(0.3, min(20.0, float(req.get("walk_hunt_km", 3.0)))),
-            party_size=max(1, min(12, int(req.get("party_size", 2)))),
+            # .get(k, default) only covers a MISSING key — an explicit null still
+            # reaches float() and raises. The worker sees the same payloads the API
+            # does, so it needs the same coalescing, not a near-miss of it.
+            walk_access_km=_walk(req.get("walk_access_km"), 6.0, 0.5, 30.0),
+            walk_hunt_km=_walk(req.get("walk_hunt_km"), 3.0, 0.3, 20.0),
+            party_size=max(1, min(12, int(req.get("party_size") or 2))),
             fixed_camp=(tuple(req["fixed_camp"][:2]) if req.get("fixed_camp")
                         and len(req["fixed_camp"]) >= 2 else None),
             hunt_radius_km=(max(1.0, min(30.0, float(req["hunt_radius_km"])))
-                            if req.get("hunt_radius_km") else None),
+                            if req.get("hunt_radius_km") is not None else None),
         ),
     )
     # Analysis resolution: scale with the box so a big area cannot blow past RAM, and

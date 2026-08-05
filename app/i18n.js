@@ -214,6 +214,10 @@
       'dlg.restartBody': 'Your setup survived; the run did not. Hit RUN ANALYSIS to start it again.',
       'dlg.offlineTitle': 'The engine is not answering',
       'dlg.offlineBody': 'Nothing was lost — your setup is exactly as you left it. RUN ANALYSIS needs the engine online; try again in a moment.',
+      /* The engine ANSWERED and refused. A different fact from unreachable, and
+         the one the hunter can actually report. */
+      'dlg.rejectTitle': 'The engine turned this run down',
+      'dlg.rejectBody': 'Nothing was lost and nothing is running — the request never started. This is a fault in the app, not in your setup; the details above identify it.',
       'dlg.storageTitle': 'This browser is out of storage',
       'dlg.storageBody': 'The plan could not be saved locally. Signing in stores plans on your account instead, which also keeps the computed analysis with them.',
       /* scent wicks (#73) */
@@ -416,6 +420,8 @@
       'dlg.restartBody': 'Votre configuration a survécu, pas le calcul. Appuyez sur LANCER L’ANALYSE pour recommencer.',
       'dlg.offlineTitle': 'Le moteur ne répond pas',
       'dlg.offlineBody': 'Rien n’a été perdu — votre configuration est intacte. LANCER L’ANALYSE exige que le moteur soit en ligne ; réessayez dans un instant.',
+      'dlg.rejectTitle': 'Le moteur a refusé ce calcul',
+      'dlg.rejectBody': 'Rien n’a été perdu et rien ne tourne — la demande n’a jamais démarré. Il s’agit d’un défaut de l’application, pas de votre configuration ; les détails ci-dessus l’identifient.',
       'dlg.storageTitle': 'Ce navigateur n’a plus d’espace',
       'dlg.storageBody': 'Le plan n’a pas pu être enregistré localement. En vous connectant, les plans sont stockés dans votre compte, avec l’analyse calculée.',
       'scent.mid': 'Tampon d’odeur — centre',

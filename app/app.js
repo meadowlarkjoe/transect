@@ -2759,25 +2759,39 @@ function _runAnalysis(){
   const setBtn=(t,dis)=>{if(btn){btn.textContent=t;btn.disabled=!!dis;}};
   const est=estimateMinutes(draft.radius,draft.resM), t0=Date.now();
   const line=(head)=>`${head}\n${fmtElapsed(Date.now()-t0)} elapsed · ~${est.lo}–${est.hi} min for this ${Math.round(draft.radius)} km box`;
+  // THE HUNT STYLE HAS ONE SOURCE OF TRUTH, AND IT IS hstyleOf().
+  // It used to be read off two independent fields — draft.fixedCampMode for the camp
+  // pin and SETUP.huntStyle for everything else — which can and did disagree: a stored
+  // plan carried huntStyle:'vehicle' WITH fixedCampMode:true, so the engine was handed a
+  // fixed camp and told to run a back-to-the-truck hunt around it. It did exactly that,
+  // and the brief honestly reported the hunt it was given, not the one the hunter picked.
+  // Deriving both from hstyleOf() makes the contradictory pair unrepresentable.
+  const hs=hstyleOf();                       // 'camp' | 'vehicle' | 'spike'
+  const camping=(hs==='camp');
   const req={species:'moose',lat:draft.center[1],lon:draft.center[0],
     radius_km:Math.max(3,Math.min(120,draft.radius)),
     target_dates:(draft.dates&&draft.dates.length===2)?draft.dates:['2026-09-25','2026-10-05'],
     residency:'quebec_resident',
     // Setup constraints now shape the analysis (no-boat river barriers, walk range, rut-phase weighting)
-    watercraft:SETUP.watercraft, hunt_style:SETUP.huntStyle,
+    // A cabin hunt runs on spike semantics engine-side — you sleep out, just in a building.
+    watercraft:SETUP.watercraft, hunt_style:(camping?'spike':hs),
     // Multi-select transportation (ATV/SxS extends reach + splits routes into ride/walk legs).
     transport:{canoe:!!SETUP.transport.canoe,motor:!!SETUP.transport.motor,atv:!!SETUP.transport.atv},
     // Known-sites mode: up to 4 named centres compared; the first one is the AOI centre.
     sites:(draft.siteMode==='known'&&draft.sites.length)?draft.sites.map(s=>[s.ll[1],s.ll[0]]):null,
     // For a vehicle hunt the staging point IS the camp (see synth.py), so the
     // access-to-camp leg is zero and the only real limit is the walk from the truck.
-    walk_access_km:(SETUP.huntStyle==='vehicle'?draft.walkHunt:draft.walkAccess),
+    // ?? not || — a hunter who states 0 means 0, and `or` would silently overwrite it
+    // with the default. These must never go out as null: the engine declares them
+    // non-nullable floats, and a default only fills a MISSING key, so an explicit null
+    // is a 422 the app then reported as "the engine isn't answering".
+    walk_access_km:((hs==='vehicle'?draft.walkHunt:draft.walkAccess) ?? 6),
     // Fixed camp: the hunt radius IS how far you go from camp — one number, not two.
-    walk_hunt_km:(draft.fixedCampMode?(draft.huntRadius||draft.walkHunt||5):draft.walkHunt),
+    walk_hunt_km:(camping?(draft.huntRadius??draft.walkHunt??5):(draft.walkHunt??3)),
     party_size:draft.party||2,
     // Hunt-from-camp: the AOI centre IS the camp; the analysis narrows to hunt radius.
-    fixed_camp:(draft.fixedCampMode && draft.center)?[draft.center[1],draft.center[0]]:null,
-    hunt_radius_km:(draft.fixedCampMode?(draft.huntRadius||draft.walkHunt||5):null),
+    fixed_camp:(camping && draft.center)?[draft.center[1],draft.center[0]]:null,
+    hunt_radius_km:(camping?(draft.huntRadius??draft.walkHunt??5):null),
     // Analysis-grid override from the processing-detail slider; null = engine auto.
     resolution_m:draft.resM||null};
   // In fixed-camp mode the box only needs to cover the hunt radius + a data margin,
@@ -2819,6 +2833,26 @@ function _runAnalysis(){
           actions:[{id:'no',label:t('dlg.notnow')},{id:'go',label:t('dlg.signinGo'),primary:true}]})
           .then(a=>{ if(a==='go') location.href='signin?next=app'; });
         throw new Error('auth'); }
+      // ANY other non-OK is the engine ANSWERING with a refusal, which is a different
+      // fact from the engine being unreachable — and the hunter is the one who has to
+      // act on the difference. A 422 (the app sent something the engine won't accept)
+      // used to fall through here, parse as perfectly good JSON, fail the job_id check
+      // below and surface as "the engine isn't answering" while the button kept
+      // counting elapsed time on a run that had never started.
+      if(!r.ok){
+        stop(); RUN_ACTIVE=false; lockSetupWhileRunning(); setBtn('RUN ANALYSIS →',false);
+        let why='';
+        try{ const b=await r.json();
+          const d=b&&b.detail;
+          why = typeof d==='string' ? d
+              : Array.isArray(d) ? d.map(x=>`${(x.loc||[]).slice(1).join('.')}: ${x.msg}`).join(' · ')
+              : (b&&b.message)||''; }catch(_){}
+        tellModal(t('dlg.rejectTitle','The engine turned this run down'),
+          escHtml(`HTTP ${r.status}${why?' — '+why:''}`)+
+          `<br><br>${escHtml(t('dlg.rejectBody','Nothing was lost and nothing is running — the request never started. This is a fault in the app, not in your setup; the details above identify it.'))}`,
+          'danger');
+        throw new Error('auth');   // reuse the already-handled sentinel
+      }
       return r.json();
     }).then(j=>{
       if(!j.job_id) throw new Error('no job');
@@ -2831,7 +2865,9 @@ function _runAnalysis(){
       rememberJob(j.job_id);
       pollJob(j.job_id,_jh,STAGE,stop,setBtn,line,h=>{lastHead=h;});
     })
-    .catch(e=>{ RUN_ACTIVE=false; lockSetupWhileRunning(); if(e && e.message==='auth') return;   // already handled above
+    .catch(e=>{ stop();            // the clock must die with the run, or the button
+                                   // reports minutes of progress on nothing at all
+      RUN_ACTIVE=false; lockSetupWhileRunning(); if(e && e.message==='auth') return;   // already handled above
       setBtn('RUN ANALYSIS →',false);
       tellModal(t('dlg.offlineTitle'),
         t('dlg.offlineBody'),'warn');
@@ -3021,8 +3057,16 @@ function renderBrief(){
   const camp=DOC.camps.find(c=>(c.member_areas||[]).includes(a.rank));
   const wps=DOC.waypoints.filter(w=>w.properties.focus_area===a.rank && SITE_TYPES.includes(w.type));
   const dates=(DOC.meta&&DOC.meta.target_dates)||(draft.dates||[]);
-  const styleTxt=SETUP.huntStyle==='vehicle'?'back to the truck nightly':'spike camp';
-  const wcTxt={none:'no boat (foot access)',canoe:'canoe',motor:'motorboat'}[SETUP.watercraft]||SETUP.watercraft;
+  // THE BRIEF DESCRIBES THE PLAN, NOT THE PANEL. These used to read SETUP.huntStyle and
+  // SETUP.watercraft — live setup state that has already moved on by the time a saved
+  // plan is reopened, and that carries no notion of a cabin hunt at all. The result was
+  // a brief for a hunt out of a fixed camp opening with "back to the truck nightly".
+  // DOC.meta is what the engine was actually given, so it is the only honest source.
+  const _m=DOC.meta||{};
+  const styleTxt = _m.fixed_camp ? 'hunting out of your camp'
+    : (_m.hunt_style||SETUP.huntStyle)==='vehicle' ? 'back to the truck nightly' : 'spike camp';
+  const _wc=_m.watercraft||SETUP.watercraft;
+  const wcTxt={none:'no boat (foot access)',canoe:'canoe',motor:'motorboat'}[_wc]||_wc;
   const g2=DOC.legal||{};
   let h=`<div class="seg" style="margin-bottom:14px">`+
     DOC.areas.map(x=>`<button class="briefpick" data-rank="${x.rank}" ${x.rank===a.rank?'aria-pressed="true"':''}>Area ${x.rank}</button>`).join('')+`</div>`;
@@ -3445,6 +3489,11 @@ function applyPlan(p){
   draft.leaving=s.leaving||draft.leaving;
   if(s.dates&&s.dates.length===2) draft.dates=s.dates.slice();
   SETUP.watercraft=s.watercraft||SETUP.watercraft; SETUP.huntStyle=s.huntStyle||SETUP.huntStyle;
+  // A plan saved before the 3-way hunt-style control can hold a contradictory pair —
+  // fixedCampMode with huntStyle 'vehicle'. hstyleOf() would read 'camp' while every
+  // other reader of SETUP.huntStyle read 'vehicle'. Collapse it on the way in, once,
+  // rather than teaching each reader to distrust the field.
+  if(draft.fixedCampMode) SETUP.huntStyle='spike';
   UNITS=p.units||UNITS;
   drawSaved=JSON.parse(JSON.stringify(p.annot||[]));
   // Older plans stored drawings without id/dtype/style — backfill so the editor + legend

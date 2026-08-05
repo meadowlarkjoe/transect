@@ -50,6 +50,24 @@ Watercraft = Literal["none", "canoe", "motor"]
 HuntStyle = Literal["spike", "vehicle"]
 
 
+def _walk(v, default: float, lo: float, hi: float) -> float:
+    """Coalesce an unset walk distance, then clamp it.
+
+    `is None`, never `or`. A hunter who answers 0 has told us something — that they
+    will not walk that leg at all — and `v or default` silently replaces that answer
+    with six kilometres, which then re-ranks their whole map. Unset and zero are
+    different facts and only one of them gets a default.
+    """
+    if v is None:
+        return default
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return default
+    return max(lo, min(hi, v))
+
+
+
 class LatLon(BaseModel):
     lat: float
     lon: float

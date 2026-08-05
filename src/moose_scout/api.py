@@ -41,7 +41,7 @@ def _require_key(x_api_key):
         raise HTTPException(status_code=401, detail="invalid or missing API key")
 
 from . import pipeline
-from .config import (AOI, Context, HunterCfg, LatLon, SeasonCfg, cache_dir,
+from .config import (AOI, Context, HunterCfg, LatLon, SeasonCfg, _walk, cache_dir,
                      load_model, load_species, outputs_dir)
 
 app = FastAPI(title="Transect Scout API")
@@ -148,8 +148,13 @@ class ScoutReq(BaseModel):
     # Known-sites mode: up to 4 [lat, lon] centres the hunter already has in mind,
     # compared against each other. sites[0] is the AOI centre.
     sites: list[list[float]] | None = None
-    walk_access_km: float = 6.0
-    walk_hunt_km: float = 3.0
+    # Nullable on purpose. A pydantic default only fills a MISSING key — an explicit
+    # null is a validation error, and the client legitimately holds "not stated yet"
+    # for these two. Rejecting the whole run over an unset walk distance, when we have
+    # a perfectly good default for it, is the engine being pedantic at the hunter's
+    # expense. Coalesced below with `is None`, never `or`: a stated 0 is a real answer.
+    walk_access_km: float | None = None
+    walk_hunt_km: float | None = None
     party_size: int = 2
     fixed_camp: list[float] | None = None   # [lat, lon] — hunt-from-camp mode
     hunt_radius_km: float | None = None
@@ -390,11 +395,12 @@ def rescope(rq: RescopeReq, x_api_key: str = Header(default=None),
                       hunt_style=r.hunt_style if r.hunt_style in ("spike", "vehicle") else "spike",
                       transport=_clean_transport(r.transport),
                       sites=_clean_sites(r.sites),
-                      walk_access_km=max(0.5, min(30.0, float(r.walk_access_km))),
-                      walk_hunt_km=max(0.3, min(20.0, float(r.walk_hunt_km))),
+                      walk_access_km=_walk(r.walk_access_km, 6.0, 0.5, 30.0),
+                      walk_hunt_km=_walk(r.walk_hunt_km, 3.0, 0.3, 20.0),
                       party_size=max(1, min(12, int(r.party_size))),
                       fixed_camp=(tuple(r.fixed_camp[:2]) if r.fixed_camp and len(r.fixed_camp) >= 2 else None),
-                      hunt_radius_km=(max(1.0, min(30.0, float(r.hunt_radius_km))) if r.hunt_radius_km else None)))
+                      hunt_radius_km=(max(1.0, min(30.0, float(r.hunt_radius_km)))
+                                      if r.hunt_radius_km is not None else None)))
         ctx = Context(aoi=aoi, species=load_species(species), model=model)
         from . import synth as _synth, contract as _contract
         _synth.run(ctx, manual_areas=rq.manual_areas or None)

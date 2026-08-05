@@ -526,6 +526,15 @@ def build(ctx: Context) -> dict:
                  "extraction_modes": ctx.aoi.hunter.extraction_modes,
                  "watercraft": getattr(ctx.aoi.hunter, "watercraft", "none"),
                  "hunt_style": getattr(ctx.aoi.hunter, "hunt_style", "spike"),
+                 # A cabin hunt runs on spike semantics, so hunt_style alone cannot tell
+                 # anyone downstream that the hunter sleeps at a camp they named. Without
+                 # this the brief had to ask the SETUP PANEL what kind of hunt this was —
+                 # live, mutable state that has already drifted by the time a saved plan
+                 # is reopened, and which once described a cabin hunt as "back to the
+                 # truck nightly". A plan should be readable from the plan.
+                 "fixed_camp": (list(ctx.aoi.hunter.fixed_camp)
+                                if getattr(ctx.aoi.hunter, "fixed_camp", None) else None),
+                 "hunt_radius_km": getattr(ctx.aoi.hunter, "hunt_radius_km", None),
                  "transport": getattr(ctx.aoi.hunter, "transport", {}) or {},
                  "sites": [list(s) for s in (getattr(ctx.aoi.hunter, "sites", None) or [])] or None,
                  "walk_access_km": getattr(ctx.aoi.hunter, "walk_access_km", 6.0),
