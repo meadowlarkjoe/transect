@@ -49,15 +49,27 @@ echo "$H" | python3 -c "import sys,json;d=json.load(sys.stdin);print(f\"  rev {d
 ACTIVE="$(echo "$H" | jq_num active_jobs)"
 
 if [ "${FORCE:-0}" = "1" ]; then
-  [ "$ACTIVE" != "0" ] && echo "  FORCE=1 — shipping anyway; $ACTIVE run(s) will be KILLED." >&2
+  if [ "$ACTIVE" != "0" ]; then
+    echo "  FORCE=1 — shipping anyway; $ACTIVE run(s) will be KILLED." >&2
+  fi
 else
   say "drain: refusing new runs"
-  curl -fsS --max-time 20 -X POST "$API/admin/drain?on=true" \
-       -H "X-API-Key: $(api_key)" >/dev/null
-  echo "  new analyses now get 503 until this container is replaced"
+  # An engine older than the drain feature has no /admin/drain and reports no
+  # active_jobs. Do not hard-fail on it — that would make this script impossible to
+  # deploy WITH — but be loud, because on that engine the wait below is blind.
+  if curl -fsS --max-time 20 -X POST "$API/admin/drain?on=true" \
+          -H "X-API-Key: $(api_key)" >/dev/null 2>&1; then
+    echo "  new analyses now get 503 until this container is replaced"
+  else
+    CAN_DRAIN=0
+    echo "  WARNING: this engine predates /admin/drain — it cannot refuse new runs," >&2
+    echo "           and /health does not report active_jobs, so the wait is BLIND." >&2
+    echo "           Check by hand before continuing, or re-run once this ships." >&2
+  fi
 
   say "waiting for $ACTIVE in-flight run(s)"
   WAITED=0
+  if [ "${CAN_DRAIN:-1}" = "0" ]; then echo "  (blind: old engine reports no job count)"; fi
   while :; do
     H="$(health)" || true
     ACTIVE="$(echo "$H" | jq_num active_jobs)"
@@ -66,7 +78,7 @@ else
       echo "  STILL $ACTIVE running after ${WAITED}s — NOT deploying." >&2
       # Undo the drain: the old container is staying, so it must keep taking work.
       curl -fsS --max-time 20 -X POST "$API/admin/drain?on=false" \
-           -H "X-API-Key: $(api_key)" >/dev/null || true
+           -H "X-API-Key: $(api_key)" >/dev/null 2>&1 || true
       echo "  drain lifted; the running engine is untouched. Re-run later, or FORCE=1." >&2
       exit 2
     fi
@@ -103,7 +115,10 @@ for i in $(seq 1 20); do
     REV="$(echo "$H" | jq_num engine_revision)"
     DRN="$(echo "$H" | jq_str draining)"
     echo "  ok · rev $REV · draining $DRN"
-    [ "$DRN" = "True" ] && { echo "  WARNING: new container came up draining — that is a bug." >&2; exit 3; }
+    if [ "$DRN" = "True" ]; then
+      echo "  WARNING: new container came up draining — that is a bug." >&2
+      exit 3
+    fi
     exit 0
   fi
   echo "  waiting for the API to come back (${i})…"
