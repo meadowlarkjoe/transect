@@ -150,15 +150,48 @@ def fetch(ctx: Context) -> None:
     except Exception:
         g = None
     dst_crs, transform, w, h = target_grid(ctx)
+    # AQréseau+ — the OFFICIAL Québec network. OSM does not map most logging roads out
+    # here (a hunter's camp sat on a forest road we reported as roadless), and dist_road
+    # drives the capability gate, pressure, pack-out and staging. Union it in; a failure
+    # degrades us to OSM-only, which is exactly the old behaviour.
+    aq = None
+    try:
+        from . import aqreseau
+        aqreseau.fetch(ctx, cache)
+        aqp = cache / "aqreseau.gpkg"
+        if aqp.exists():
+            import geopandas as gpd
+            aq = gpd.read_file(aqp)
+            # Impassable segments are NOT access — they must not create a false
+            # "there is a road here" for the distance transform.
+            if "drive" in aq.columns:
+                aq = aq[aq["drive"] != "impassable"]
+    except Exception as ex:
+        print(f"[roads] AQréseau+ skipped: {ex}")
+        aq = None
+
     if g is not None and len(g):
         # Keep the tag column: contract.py reads bridge=yes off it to tell a real
         # obstacle from a road bridge you simply drive over. Writing geometry only
         # threw that away and every bridged river came back as "needs a boat".
         keep = ["geometry"] + [c for c in ("other_tags", "highway", "name") if c in g.columns]
         g[keep].reset_index(drop=True).to_file(cache / "roads.gpkg", driver="GPKG")
-        shapes = [(geom, 1) for geom in g.to_crs(dst_crs).geometry if geom and not geom.is_empty]
+    elif aq is not None and len(aq):
+        # No OSM at all — AQréseau+ becomes the road network so downstream stages
+        # (crossings, infra export) still have geometry to read.
+        aq[["geometry"] + [c for c in ("name", "cls") if c in aq.columns]] \
+            .reset_index(drop=True).to_file(cache / "roads.gpkg", driver="GPKG")
+
+    shapes = []
+    if g is not None and len(g):
+        shapes += [(geom, 1) for geom in g.to_crs(dst_crs).geometry if geom and not geom.is_empty]
+    if aq is not None and len(aq):
+        shapes += [(geom, 1) for geom in aq.to_crs(dst_crs).geometry if geom and not geom.is_empty]
+    if shapes:
         arr = rasterize(shapes, out_shape=(h, w), transform=transform, fill=0,
                         default_value=1, dtype="uint8", all_touched=True)
+        print(f"[roads] rasterized {len(shapes)} segments "
+              f"(OSM {0 if g is None else len(g)} + AQréseau+ {0 if aq is None else len(aq)})")
     else:
         arr = np.zeros((h, w), dtype="uint8")
 
