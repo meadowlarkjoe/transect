@@ -220,12 +220,12 @@ exist — this is a join, not new modelling.
 cabin you hunt every year, a blind that only works on a north wind is worth far less
 than one that works on four. Nothing scores this today.
 
-### T9.4 — Stack a hover card per feature under the cursor · `ready`  ← NEXT
+### T9.4 — Stack a hover card per feature under the cursor · `done` (2026-08-06)
 IDENTIFY shows the first match only, so reading a spot means toggling layers on and off.
 **Done when:** hovering ground covered by several layers shows a card per feature, in the
 existing priority order.
 
-### T9.5 — See all your plans on one map · `ready`
+### T9.5 — See all your plans on one map · `ready`  ← NEXT
 **Done when:** the dashboard can draw every saved plan's areas at once, and the app can
 show other plans as a background layer.
 
@@ -240,7 +240,7 @@ case where the other person has not signed up.
 with an explicit role, drawings carry `author_uid`/`author_email` shown in the panel and
 the hover tooltip. Do NOT send email from the app without explicit approval.
 
-### T9.7 — Download Brief PDF · `ready` *(T9.9 done)*
+### T9.7 — Download Brief PDF · `done` (2026-08-06)
 Written brief plus per-layer map plates (overview, browse/feeding, thermal refuge,
 topography) each with an explainer of what it means and what its limits are.
 **Done when:** one button produces a PDF whose plates match what the app draws — drive
