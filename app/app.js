@@ -579,10 +579,15 @@ function init(){
   // fresh = pale (open, browse not up yet), regen = bright (prime), closing = dark.
   map.addSource('cutZones',{type:'geojson',data:S.cutZones});
   const cutCol=['match',['get','cls'],'fresh','#C7C267','regen','#6FA83A','closing','#3F6B34','#6FA83A'];
+  // Cuts already draw ABOVE browse (added later, and MapLibre paints in insertion order),
+  // but they did not READ as above it: browse is a dense stipple at 0.9 while the cut fill
+  // was 0.32, so the layer underneath won the contrast fight and the cuts looked buried.
+  // Cuts are the one browse input with a hard surveyed edge and a real date on it, so it
+  // gets the stronger mark of the two.
   map.addLayer({id:'cutZones',type:'fill',source:'cutZones',
-    layout:{visibility:'none'},paint:{'fill-color':cutCol,'fill-opacity':0.32}});
+    layout:{visibility:'none'},paint:{'fill-color':cutCol,'fill-opacity':0.5}});
   map.addLayer({id:'cutZones-line',type:'line',source:'cutZones',
-    layout:{visibility:'none'},paint:{'line-color':cutCol,'line-width':1.2,'line-opacity':0.95}});
+    layout:{visibility:'none'},paint:{'line-color':cutCol,'line-width':1.8,'line-opacity':1}});
   // GRHQ WETLANDS (milieu humide) — the marsh/bog barrier that shapes funnels + travel (#62).
   // Teal, hatched-feel via a soft fill; off by default. Beaver PONDS ride on top as small dots
   // (a rut hub worth a stand).
@@ -4237,7 +4242,15 @@ function clearIdentify(){
 // huntZones is the huntability SURFACE — its opacity is owned by the Model-surface
 // slider, so a hover must not touch it (it was jumping to 100% on hover and settling at
 // 0.9, never back to the slider value). Identify still NAMES it; it just isn't lit up.
-const NO_EMPHASIS=new Set(['roads','roads-case','rail','trans','rivers','lakes','lakes-line','boundaries','huntZones']);
+// EMPHASIS IS LAYER-WIDE, NOT PER-FEATURE. setPaintProperty changes the whole layer, so
+// hovering one line "highlights" every line in it. On a handful of routes that reads as
+// emphasis; on a dense network it is the entire map flashing at you — which is what
+// happened with the forest tracks: crossing a single logging road thickened every logging
+// road in the AOI. roads/roads-case/rail were already exempt for this reason and
+// roads-track/trails were simply missed, being newer (AQréseau+, #81).
+// The identify tooltip still works on all of them; only the flash is gone.
+const NO_EMPHASIS=new Set(['roads','roads-case','roads-track','trails','rail','trans',
+  'rivers','lakes','lakes-line','boundaries','huntZones']);
 /* lift the hovered layer so the label and the geometry can't disagree */
 function emphasiseMapLayer(id,on){
   if(NO_EMPHASIS.has(id)) return;
