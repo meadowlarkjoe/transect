@@ -154,6 +154,30 @@ def extract_focus_areas(ctx, hunt, prof):
     cands = _find(FLOOR, 0.82, min_km2)
     if not cands:
         cands = _find(FLOOR * 0.8, 0.70, max(1.0, min_km2 * 0.5))
+    if not cands and avail_km2 > 0 and avail_km2 <= 3.0 * float(fcfg.get("min_area_km2", 3)):
+        # WHEN THE HUNT IS SMALLER THAN A FOCUS AREA, THE HUNT *IS* THE FOCUS AREA.
+        #
+        # A focus area is defined as "a chunk a party can work in a day" — roughly 3 km²
+        # of a drainage. A hunter who tells us they will walk 2 km from the cabin has
+        # 12.6 km² in total, and asking that to subdivide into a smaller, self-contained
+        # chunk of exceptional ground is asking the wrong question: they have already
+        # done the subdividing by choosing where to sleep. Returning nothing left them
+        # with an empty map — no areas, and so no stands and no routes either, because
+        # everything downstream is placed per area — on ground they hunt every season.
+        #
+        # This is NOT a lowered quality bar. Nothing here is claimed to be exceptional;
+        # the area simply becomes "the ground you can reach", and the stands, routes and
+        # scores inside it are computed and reported exactly as they always are, so a
+        # thin cabin still reads as thin.
+        sel = np.isfinite(hunt)
+        if sel.any():
+            sel = binary_fill_holes(binary_closing(sel, iterations=2))
+            area = int(sel.sum()) * px_area
+            score = float(np.nanmean(hunt[sel]))
+            peak = float(np.nanmax(np.nan_to_num(hs)))
+            print(f"[synth] hunt radius holds only {avail_km2:.1f} km2 — the reachable "
+                  f"ground IS the focus area (mean huntability {score:.3f})")
+            cands = [(peak, area, score, sel)]
     # Rank by EXPECTED ENCOUNTER ≈ area × mean huntability (coverage matters for a species
     # at ~20 km²/moose), not by mean alone, which favoured tiny tight pockets over large
     # good ground.
