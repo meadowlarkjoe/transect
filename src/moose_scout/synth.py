@@ -154,7 +154,12 @@ def extract_focus_areas(ctx, hunt, prof):
     cands = _find(FLOOR, 0.82, min_km2)
     if not cands:
         cands = _find(FLOOR * 0.8, 0.70, max(1.0, min_km2 * 0.5))
-    if not cands and avail_km2 > 0 and avail_km2 <= 3.0 * float(fcfg.get("min_area_km2", 3)):
+    # The trigger is ONE FULL-SIZE FOCUS AREA (max_area_km2), not a multiple of the
+    # minimum: you cannot subdivide something smaller than one unit of the thing you are
+    # subdividing into. A 2 km hunt radius holds 11.5 km² against an 18 km² area — there
+    # is no meaningful choice to offer between areas, so offering none was the failure.
+    # A 5 km radius (78 km²) is comfortably larger and still has to earn its areas.
+    if not cands and 0 < avail_km2 <= float(max_km2):
         # WHEN THE HUNT IS SMALLER THAN A FOCUS AREA, THE HUNT *IS* THE FOCUS AREA.
         #
         # A focus area is defined as "a chunk a party can work in a day" — roughly 3 km²
