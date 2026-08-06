@@ -65,9 +65,23 @@ def _spawn_worker(jid: str) -> None:
     start_new_session detaches it from this process group, so a signal aimed at uvicorn
     (a deploy, a container stop) does NOT cascade into the running analysis — which is
     the whole reason this exists."""
+    # THE WORKER'S OUTPUT GOES TO A FILE, NOT TO /dev/null.
+    #
+    # It was discarded, and that made a whole class of failure undiagnosable: a worker
+    # killed by the OOM killer, or dying before its own try/except is reached, writes no
+    # status and leaves no trace — the job simply sits at "running" for ever with nothing
+    # anywhere to say why. I hit exactly that today and had nothing to read.
+    #
+    # The log lives beside the job's state so it is findable from the job id alone, and
+    # is small: stage lines plus a traceback at worst.
+    log = None
+    try:
+        log = open(jobstore.dir_for(jid) / "worker.log", "ab", buffering=0)
+    except OSError:
+        pass
     proc = subprocess.Popen(
         [sys.executable, "-m", "moose_scout.worker", jid],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        stdout=(log or subprocess.DEVNULL), stderr=subprocess.STDOUT,
         start_new_session=True)
     jobstore.update(jid, pid=proc.pid)
 # Set by POST /admin/drain during a deploy: refuse NEW analyses so the in-flight ones
