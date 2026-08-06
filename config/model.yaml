@@ -71,6 +71,14 @@ focus_areas:
                                  # clear (0..1). Calibrated to the smoothing below: good QC
                                  # boreal clusters smooth to ~0.35-0.41, so 0.28 admits the
                                  # top few % and a genuinely poor box returns 0 areas.
+  # EXTENT, not quality. min_huntability decides whether a spot may ANCHOR a focus
+  # area; these two decide how far that area then reaches. They admit nothing on their
+  # own. Split out because one constant was doing both jobs, and once the rev-21 browse
+  # rebuild gave the surface real contrast (peaks unchanged, shoulders gone) using the
+  # admission bar as the extent bar collapsed lobes from ~8 km2 to ~1.5 km2 and returned
+  # plans with zero areas.
+  grow_frac_of_floor: 0.72       # extend over ground >= this share of the admission bar
+  grow_rel: 0.80                 # ...and still related to this peak (multiplies gate_f)
   min_area_km2: 3
   # A focus area is a chunk a party can actually WORK in the field (a drainage), not a
   # secteur — capped near ~18 km²; party size adds MORE areas, it doesn't inflate one.

@@ -98,6 +98,11 @@ def extract_focus_areas(ctx, hunt, prof):
                   f"({avail_km2:.1f} km2 reachable)")
             min_km2 = capped
     FLOOR = float(fcfg.get("min_huntability", 0.30))   # ABSOLUTE admission bar
+    # How far an admitted area may EXTEND (see the note at `grow` below). Not a quality
+    # bar — nothing is admitted by these; they only decide where an already-qualified
+    # area stops. Capped so an area can still never exceed max_area_km2.
+    GROW_FRAC_OF_FLOOR = float(fcfg.get("grow_frac_of_floor", 0.72))
+    GROW_REL = float(fcfg.get("grow_rel", 0.80))
     tr = Transformer.from_crs(prof["crs"], "EPSG:4326", always_xy=True)
     to_wgs = lambda geom: shp_transform(lambda xs, ys: tr.transform(xs, ys), geom)
 
@@ -132,8 +137,27 @@ def extract_focus_areas(ctx, hunt, prof):
         out = []
         for (pr, pc) in peaks:
             near = (Y - pr) ** 2 + (X - pc) ** 2 <= radius_px ** 2
-            # grow the lobe down to gate_f·peak, but NEVER below the absolute floor
-            raw = near & np.isfinite(hunt) & (hs >= max(floor, float(hs[pr, pc]) * gate_f))
+            # ADMISSION AND EXTENT ARE DIFFERENT QUESTIONS, and one constant was answering
+            # both. `floor` proves a spot is good enough to ANCHOR an area — that must stay
+            # absolute and strict, it is the whole of audit #50. But using the same value
+            # to bound how far the area EXTENDS says a focus area may only cover ground as
+            # good as its own best cell, which is not how anyone hunts: you sit the good
+            # spot and work the decent ground around it.
+            #
+            # It only started to bite when the browse rebuild gave the surface real
+            # CONTRAST. Before, a satellite floor smeared every peak into a broad shoulder,
+            # so "above the admission bar" and "workable ground around the peak" happened to
+            # be the same region. With the smear gone the peaks stayed just as high
+            # (smoothed max 0.352 vs 0.359 on the same ground) and the shoulders fell away,
+            # so lobes collapsed from ~8 km² to ~1.5 km², dropped under min_area_km2, and
+            # every candidate died — a plan with no areas, and therefore no stands and no
+            # routes, on ground that had three good areas under the previous revision.
+            #
+            # So extent gets its own, looser bar: ground at least GROW_FRAC_OF_FLOOR as good
+            # as the admission bar, and still related to this peak. Quality is unchanged —
+            # nothing is admitted that was not admitted before.
+            grow = max(FLOOR * GROW_FRAC_OF_FLOOR, float(hs[pr, pc]) * gate_f * GROW_REL)
+            raw = near & np.isfinite(hunt) & (hs >= grow)
             # Keep ONLY the connected component containing the peak, then close gaps &
             # fill holes so the ring, its centroid, and its placed sites all agree.
             lbl, _ = ndlabel(raw)
