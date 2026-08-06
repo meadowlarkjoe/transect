@@ -57,3 +57,27 @@ def test_toggled_layer_ids_exist():
     referenced = {i for ids in _lyr_map(src).values() for i in ids}
     unknown = sorted(referenced - added)
     assert not unknown, f"LYR_MAP references layer ids never added: {unknown}"
+
+
+def test_unit_formatters_cannot_throw_on_a_missing_value():
+    """A FORMATTER MUST NEVER TAKE DOWN THE PAGE.
+
+    km(null) threw `null is not an object (evaluating 'v.toFixed')`, and because the
+    analysis view renders in one pass, one missing number blanked the ENTIRE result. The
+    value was camp.max_packin_km, which the contract emits as null — correctly — when a
+    camp has no member areas; two of the six call sites passed it straight in.
+
+    The engine is right to say "unknown" with a null. The display's job is to show that,
+    not to explode: an unknown distance is a dash, not a blank screen. A stated ZERO is
+    a different thing and must still print as a real number.
+    """
+    src = open(APP).read()
+    assert "const km = (v) => !_n(v)" in src or "const km=(v)=>!_n(v)" in src, \
+        "km() no longer guards a non-finite value before calling toFixed"
+    assert "const metres = (m) => !_n(m)" in src or "const metres=(m)=>!_n(m)" in src, \
+        "metres() no longer guards a non-finite value"
+    # The guard has to be a FINITE test, not truthiness — otherwise a real 0 km becomes
+    # a dash and the hunter is told we don't know a distance we measured as zero.
+    assert "typeof v === 'number' && isFinite(v)" in src or \
+           "typeof v==='number'&&isFinite(v)" in src, \
+        "the guard must test finiteness, not truthiness — a measured 0 is not unknown"

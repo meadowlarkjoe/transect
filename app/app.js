@@ -53,8 +53,18 @@ let SETUP = { watercraft:'none', huntStyle:'spike',
 /* ---------------- units ---------------- */
 let UNITS = 'metric';                       // 'metric' | 'imperial'
 const KM_MI = 1.609344;
-const km = (v) => UNITS === 'imperial' ? (v / KM_MI).toFixed(1) + ' mi' : v.toFixed(1) + ' km';
-const metres = (m) => UNITS === 'imperial' ? Math.round(m * 1.09361) + ' yd' : Math.round(m) + ' m';
+/* A FORMATTER MUST NEVER TAKE DOWN THE PAGE. km(null) threw `null is not an object
+   (evaluating 'v.toFixed')`, and because the whole result is rendered in one pass that
+   killed the ENTIRE analysis view — from one missing number. The value that did it was
+   camp.max_packin_km, which the contract emits as null, correctly, when a camp has no
+   member areas; two of the six call sites passed it straight in.
+   The engine is right to say "unknown" with a null. The display's job is to show that,
+   not to explode — an unknown distance is a dash, not a blank screen. */
+const _n = (v) => (typeof v === 'number' && isFinite(v));
+const km = (v) => !_n(v) ? '—'
+  : (UNITS === 'imperial' ? (v / KM_MI).toFixed(1) + ' mi' : v.toFixed(1) + ' km');
+const metres = (m) => !_n(m) ? '—'
+  : (UNITS === 'imperial' ? Math.round(m * 1.09361) + ' yd' : Math.round(m) + ' m');
 const unitBig = () => UNITS === 'imperial' ? 'mi' : 'km';
 const unitSmall = () => UNITS === 'imperial' ? 'yd' : 'm';
 const toU = (kmVal) => UNITS === 'imperial' ? kmVal / KM_MI : kmVal;   // km -> display-unit number
