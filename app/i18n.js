@@ -120,7 +120,6 @@
       'lay.stRut': 'Calling positions', 'lay.stRut.n': 'Where you set up and call — stands of 30 min or more. Calling works through the seeking phase too, not just the peak.',
       'lay.stSaline': 'Feeding edge', 'lay.stSaline.n': 'Browse edge / riparian willow at first and last light. Not a detected salt lick — salines are regulated; check the zone.',
       'lay.stGlass': 'Glassing knobs', 'lay.stGlass.n': 'Computed viewshed — high ground worth sitting behind glass',
-      'lay.stGround': 'Ground-truth checks', 'lay.stGround.n': 'Go stand here and see if the model was right — sign, tracks, rubs',
       'lay.camps2': 'Base camp', 'lay.camps2.n': 'Where you sleep. Spike hunts only — a vehicle hunt has no camp.',
       'lay.staging': 'Staging / parking', 'lay.staging.n': 'Where you leave the truck — one per focus area, at its nearest road',
       'lay.shooters': 'Shooter positions', 'lay.shooters.n': 'Where the SHOOTER sets up — ~70 m downwind of its calling position, because a bull circles downwind to scent-check.',
@@ -216,6 +215,10 @@
       'dlg.offlineBody': 'Nothing was lost — your setup is exactly as you left it. RUN ANALYSIS needs the engine online; try again in a moment.',
       /* The engine ANSWERED and refused. A different fact from unreachable, and
          the one the hunter can actually report. */
+      /* camp hunts: one camp, nothing to go and find */
+      'setup.sCampWhere': 'Camp location',
+      'setup.campPh': "Search a place or paste your camp's lat, lon",
+      'setup.campNote': 'Where you sleep. Everything is measured from here — the analysis covers what you can reach and hunt from this one point.',
       'dlg.rejectTitle': 'The engine turned this run down',
       'dlg.rejectBody': 'Nothing was lost and nothing is running — the request never started. This is a fault in the app, not in your setup; the details above identify it.',
       'dlg.storageTitle': 'This browser is out of storage',
@@ -335,7 +338,6 @@
       'lay.stRut': 'Postes d’appel', 'lay.stRut.n': 'Où s’installer et appeler — des postes de 30 min ou plus. L’appel fonctionne aussi en phase de quête, pas seulement au pic.',
       'lay.stSaline': 'Lisière d’alimentation', 'lay.stSaline.n': 'Lisière de brout / saule riverain à l’aube et au crépuscule. Pas une saline détectée — les salines sont réglementées; vérifiez la zone.',
       'lay.stGlass': 'Buttes d’observation', 'lay.stGlass.n': 'Bassin visuel calculé — hauteurs qui valent une séance aux jumelles',
-      'lay.stGround': 'Vérifications terrain', 'lay.stGround.n': 'Allez voir si le modèle avait raison — indices, pistes, frottis',
       'lay.camps2': 'Camp de base', 'lay.camps2.n': 'Où vous dormez. Chasses en camp volant seulement — une chasse au véhicule n’a pas de camp.',
       'lay.staging': 'Stationnement', 'lay.staging.n': 'Où vous laissez le véhicule — un par secteur, au chemin le plus proche',
       'lay.shooters': 'Postes de tir', 'lay.shooters.n': 'Où le TIREUR s’installe — à ~70 m sous le vent du poste d’appel, parce qu’un mâle contourne par sous le vent pour flairer.',
@@ -420,6 +422,9 @@
       'dlg.restartBody': 'Votre configuration a survécu, pas le calcul. Appuyez sur LANCER L’ANALYSE pour recommencer.',
       'dlg.offlineTitle': 'Le moteur ne répond pas',
       'dlg.offlineBody': 'Rien n’a été perdu — votre configuration est intacte. LANCER L’ANALYSE exige que le moteur soit en ligne ; réessayez dans un instant.',
+      'setup.sCampWhere': 'Emplacement du camp',
+      'setup.campPh': 'Cherchez un lieu ou collez la latitude, longitude de votre camp',
+      'setup.campNote': 'Où vous dormez. Tout est mesuré à partir d’ici — l’analyse couvre ce que vous pouvez atteindre et chasser depuis ce seul point.',
       'dlg.rejectTitle': 'Le moteur a refusé ce calcul',
       'dlg.rejectBody': 'Rien n’a été perdu et rien ne tourne — la demande n’a jamais démarré. Il s’agit d’un défaut de l’application, pas de votre configuration ; les détails ci-dessus l’identifient.',
       'dlg.storageTitle': 'Ce navigateur n’a plus d’espace',

@@ -155,7 +155,11 @@ const SHAPE = {
   glassing:'triangle', validate_ground:'diamond', base_camp:'tent', parking:'flag'
 };
 // Sites = POINT features. thermal_refuge + funnel are AREAS now (zones), not points.
-const SITE_TYPES = ['rut_calling','saline_blind','glassing','validate_ground'];
+// 'validate_ground' is deliberately absent: the ground-truth pin was one marker per
+// area on the highest-scoring cell — i.e. on top of a stand the plan already drew —
+// so it said "go look at the place we just told you to hunt". The advice survives as
+// the ground-truth checklist in the brief, which covers every stand, not one point.
+const SITE_TYPES = ['rut_calling','saline_blind','glassing'];
 const REFUGE_COL='#FF00C8', FUNNEL_COL='#FF8C00';
 const ZONE_WHY={
   refuge:'Thermal-refuge bedding — cool mature conifer / north aspect near water. Where a bull holds through a warm midday. Hunt the shade, approach from above/downwind.',
@@ -1234,9 +1238,6 @@ const LAYERS=[
  {k:'st-glass', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Glassing knobs',
   note:'Computed viewshed — high ground worth sitting behind glass', hex:'#1F6F3F',
   icon:'binoculars', on:true, site:'glassing', count:()=>siteCount('glassing')},
- {k:'st-ground', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Ground-truth checks',
-  note:'Go stand here and see if the model was right — sign, tracks, rubs', hex:'#CBD5DA',
-  icon:'eye', on:true, site:'validate_ground', count:()=>siteCount('validate_ground')},
  // Camp and staging were one row, so a vehicle hunter — who has no camp at all —
  // could not see or toggle the only pin that matters to them: where the truck goes.
  {k:'camps2', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Base camp',
@@ -2338,6 +2339,16 @@ function lockSetupWhileRunning(){
 function renderSetup(){
   const el=document.getElementById('setup');
   const hs=hstyleOf();
+  // A camp hunt IS a known-site hunt with exactly one site: the camp. Forcing it here
+  // rather than only hiding the toggle means a hunter who picked "find sites" first and
+  // then switched to a camp hunt cannot leave a contradictory pair behind — the same
+  // shape of bug as huntStyle-vs-fixedCampMode.
+  const camping=(hs==='camp');
+  if(camping){
+    draft.siteMode='known';
+    if(draft.sites.length>1) draft.sites=draft.sites.slice(0,1);
+    if(!draft.sites.length && draft.center) draft.sites=[{ll:draft.center.slice(),label:''}];
+  }
   const known=draft.siteMode==='known';
   const siteChip=(s,i)=>`<div class="row" style="align-items:center;margin-top:6px">
       <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
@@ -2398,21 +2409,25 @@ function renderSetup(){
         'Pick everything you\'ll have. No boat: rivers become foot barriers. ATV/SxS: tracks and trails become drivable, so camp can sit further in and routes split into ride vs walk legs.')}</div>
     </div>
 
-    <!-- 04 HUNT LOCATION — known sites (up to 4, compared) or find sites in an area. -->
+    <!-- 04 HUNT LOCATION — known sites (up to 4, compared) or find sites in an area.
+         A CAMP HUNT HAS NEITHER OF THOSE CHOICES. The camp is a place the hunter
+         already owns or rents; there is nothing to go and find, and there is exactly
+         one of it. Offering "Find sites" there invites a run whose whole premise
+         (the analysis is centred on your camp) contradicts the mode that was picked. -->
     <div class="sec">
-      <div class="sechead"><span class="num">04</span><h3>${t('setup.sWhere','Hunt location')}</h3></div>
-      <div class="seg"><button id="lmFind" ${!known?'aria-pressed="true"':''}>${t('setup.findSites','Find sites')}</button>
-        <button id="lmKnown" ${known?'aria-pressed="true"':''}>${t('setup.knownSites','Known sites')}</button></div>
+      <div class="sechead"><span class="num">04</span><h3>${camping?t('setup.sCampWhere','Camp location'):t('setup.sWhere','Hunt location')}</h3></div>
+      ${camping?'':`<div class="seg"><button id="lmFind" ${!known?'aria-pressed="true"':''}>${t('setup.findSites','Find sites')}</button>
+        <button id="lmKnown" ${known?'aria-pressed="true"':''}>${t('setup.knownSites','Known sites')}</button></div>`}
 
       <div id="locKnown" class="${known?'':'hidden'}">
         <div id="siteList">${draft.sites.map(siteChip).join('')}</div>
-        <div class="row" id="siteEntryRow" style="margin-top:8px;${draft.sites.length>=4?'display:none':''}">
-          <input id="siteEntry" placeholder="${t('setup.sitePh','Search a place or paste lat, lon')}">
+        <div class="row" id="siteEntryRow" style="margin-top:8px;${(camping?draft.sites.length>=1:draft.sites.length>=4)?'display:none':''}">
+          <input id="siteEntry" placeholder="${camping?t('setup.campPh','Search a place or paste your camp\'s lat, lon'):t('setup.sitePh','Search a place or paste lat, lon')}">
           <button id="siteDrop" class="btn btn--secondary btn--sm" title="${t('setup.siteDrop','Drop a waypoint on the map')}">${railIcon('pin',15)}</button>
         </div>
         <div id="siteRes" class="results"></div>
-        ${draft.sites.length>0&&draft.sites.length<4?`<button id="siteAdd" class="btn btn--secondary btn--block" style="margin-top:8px">${t('setup.siteAdd','+ Add another site to compare')}</button>`:''}
-        <div class="s" style="margin-top:6px">${t('setup.knownNote','Up to 4 sites — each gets its own analysis, ranked against the others.')}</div>
+        ${!camping&&draft.sites.length>0&&draft.sites.length<4?`<button id="siteAdd" class="btn btn--secondary btn--block" style="margin-top:8px">${t('setup.siteAdd','+ Add another site to compare')}</button>`:''}
+        <div class="s" style="margin-top:6px">${camping?t('setup.campNote','Where you sleep. Everything is measured from here — the analysis covers what you can reach and hunt from this one point.'):t('setup.knownNote','Up to 4 sites — each gets its own analysis, ranked against the others.')}</div>
       </div>
 
       <div id="locFind" class="${known?'hidden':''}">
@@ -2523,8 +2538,11 @@ function renderSetup(){
     inp.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();go();}});
     inp.onchange=()=>{ const ll=parseLL(inp.value); if(ll) commit(ll,null); };
   };
-  document.getElementById('lmFind').onclick=()=>{draft.siteMode='find';renderSetup();};
-  document.getElementById('lmKnown').onclick=()=>{draft.siteMode='known';
+  // The Find/Known toggle is not rendered for a camp hunt (there is one camp and
+  // nothing to go find), so these must be looked up defensively rather than assumed.
+  const _lmF=document.getElementById('lmFind'), _lmK=document.getElementById('lmKnown');
+  if(_lmF) _lmF.onclick=()=>{draft.siteMode='find';renderSetup();};
+  if(_lmK) _lmK.onclick=()=>{draft.siteMode='known';
     // carry an existing centre in as site 1 so switching modes doesn't lose it
     if(!draft.sites.length&&draft.center) draft.sites=[{ll:draft.center.slice(),label:''}];
     renderSetup();};
@@ -2537,7 +2555,7 @@ function renderSetup(){
     if(add) add.onclick=()=>{ const r=document.getElementById('siteEntryRow'); if(r){r.style.display='';
       document.getElementById('siteEntry').focus(); add.remove(); } };
     // fresh KNOWN mode with sites: the entry row hides until "+ Add" (spec) — show it only when empty
-    if(draft.sites.length>0&&draft.sites.length<4){ const r=document.getElementById('siteEntryRow'); if(r) r.style.display='none'; }
+    if(draft.sites.length>0&&draft.sites.length<(camping?1:4)){ const r=document.getElementById('siteEntryRow'); if(r) r.style.display='none'; }
     el.querySelectorAll('button[data-delsite]').forEach(b=>b.onclick=()=>{
       draft.sites.splice(+b.dataset.delsite,1);
       draft.center=draft.sites.length?draft.sites[0].ll.slice():null;
@@ -2619,6 +2637,15 @@ function _syncRadiusBounds(){
   }
 }
 function addSite(ll,label){
+  // A camp hunt has ONE site — the camp. Entering another REPLACES it rather than
+  // adding a second, because "compare these four" is a different mode and silently
+  // making a camp hunt into one would move the analysis off the camp.
+  if(hstyleOf()==='camp'){
+    draft.sites=[{ll:ll.slice(),label:label||''}];
+    draft.center=ll.slice();
+    renderSetup(); drawDraft(true);
+    return;
+  }
   if(draft.sites.length>=4) return;
   draft.sites.push({ll:ll.slice(),label:label||''});
   draft.center=draft.sites[0].ll.slice();          // engine centre = first site
@@ -4140,8 +4167,9 @@ const IDENTIFY = [
   {lyr:'huntZones',    row:null,       title:p=>(HUNT_CLS[p.cls]||{}).label||'Likelihood band',
                        sub:p=>`${p.area_km2} km² · model band, no surveyed edge`},
 ];
-const SITE_ROW={rut_calling:'st-rut',saline_blind:'st-saline',glassing:'st-glass',
-  validate_ground:'st-ground'};
+// No validate_ground entry: the st-ground legend row is gone, and pointing at a row
+// that no longer exists is how a panel reconcile ends up with a dangling toggle.
+const SITE_ROW={rut_calling:'st-rut',saline_blind:'st-saline',glassing:'st-glass'};
 const SITE_LABEL={rut_calling:'Calling position',thermal_refuge:'Thermal refuge',
   saline_blind:'Feeding edge',funnel:'Funnel / pass',glassing:'Glassing knob',
   validate_ground:'Ground-truth check',base_camp:'Base camp',parking:'Staging / parking'};

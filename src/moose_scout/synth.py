@@ -688,7 +688,12 @@ def run(ctx: Context, manual_areas=None) -> None:
                         {"when": "dawn & dusk — glass the openings from high ground",
                          "pair": "glass in pairs where the crew allows — two sets of eyes on one basin beats two basins half-watched"},
                         min_score=0.15)
-    add_points_per_area(hunt, "validate_ground", 1)
+    # NO "ground-truth point" PIN. It was one marker per area dropped on the highest
+    # huntability cell — which is where the plan already puts a stand, so it added a
+    # second icon saying "go and look at the place we just told you to hunt". The
+    # advice is real and stays, as the ground-truth CHECKLIST in the brief, which
+    # applies to every stand and every access line rather than to an arbitrary point.
+    # ground_truth_checklist() already words itself correctly for a count of zero.
 
     # --- access anchors: base camp + parking (need roads) ---
     routes_msg = ""
@@ -1547,8 +1552,8 @@ def ground_truth_checklist(ctx, n_gt: int) -> dict:
             "**Trails through the funnels** — a worn path pinched between water or wetland is exactly where an ambush pays; confirm it's used before you sit it.",
             "**Access reality** — scout the last spur on foot before you trust it: is it actually driveable, and are the crossing markers on your route fordable at the water you're seeing today?",
         ],
-        "note": ("Log what you find at the ground-truth points so the next plan learns from the "
-                 "boots, not just the pixels."),
+        "note": ("Log what you find so the next plan learns from the boots, not just the "
+                 "pixels."),
     }
 
 
