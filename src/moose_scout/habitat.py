@@ -148,6 +148,23 @@ def run(ctx: Context) -> None:
     else:
         browse_n = cover_n = None
 
+    # BROWSE IS A COMPOSITE, AND FROM HERE ON IT IS BUILT LIKE ONE.
+    #
+    # It used to be `np.maximum` over every source in turn, which had three costs. It
+    # destroyed PROVENANCE — nothing recorded which source set a cell, so no explainer
+    # could ever be written for the model's most important food term. It made
+    # corroboration worthless — prime on one indicator scored exactly like prime on all
+    # four. And worst, it let the COARSEST source set the floor: a precise, dated,
+    # surveyed layer could only ever RAISE a score, never correct one. Measured on a real
+    # AOI, closed conifer averaged 0.297 browse — because WorldCover said "vegetation
+    # here" — while the forest-stand map that actually surveyed those polygons scores
+    # conifer at or below zero. 42% of that AOI scored over 0.5.
+    #
+    # Each contributor is now kept whole and named, and they are combined by PRECISION:
+    # a dated disturbance beats a surveyed stand, which beats a satellite guess. The
+    # coarser sources become corroboration, which moves the answer a little and is
+    # reported as agreement. Every layer is persisted so the map can show the parts.
+    src = {}          # name -> 0..1 array, the browse each source alone would give
     if browse_lc is not None and browse_n is not None:
         # NDVI REFINES land-cover, and now may be NaN where no Sentinel scene covered a
         # cell (a coverage gap — previously a fake 0 that read as barren and striped the
@@ -165,6 +182,13 @@ def run(ctx: Context) -> None:
     else:
         browse = wet.copy()
         cover = np.full(shape, 0.4, dtype="float32")
+
+    # The satellite/spectral answer, before any surveyed or dated source touches it.
+    src["landcover"] = np.clip(np.nan_to_num(browse), 0, 1).astype("float32")
+    if browse_lc is not None:
+        ru.write(cache / "browse_lc.tif", np.clip(np.nan_to_num(browse_lc), 0, 1).astype("float32"), prof)
+    if browse_n is not None:
+        ru.write(cache / "browse_ndvi.tif", np.clip(np.nan_to_num(browse_n), 0, 1).astype("float32"), prof)
 
     # --- DISTURBANCE AGE: the strongest boreal browse predictor we have ----------
     # Post-fire browse follows a well-established curve — use is low in very young
@@ -188,7 +212,11 @@ def run(ctx: Context) -> None:
         # burns). Force the disturbance signal to 0 wherever there is no real burn year.
         dist_val = np.where(np.isfinite(burn) & (burn > 0), dist_val, 0.0).astype("float32")
         burn_age = np.where(np.isfinite(burn) & (burn > 0), age, np.nan).astype("float32")
-        browse = np.maximum(np.nan_to_num(browse), np.nan_to_num(dist_val))
+        # A DATED burn is a measurement, so it is a source in its own right rather than
+        # something max()'d over the satellite guess. Only cells that actually burned
+        # carry it; elsewhere it is absent, not zero (see `have` below).
+        src["burn"] = np.nan_to_num(dist_val).astype("float32")
+        src["burn_have"] = (np.isfinite(burn) & (burn > 0))
         ru.write(cache / "burn_browse.tif", dist_val, prof)
 
     # --- ÉCOFORESTIÈRE OVERRIDE (south of ~52°N) --------------------------------------
@@ -202,9 +230,45 @@ def run(ctx: Context) -> None:
         st = np.nan_to_num(stand).astype("int16")
         have = st > 0
         cl = np.clip(np.nan_to_num(_opt(cache / "stand_closure.tif")), 0.0, 1.0)
-        # species → cover / browse (from config/species/moose.yaml cover_types), 0..1
-        SP_COVER = {1: 0.85, 2: 0.55, 3: 0.25, 4: 0.05, 5: 0.20, 6: 0.10}   # rés·mél·feu·cut·regen·burn
-        SP_BROWSE = {1: 0.05, 2: 0.35, 3: 0.30, 4: 0.55, 5: 0.85, 6: 0.30}
+        # SPECIES CONFIG, NOT A SECOND COPY OF IT.
+        #
+        # These two tables used to be literals under a comment reading "(from
+        # config/species/moose.yaml cover_types)". They were not from anywhere: the
+        # config was loaded and read by nothing, so the richly documented table in the
+        # species file was decorative for the single most important habitat term — which
+        # rather undercuts a multi-species engine whose whole premise is that biology
+        # lives in config. The values had drifted apart too (regen 1.00 vs 0.85,
+        # résineux -0.20 vs 0.05).
+        #
+        # The worst of it was a MISLABEL. acquire/ecoforestiere.py defines code 5 as
+        # T_PARTIAL — coupe partielle, a cut that RETAINS its overstory — and the table
+        # here called code 5 "regen" and gave it 0.85, the highest browse of any class.
+        # Partial cuts were being scored as prime regeneration.
+        #
+        # The raster taxonomy and the config taxonomy are NOT the same list, so the map
+        # between them is explicit. `regeneration` (the config's "money class") has no
+        # stand code on purpose — regen is an aged cut, and the cut-age curve below is
+        # what expresses it, peaking at 1.00 around 18 years. `aulnaie` / `tourbiere` /
+        # `non_boise` are only reachable through land cover and are left to it.
+        STAND_CLASS = {1: "resineux", 2: "melange", 3: "feuillus",
+                       4: "coupe_recente", 5: "coupe_partielle"}
+        # Code 6 is burn; the DATED burn curve above is a better answer than any class
+        # constant, so a stand-mapped burn defers to it rather than asserting a number.
+        _ct = getattr(ctx.species, "cover_types", None) or {}
+
+        def _sp(code, field, fallback):
+            """Read a class constant from the species config, clamped to the 0..1 the
+            raster carries. A negative in config ("actively poor browse") is real and
+            becomes 0 here — the point is that it stops being FLOORED at 0.3 by a
+            satellite guess, not that conifer subtracts from the map."""
+            key = STAND_CLASS.get(code)
+            v = (_ct.get(key) or {}).get(field) if key else None
+            return float(np.clip(fallback if v is None else float(v), 0.0, 1.0))
+
+        SP_COVER = {c: _sp(c, "cover", d) for c, d in
+                    {1: 0.85, 2: 0.55, 3: 0.25, 4: 0.05, 5: 0.35, 6: 0.10}.items()}
+        SP_BROWSE = {c: _sp(c, "browse", d) for c, d in
+                     {1: 0.05, 2: 0.35, 3: 0.30, 4: 0.55, 5: 0.45, 6: 0.30}.items()}
         eco_cover = np.zeros(shape, "float32")
         eco_browse = np.zeros(shape, "float32")
         for k, v in SP_COVER.items():
@@ -213,7 +277,13 @@ def run(ctx: Context) -> None:
             eco_browse[st == k] = v
         eco_cover = np.clip(eco_cover * (0.5 + 0.5 * cl), 0.0, 1.0)          # scale cover by closure
         cover = np.where(have, eco_cover, np.nan_to_num(cover))
-        browse = np.where(have, np.maximum(np.nan_to_num(browse), eco_browse), np.nan_to_num(browse))
+        # A surveyed, mapped stand is a source, not a floor-raiser. Code 6 (burn) is
+        # excluded: the dated burn curve already speaks for those cells with more
+        # precision than a class constant can.
+        src["stand"] = np.clip(np.nan_to_num(eco_browse), 0, 1).astype("float32")
+        src["stand_have"] = have & ~np.isin(st, [6])
+        ru.write(cache / "browse_stand.tif",
+                 np.where(src["stand_have"], src["stand"], 0.0).astype("float32"), prof)
         # conifer canopy closure (résineux/mélangé) — the real thermal-refuge signal
         conifer_close = np.where(np.isin(st, [1, 2]), cl, 0.0).astype("float32")
         # dated CUTS through the same disturbance-age browse curve as burns (#34)
@@ -226,7 +296,65 @@ def run(ctx: Context) -> None:
             cdist = np.interp(np.clip(cage, 0, 200),
                               [p[0] for p in cpts], [p[1] for p in cpts]).astype("float32")
             cdist = np.where(cyr > 0, cdist, 0.0)
-            browse = np.maximum(np.nan_to_num(browse), cdist)
+            # THE MOST PRECISE BROWSE EVIDENCE THERE IS: a surveyed polygon with a date
+            # on it, run through a curve. This is also where the config's `regeneration`
+            # class actually lives — an 18-year-old cut scores 1.00 here.
+            src["cut"] = cdist.astype("float32")
+            src["cut_have"] = (cyr > 0)
+            ru.write(cache / "browse_cut.tif", cdist.astype("float32"), prof)
+
+    # --- COMBINE THE BROWSE SOURCES BY PRECISION -------------------------------------
+    #
+    # Precedence, most precise first. The ordering is about how the evidence was
+    # produced, not about which number is biggest:
+    #
+    #   cut       a surveyed polygon with a date on it, aged through a curve
+    #   burn      a mapped fire perimeter with a year, same idea
+    #   stand     a surveyed polygon with a species and a closure, but no date
+    #   landcover a 10 m satellite classification, refined by NDVI — a guess, everywhere
+    #
+    # The most precise source PRESENT at a cell is authoritative: it sets the answer and
+    # it may lower it as well as raise it. That is the whole fix. Under max() the last
+    # line of that list set a floor nothing could get under, so a stand map that had
+    # physically surveyed a closed conifer block could not say "there is nothing to eat
+    # here" — a satellite saying "green" outvoted it.
+    #
+    # The remaining sources become CORROBORATION: they pull the answer part of the way
+    # toward their own, and their agreement is recorded. Agreement is the thing max()
+    # could never express — four sources saying "prime" is stronger evidence than one,
+    # and a hunter deserves to be told which of the two they are looking at.
+    ORDER = [("cut", 4), ("burn", 3), ("stand", 2), ("landcover", 1)]
+    SUPPORT_W = 0.25          # authority keeps 3/4 of the say; corroboration moves the rest
+
+    present = [(nm, code) for nm, code in ORDER if nm in src]
+    base = np.zeros(shape, "float32")
+    who = np.zeros(shape, "int16")            # which source was authoritative, per cell
+    for nm, code in present:
+        have = src.get(f"{nm}_have")
+        have = np.ones(shape, bool) if have is None else np.asarray(have, bool)
+        take = have & (who == 0)              # first (most precise) source to cover a cell wins
+        base = np.where(take, src[nm], base)
+        who = np.where(take, code, who)
+
+    # Corroboration = the mean of every OTHER source that covers the cell.
+    sup_sum = np.zeros(shape, "float32")
+    sup_n = np.zeros(shape, "float32")
+    for nm, code in present:
+        have = src.get(f"{nm}_have")
+        have = np.ones(shape, bool) if have is None else np.asarray(have, bool)
+        other = have & (who != code)
+        sup_sum += np.where(other, src[nm], 0.0)
+        sup_n += other.astype("float32")
+    support = np.where(sup_n > 0, sup_sum / np.maximum(sup_n, 1e-6), base).astype("float32")
+
+    browse = np.clip(base * (1.0 - SUPPORT_W) + support * SUPPORT_W, 0.0, 1.0).astype("float32")
+    # 1 = every source agrees, 0 = they are as far apart as they can be. This is what
+    # lets the identify card say "four sources agree" or "the satellite disagrees with
+    # the stand map here" instead of showing a bare number with no history.
+    agree = np.clip(1.0 - np.abs(base - support), 0.0, 1.0).astype("float32")
+    agree = np.where(sup_n > 0, agree, 0.5).astype("float32")   # nothing to agree with
+    ru.write(cache / "browse_source.tif", who.astype("float32"), prof)
+    ru.write(cache / "browse_agree.tif", agree, prof)
 
     # --- water/forage proximity ---
     water_score = _prox(dist_water, W.get("wetland_optimal_m", 150), W.get("wetland_falloff_m", 800))

@@ -13,11 +13,31 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 20
+ENGINE_REVISION = 21
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    21: "The browse and feeding layer is rebuilt, and it can now tell you where its "
+        "answer came from. It reads five different things — a 10 m satellite "
+        "classification, greenness, mapped fire perimeters with a year on them, the "
+        "forest-stand map, and logging cuts with their cut date — and it used to simply "
+        "take whichever of them scored HIGHEST. That had a consequence worth stating "
+        "plainly: the roughest source set a floor no better source could get under. A "
+        "block of closed spruce that the forest survey had physically walked and mapped "
+        "as having nothing to eat still scored moderate browse, because a satellite "
+        "looking down saw green. On one real area that put 42% of the ground above the "
+        "halfway mark, which is why the layer came out as a few enormous shapes instead "
+        "of the patchwork it should be. Now the most PRECISE source that covers a spot "
+        "decides it — a dated cut beats the stand map beats the satellite — and the "
+        "others corroborate, so ground where everything agrees is separated from ground "
+        "resting on one weak signal. Each input is kept as its own layer you can switch "
+        "on. Two errors were fixed on the way: partial cuts, which keep their overstory, "
+        "were being scored as prime regeneration — the highest browse class in the model "
+        "— and the moose biology file that all these numbers were supposed to come from "
+        "was being loaded and then ignored, so the values in it had quietly drifted from "
+        "the ones actually used. Expect browse to tighten onto real regenerating ground, "
+        "conifer to fall away, and feeding sites and focus areas to move with it.",
     20: "Hunts from a camp you placed get their routes back. If you told us where your "
         "camp or cabin is, the plan was drawing your stands and then nothing joining "
         "them — no approach lines from camp, no access leg in. The cause was ours and "
