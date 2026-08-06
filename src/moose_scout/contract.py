@@ -270,7 +270,13 @@ def _cut_zones(ctx, cache):
             try:
                 inside = ~geometry_mask([gm.__geo_interface__], out_shape=cy.shape,
                                         transform=prof["transform"], invert=False)
-                vv = cy[inside & (cy > 0)]
+                # ONLY the cells that put this polygon in its band. `mask` is the age
+                # filter; the closing/opening that follows it absorbs neighbouring cells,
+                # so sampling every cut cell inside the finished shape reported a 1953
+                # stump inside a polygon labelled "prime regen (10-25 yr)" — a 62-year
+                # span on a 15-year band. The years have to describe the ground the band
+                # is claiming, not everything the morphology swept up with it.
+                vv = cy[inside & mask & (cy > 0)]
                 if vv.size:
                     yrs = {"first": int(vv.min()), "last": int(vv.max()),
                            "median": int(np.median(vv)),
