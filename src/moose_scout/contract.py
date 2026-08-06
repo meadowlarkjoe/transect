@@ -249,10 +249,13 @@ def _cut_zones(ctx, cache):
     it = max(1, int(round(90 / res)))
     out = []
     for name, lo, hi in (("fresh", 0, 9), ("regen", 10, 25), ("closing", 26, 40)):
-        mask = (age >= lo) & (age <= hi)
-        if not mask.any():
+        band = (age >= lo) & (age <= hi)      # the RAW age filter, kept
+        if not band.any():
             continue
-        mask = binary_closing(binary_opening(mask, iterations=it), iterations=it)
+        # `mask` is reassigned by the morphology below, so the raw band has to be held
+        # separately — filtering the year sample by `mask` filters by the very thing that
+        # swept the neighbouring cells in, which is why the first fix changed nothing.
+        mask = binary_closing(binary_opening(band, iterations=it), iterations=it)
         polys = []
         for g, v in rio_shapes(mask.astype("uint8"), mask=mask, transform=prof["transform"]):
             if v == 1:
@@ -276,7 +279,7 @@ def _cut_zones(ctx, cache):
                 # stump inside a polygon labelled "prime regen (10-25 yr)" — a 62-year
                 # span on a 15-year band. The years have to describe the ground the band
                 # is claiming, not everything the morphology swept up with it.
-                vv = cy[inside & mask & (cy > 0)]
+                vv = cy[inside & band & (cy > 0)]
                 if vv.size:
                     yrs = {"first": int(vv.min()), "last": int(vv.max()),
                            "median": int(np.median(vv)),
