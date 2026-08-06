@@ -437,8 +437,13 @@ function buildSources(){
   const areaLabels=fc(DOC.areas.map(a=>({type:'Feature',geometry:{type:'Point',coordinates:a.centroid},
     properties:{rank:a.rank,top:a.rank<=2}})));
   // camps from contract (grouped, sited at access) → drawn as base camps
+  // A fixed camp is the hunter's own, so it is labelled as theirs rather than offered
+  // as "Camp A" — and the Setup draft pin for it is suppressed once a result exists
+  // (see setTab), so there is exactly ONE camp marker instead of the two the map used
+  // to show. The doc is the one drawn, not the draft, because a reopened plan always
+  // has DOC.camps while the Setup draft state may not have survived the round trip.
   const camps=fc(DOC.camps.map(c=>({type:'Feature',geometry:{type:'Point',coordinates:[c.site.lon,c.site.lat]},
-    properties:{id:c.id,label:'Camp '+c.id}})));
+    properties:{id:c.id,fixed:!!c.fixed,label:c.fixed?'Camp':('Camp '+c.id)}})));
   // vehicle staging = parking waypoints
   const staging=fc(DOC.waypoints.filter(w=>w.type==='parking').map(w=>({type:'Feature',
     geometry:{type:'Point',coordinates:[w.lon,w.lat]},properties:{}})));
@@ -3207,6 +3212,12 @@ function setTab(name){
   // cover the map or intercept zone clicks.
   const dv=(name==='setup')?'visible':'none';
   ['draft-fill','draft-line'].forEach(id=>map.getLayer&&map.getLayer(id)&&map.setLayoutProperty(id,'visibility',dv));
+  // The draft CAMP pin is the same camp the analysis already draws. Showing both put
+  // two camp icons on the map — and when the engine was inventing its own camp site,
+  // two icons in two DIFFERENT places, which reads as "here is your camp, and here is
+  // the one we recommend". Once a result exists the analysis owns the marker.
+  const cv=(name==='setup'||!hasResult())?'visible':'none';
+  if(map.getLayer&&map.getLayer('draft-camp')) map.setLayoutProperty('draft-camp','visibility',cv);
   curTab=name;
   // Field = the per-area field plan + DEEP re-analysis of the chosen area.
   if(name==='field'){
@@ -4061,7 +4072,10 @@ const IDENTIFY = [
   // order matters: points first, so a site beats the polygon under it
   {lyr:'sites',        row:p=>SITE_ROW[p.type], title:p=>SITE_LABEL[p.type]||p.type||'Hunt site',
                        sub:p=>p.when||''},
-  {lyr:'camps',        row:'camps2',   title:()=>'Base camp',  sub:p=>p.anchor?`${p.anchor} access`:''},
+  {lyr:'camps',        row:'camps2',
+                       title:p=>p.fixed?'Your camp':'Base camp',
+                       sub:p=>p.fixed?'you placed this — the plan is built around it'
+                                     :(p.anchor?`${p.anchor} access`:'')},
   {lyr:'staging',      row:'staging',  title:p=>p.is_camp?'Staging — and your camp':'Staging / parking',
                        sub:p=>p.walk_km!=null?`leave the truck here — ~${p.walk_km} km walk to the area`
                                              :'where you leave the truck'},

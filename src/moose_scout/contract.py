@@ -328,8 +328,40 @@ def _nearest(pt, pts):
     return min(pts, key=lambda q: _haversine_km(pt, q))
 
 
-def _group_camps(areas, cache, threshold_km=15.0):
-    """Cluster focus-area centroids into camps; site each at nearest road access."""
+def _group_camps(areas, cache, threshold_km=15.0, fixed=None):
+    """Cluster focus-area centroids into camps; site each at nearest road access.
+
+    `fixed`: (lat, lon) of a camp the HUNTER placed. When set there is nothing to
+    cluster and nothing to site — the answer was given to us.
+
+    THE BUG THIS GUARD EXISTS FOR. This is an INDEPENDENT camp-finder, and it knew
+    nothing about a fixed camp: it clustered the focus areas and dropped a camp on the
+    nearest road to their centroid. On a cabin hunt that put "Camp A" 630 m from the
+    cabin the hunter had just pointed at, so the map showed their camp AND a second
+    invented one beside it — after we had already stopped emitting a base_camp pin for
+    exactly this reason. Worse than the duplicate icon: `packin_km_by_area` was measured
+    from the invented site, so the pack-out distances in the brief were for a camp that
+    does not exist.
+
+    Three places used to work out where camp is — synth, routing and here. Two of them
+    are now told. This is the third.
+    """
+    if fixed:
+        members = [(a["properties"]["rank"],
+                    a["properties"]["centroid"][1], a["properties"]["centroid"][0])
+                   for a in areas]
+        packin = {m[0]: round(_haversine_km(fixed, (m[1], m[2])), 1) for m in members}
+        return [{
+            "id": "A",
+            "member_areas": sorted(m[0] for m in members),
+            "site": {"lat": round(fixed[0], 5), "lon": round(fixed[1], 5)},
+            "access_type": "yours",
+            # The client uses this to say "your camp" instead of "base camp", and to
+            # avoid drawing a recommendation pin on top of the hunter's own marker.
+            "fixed": True,
+            "packin_km_by_area": packin,
+            "max_packin_km": max(packin.values()) if packin else None,
+        }]
     cents = [(a["properties"]["rank"],
               a["properties"]["centroid"][1], a["properties"]["centroid"][0]) for a in areas]
     n = len(cents)
@@ -457,7 +489,8 @@ def build(ctx: Context) -> dict:
                  and f["properties"]["legend"] != "focus_area"]
     routes = [f for f in feats if f["geometry"]["type"] == "LineString"]
 
-    camps = _group_camps(areas, cache)
+    _fixed = getattr(ctx.aoi.hunter, "fixed_camp", None)
+    camps = _group_camps(areas, cache, fixed=(tuple(_fixed) if _fixed else None))
     area_to_camp = {a: c["id"] for c in camps for a in c["member_areas"]}
     camp_site = {c["id"]: (c["site"]["lat"], c["site"]["lon"]) for c in camps}
 
