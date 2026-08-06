@@ -67,29 +67,10 @@ focus_areas:
   # >= min_area_km2 of contiguous ground, and be one area-radius from the next. A
   # genuinely poor box legitimately returns FEW or ZERO areas and says so, instead of
   # dressing up its least-bad ground. However many clear the bar is the answer.
-  min_huntability: 0.21          # absolute floor on the SMOOTHED surface a focus area must
-                                 # clear (0..1). It stays ABSOLUTE — this is not a percentile
-                                 # in disguise — but the number encodes a SELECTIVITY, and
-                                 # selectivity is a property of the constant AND the surface
-                                 # it is applied to.
-                                 #
-                                 # RE-DERIVED FOR REV 21. The browse rebuild removed ground a
-                                 # satellite had been inflating, so the whole huntability
-                                 # surface shifted down and 0.26 — chosen against the old,
-                                 # inflated distribution — started cutting more than twice as
-                                 # deep as it was ever meant to. Measured on the same AOI at
-                                 # the same 40 m grid, rev20 vs rev21:
-                                 #     floor 0.26 admitted 3.03% of reachable ground (rev20)
-                                 #     floor 0.26 admitted 1.42%                     (rev21)
-                                 #     floor 0.21 admits   3.05%                     (rev21)
-                                 # 0.21 restores the selectivity 0.26 was chosen to express.
-                                 # The symptom was plans with ZERO focus areas — and so no
-                                 # stands and no routes — on ground that had three good areas
-                                 # under the previous revision.
-                                 #
-                                 # CALIBRATED ON ONE AOI, which is thin evidence for a
-                                 # physical constant. #63 (validation against real density
-                                 # data) is what should actually set this.
+  min_huntability: 0.26          # absolute floor on the SMOOTHED surface a focus area must
+                                 # clear (0..1). Calibrated to the smoothing below: good QC
+                                 # boreal clusters smooth to ~0.35-0.41, so 0.28 admits the
+                                 # top few % and a genuinely poor box returns 0 areas.
   min_area_km2: 3
   # A focus area is a chunk a party can actually WORK in the field (a drainage), not a
   # secteur — capped near ~18 km²; party size adds MORE areas, it doesn't inflate one.
