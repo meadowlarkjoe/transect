@@ -552,15 +552,31 @@ function init(){
   // One layer per browse contributor (#96). Outlined rather than filled: these sit ON
   // TOP of the composite, so a solid wash would just hide the thing it is explaining.
   // Colour runs hard-evidence -> guess, matching the precedence the engine uses.
-  const BSUB_COL={browse_cut_zones:'#6FA83A',browse_burn_zones:'#C4703A',
-                  browse_stand_zones:'#3F8F7A',browse_lc_zones:'#8A8F5C'};
-  Object.keys(BSUB_COL).forEach(k=>{
-    map.addSource(k,{type:'geojson',data:(S.browseSub&&S.browseSub[k])||fc([])});
-    map.addLayer({id:k,type:'fill',source:k,layout:{visibility:'none'},
-      paint:{'fill-color':BSUB_COL[k],'fill-opacity':0.22}});
-    map.addLayer({id:k+'-line',type:'line',source:k,layout:{visibility:'none'},
-      paint:{'line-color':BSUB_COL[k],'line-width':1.6,'line-opacity':0.95}});
-  });
+  // Written out one by one rather than built in a loop ON PURPOSE: the static gate
+  // test_toggled_layer_ids_exist scans for literal addLayer ids to prove no toggle is a
+  // no-op, and a computed id makes that check blind. A little repetition is cheaper than
+  // a gate that cannot see the thing it guards.
+  const _bsub=(k)=>({type:'geojson',data:(S.browseSub&&S.browseSub[k])||fc([])});
+  map.addSource('browse_cut_zones',_bsub('browse_cut_zones'));
+  map.addLayer({id:'browse_cut_zones',type:'fill',source:'browse_cut_zones',
+    layout:{visibility:'none'},paint:{'fill-color':'#6FA83A','fill-opacity':0.22}});
+  map.addLayer({id:'browse_cut_zones-line',type:'line',source:'browse_cut_zones',
+    layout:{visibility:'none'},paint:{'line-color':'#6FA83A','line-width':1.6,'line-opacity':0.95}});
+  map.addSource('browse_burn_zones',_bsub('browse_burn_zones'));
+  map.addLayer({id:'browse_burn_zones',type:'fill',source:'browse_burn_zones',
+    layout:{visibility:'none'},paint:{'fill-color':'#C4703A','fill-opacity':0.22}});
+  map.addLayer({id:'browse_burn_zones-line',type:'line',source:'browse_burn_zones',
+    layout:{visibility:'none'},paint:{'line-color':'#C4703A','line-width':1.6,'line-opacity':0.95}});
+  map.addSource('browse_stand_zones',_bsub('browse_stand_zones'));
+  map.addLayer({id:'browse_stand_zones',type:'fill',source:'browse_stand_zones',
+    layout:{visibility:'none'},paint:{'fill-color':'#3F8F7A','fill-opacity':0.22}});
+  map.addLayer({id:'browse_stand_zones-line',type:'line',source:'browse_stand_zones',
+    layout:{visibility:'none'},paint:{'line-color':'#3F8F7A','line-width':1.6,'line-opacity':0.95}});
+  map.addSource('browse_lc_zones',_bsub('browse_lc_zones'));
+  map.addLayer({id:'browse_lc_zones',type:'fill',source:'browse_lc_zones',
+    layout:{visibility:'none'},paint:{'fill-color':'#8A8F5C','fill-opacity':0.22}});
+  map.addLayer({id:'browse_lc_zones-line',type:'line',source:'browse_lc_zones',
+    layout:{visibility:'none'},paint:{'line-color':'#8A8F5C','line-width':1.6,'line-opacity':0.95}});
   // edge:'none' — stipple carries the identity; satellite-derived browse has no surveyed edge
   // TENURE — closed ground gets a hatched red wash + hard outline; bookable ground a
   // dashed amber outline only. This is the legal gate made visible.
