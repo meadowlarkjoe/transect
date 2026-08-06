@@ -2455,6 +2455,7 @@ function hav(a,b){const R=6371,dLat=(b[1]-a[1])*Math.PI/180,dLon=(b[0]-a[0])*Mat
 let draft={center: DOC.blank ? null : [DOC.meta.center.lon,DOC.meta.center.lat],
   radius:DOC.meta.radius_km||50,
   walkAccess:null, walkHunt:null, party:2, fixedCampMode:false, huntRadius:null,
+  windows:[],                      // EXTRA date windows beyond draft.dates (T9.2)
   siteMode:'find',                 // 'find' = model finds sites in a box · 'known' = hunter names up to 4 sites
   resM:null,                       // analysis-grid override (m); null = auto (sized to the area)
   sites:[],                        // known-site centres [[lon,lat],...] (max 4); sites[0] mirrors draft.center
@@ -2523,6 +2524,15 @@ function renderSetup(){
         <span>→</span>
         <input id="dateEnd" type="date" required value="${draft.dates[1]||''}" style="border:none;background:none"></div>
       <div class="s" style="margin-top:6px">${t('setup.datesnote','Drives rut timing, weather and behaviour. Peak breeding ≈ Oct 2 at this latitude — but bulls are most callable in the two weeks before it.')}</div>
+      <!-- EXTRA SEASONS (T9.2). Each one is a FULL analysis, so the cost is stated up
+           front rather than discovered on the progress bar. -->
+      ${draft.windows.map((w,i)=>`<div class="numrow" style="border:1px solid var(--line,#2a343a);border-radius:8px;padding:4px 8px;margin-top:8px">
+        <input data-win="${i}" data-end="0" type="date" value="${w[0]||''}" style="border:none;background:none">
+        <span>→</span>
+        <input data-win="${i}" data-end="1" type="date" value="${w[1]||''}" style="border:none;background:none">
+        <button data-delwin="${i}" class="btn btn--secondary btn--sm" title="${t('setup.removeWindow','Remove this season')}">×</button></div>`).join('')}
+      ${draft.windows.length<3?`<button id="winAdd" class="btn btn--secondary btn--block" style="margin-top:8px">${t('setup.winAdd','+ Compare another season (bow, muzzleloader…)')}</button>`:''}
+      ${draft.windows.length?`<div class="s" style="margin-top:6px">${t('setup.winNote','Each season is analysed separately — the model weights habitat differently before, during and after the rut, so the same ground scores differently. Expect the run to take about this many times longer.')}</div>`:''}
     </div>
 
     <!-- 02 HUNT STYLE — three cards with icons; distances follow from the choice. -->
@@ -2633,6 +2643,13 @@ function renderSetup(){
   const clearErr=()=>{const b=document.getElementById('setupErr'); if(b){b.className='';b.innerHTML='';}};
   document.getElementById('dateStart').onchange=e=>{if(e.target.value)draft.dates[0]=e.target.value;clearErr();};
   document.getElementById('dateEnd').onchange=e=>{if(e.target.value)draft.dates[1]=e.target.value;clearErr();};
+  const _wa=document.getElementById('winAdd');
+  if(_wa) _wa.onclick=()=>{ draft.windows.push(['','']); renderSetup(); };
+  el.querySelectorAll('input[data-win]').forEach(inp=>inp.onchange=e=>{
+    const i=+e.target.dataset.win, j=+e.target.dataset.end;
+    if(draft.windows[i]) draft.windows[i][j]=e.target.value; markDirtySoft(); });
+  el.querySelectorAll('button[data-delwin]').forEach(b=>b.onclick=e=>{
+    e.preventDefault(); draft.windows.splice(+b.dataset.delwin,1); renderSetup(); });
 
   // hunt style (3-way)
   const setHstyle=(h)=>{
@@ -2957,6 +2974,14 @@ function _runAnalysis(){
   const req={species:'moose',lat:draft.center[1],lon:draft.center[0],
     radius_km:Math.max(3,Math.min(120,draft.radius)),
     target_dates:(draft.dates&&draft.dates.length===2)?draft.dates:['2026-09-25','2026-10-05'],
+    // EXTRA SEASONS (T9.2). Each window is a full model run — the habitat surface is
+    // phase-weighted, so bow in September and rifle in October are different answers on
+    // the same ground, not the same answer relabelled. Sent only when the hunter added
+    // one, so an ordinary hunt is byte-for-byte the request it always was.
+    windows:(draft.windows&&draft.windows.length)
+      ? [ (draft.dates&&draft.dates.length===2)?draft.dates:['2026-09-25','2026-10-05'] ]
+        .concat(draft.windows.filter(w=>w&&w.length===2))
+      : null,
     residency:'quebec_resident',
     // Setup constraints now shape the analysis (no-boat river barriers, walk range, rut-phase weighting)
     // A cabin hunt runs on spike semantics engine-side — you sleep out, just in a building.
@@ -3230,6 +3255,37 @@ function briefSection(sec, numbered){
   if(sec.note) h+=`<p class="s" style="opacity:.82"><i>${briefMD(sec.note)}</i></p>`;
   return h;
 }
+/* SEASON COMPARISON (T9.2). Each window was a full model run — the habitat surface is
+   phase-weighted, so the same ground genuinely scores differently in September and
+   October. This is the pros/cons the hunter asked for, and the honest framing is that
+   they are different HUNTS, not one hunt on two dates. */
+function windowCompareBlock(){
+  const W=DOC.windows||[]; if(W.length<2) return '';
+  const best=W.reduce((a,b)=>((b.best_habitat||0)>(a.best_habitat||0)?b:a), W[0]);
+  const rows=W.map(w=>{
+    if(!w.ok) return `<div style="padding:8px 0;border-top:1px solid var(--line,rgba(255,255,255,.08))">
+      <div class="row" style="justify-content:space-between">
+        <span class="mono t-micro">${escHtml(w.start)} → ${escHtml(w.end)}</span>
+        <span class="t-micro" style="color:var(--danger)">could not be analysed</span></div></div>`;
+    const win = w.window===best.window && W.filter(x=>x.ok).length>1;
+    return `<div style="padding:8px 0;border-top:1px solid var(--line,rgba(255,255,255,.08))">
+      <div class="row" style="justify-content:space-between">
+        <span class="mono t-micro">${escHtml(w.start)} → ${escHtml(w.end)}${w.phase?' · '+escHtml(w.phase):''}</span>
+        <span class="t-micro"${win?' style="color:var(--good)"':''}>${w.areas} area${w.areas===1?'':'s'} · ${w.total_km2} km² · habitat ${w.best_habitat}${win?' · best':''}</span></div>
+      ${w.rut_read?`<div class="s" style="margin-top:4px">${w.rut_read}</div>`:''}
+      ${!w.areas?`<div class="s" style="margin-top:4px;color:var(--text-3)">No ground cleared the bar in this window — the phase weighting moves the model off this cover.</div>`:''}
+    </div>`;
+  }).join('');
+  return `<div class="sec">
+    <div class="kicker">Seasons compared</div>
+    <h2 style="margin:2px 0 8px">Which window is worth taking?</h2>
+    <p class="s">Each of these was analysed on its own. The model weights habitat
+    differently before, during and after the rut, so the same ground is not the same
+    hunt in September and October — the areas below are ranked across all of them.</p>
+    ${rows}
+  </div>`;
+}
+
 /* THE CAMP VERDICT + THE ROTATION (T9.3).
    Rendered from doc.camp_plan, which the engine only emits for a fixed camp — so this
    returns nothing for every other hunt style and no caller has to special-case it. */
@@ -3303,6 +3359,7 @@ function renderBrief(){
   // hunter drill into any one piece of ground, but for a fixed camp the brief LEADS with
   // the camp, because the areas around it are complements they will hunt across a week,
   // not candidates competing for it.
+  h+=windowCompareBlock();
   h+=campPlanBlock();
   // ---- the plan this brief is written for ----
   h+=`<div class="kicker">Field brief · Zone ${g2.zone||'?'} · ${(g2.huntable_tenures||['—'])[0]} · ${g2.diy_possible?'DIY':'restricted'}</div>

@@ -225,6 +225,10 @@
       /* The engine ANSWERED and refused. A different fact from unreachable, and
          the one the hunter can actually report. */
       /* camp hunts: one camp, nothing to go and find */
+      /* T9.2 — extra seasons compared */
+      'setup.winAdd': '+ Compare another season (bow, muzzleloader…)',
+      'setup.removeWindow': 'Remove this season',
+      'setup.winNote': 'Each season is analysed separately — the model weights habitat differently before, during and after the rut, so the same ground scores differently. Expect the run to take about this many times longer.',
       'setup.sCampWhere': 'Camp location',
       'setup.campPh': "Search a place or paste your camp's lat, lon",
       'setup.campNote': 'Where you sleep. Everything is measured from here — the analysis covers what you can reach and hunt from this one point.',
@@ -441,6 +445,9 @@
       'dlg.restartBody': 'Votre configuration a survécu, pas le calcul. Appuyez sur LANCER L’ANALYSE pour recommencer.',
       'dlg.offlineTitle': 'Le moteur ne répond pas',
       'dlg.offlineBody': 'Rien n’a été perdu — votre configuration est intacte. LANCER L’ANALYSE exige que le moteur soit en ligne ; réessayez dans un instant.',
+      'setup.winAdd': '+ Comparer une autre saison (arc, poudre noire…)',
+      'setup.removeWindow': 'Retirer cette saison',
+      'setup.winNote': 'Chaque saison est analysée séparément — le modèle pondère l’habitat différemment avant, pendant et après le rut, donc le même terrain n’obtient pas le même score. Prévoyez un calcul d’autant plus long.',
       'setup.sCampWhere': 'Emplacement du camp',
       'setup.campPh': 'Cherchez un lieu ou collez la latitude, longitude de votre camp',
       'setup.campNote': 'Où vous dormez. Tout est mesuré à partir d’ici — l’analyse couvre ce que vous pouvez atteindre et chasser depuis ce seul point.',

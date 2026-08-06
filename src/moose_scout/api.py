@@ -162,6 +162,10 @@ class ScoutReq(BaseModel):
     # Known-sites mode: up to 4 [lat, lon] centres the hunter already has in mind,
     # compared against each other. sites[0] is the AOI centre.
     sites: list[list[float]] | None = None
+    # Multiple DATE WINDOWS compared (T9.2) — e.g. bow season and rifle season. Each is a
+    # separate model run, not a relabelling: the habitat surface is phase-weighted, so the
+    # same ground scores differently in September and October. None = use target_dates.
+    windows: list[list[str]] | None = None
     # Nullable on purpose. A pydantic default only fills a MISSING key — an explicit
     # null is a validation error, and the client legitimately holds "not stated yet"
     # for these two. Rejecting the whole run over an unset walk distance, when we have

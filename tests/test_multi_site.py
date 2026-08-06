@@ -53,7 +53,7 @@ def test_the_worker_actually_loops_over_them():
     import inspect
     src = inspect.getsource(worker.run)
     assert "sites_of(req)" in src, "run() no longer asks which sites to analyse"
-    assert "for si, (slat, slon) in enumerate(sites" in src, "run() no longer loops sites"
+    assert "for pi, pl in enumerate(plans" in src, "run() no longer loops plans"
     assert "_merge(" in src, "per-site results are not being merged"
 
 
@@ -63,10 +63,18 @@ def test_each_site_gets_its_own_cache():
     failure."""
     import inspect
     src = inspect.getsource(worker.run)
-    assert 'f"{name}_s{si}"' in src, "sites are not given separate cache identities"
+    assert '_s{pl[' in src, "plans are not given separate cache identities"
 
 
 # ------------------------------------------------------------------------ the merge
+
+
+def _plans(*coords, windows=None):
+    """Build the plan list _merge expects: one entry per (site, window)."""
+    windows = windows or [["2026-10-10", "2026-10-25"]]
+    return [{"site": si, "lat": c[0], "lon": c[1], "window": wi, "dates": list(w)}
+            for si, c in enumerate(coords, start=1)
+            for wi, w in enumerate(windows, start=1)]
 
 
 def _doc(areas, extra=None):
@@ -82,7 +90,7 @@ def test_a_single_site_merge_is_the_document_itself():
     """One site must be byte-for-byte what it always was — no `sites` block, no site
     tags, nothing for the client to newly understand."""
     d = _doc([{"rank": 1, "area_km2": 5.0, "habitat_score": 0.4}])
-    out = worker._merge([d], [(1.0, 1.0)])
+    out = worker._merge([d], _plans((1.0, 1.0)))
     assert out == d
     assert "sites" not in out
 
@@ -91,7 +99,7 @@ def test_areas_from_every_site_survive_and_are_ranked_together():
     a = _doc([{"rank": 1, "area_km2": 4.0, "habitat_score": 0.30},     # 1.20
               {"rank": 2, "area_km2": 2.0, "habitat_score": 0.20}])    # 0.40
     b = _doc([{"rank": 1, "area_km2": 6.0, "habitat_score": 0.50}])    # 3.00  <- best
-    out = worker._merge([a, b], [(1.0, 1.0), (2.0, 2.0)])
+    out = worker._merge([a, b], _plans((1.0, 1.0), (2.0, 2.0)))
     assert len(out["areas"]) == 3, "an area was dropped — this is the original bug"
     assert [x["rank"] for x in out["areas"]] == [1, 2, 3]
     top = out["areas"][0]
@@ -105,7 +113,7 @@ def test_every_area_says_which_site_it_belongs_to():
     """An area, a stand and a route on different ground must never read as one plan."""
     a = _doc([{"rank": 1, "area_km2": 1.0, "habitat_score": 0.1}])
     b = _doc([{"rank": 1, "area_km2": 1.0, "habitat_score": 0.2}])
-    out = worker._merge([a, b], [(1.0, 1.0), (2.0, 2.0)])
+    out = worker._merge([a, b], _plans((1.0, 1.0), (2.0, 2.0)))
     assert {x["site"] for x in out["areas"]} == {1, 2}
 
 
@@ -113,7 +121,7 @@ def test_the_summary_says_how_the_sites_compare():
     """The actual question a hunter asks by entering four coordinates."""
     a = _doc([{"rank": 1, "area_km2": 4.0, "habitat_score": 0.30}])
     b = _doc([{"rank": 1, "area_km2": 6.0, "habitat_score": 0.50}])
-    out = worker._merge([a, b], [(47.8, -77.8), (47.9, -77.1)])
+    out = worker._merge([a, b], _plans((47.8, -77.8), (47.9, -77.1)))
     s = {x["site"]: x for x in out["sites"]}
     assert s[1]["lat"] == 47.8 and s[2]["lat"] == 47.9
     assert s[2]["best_habitat"] == 0.5
@@ -126,7 +134,7 @@ def test_a_site_that_produced_nothing_is_reported_not_hidden():
     original bug read to a hunter."""
     a = _doc([{"rank": 1, "area_km2": 4.0, "habitat_score": 0.30}])
     b = _doc([])
-    out = worker._merge([a, b], [(1.0, 1.0), (2.0, 2.0)])
+    out = worker._merge([a, b], _plans((1.0, 1.0), (2.0, 2.0)))
     s = {x["site"]: x for x in out["sites"]}
     assert s[2]["ok"] is True and s[2]["areas"] == 0
     assert len(out["sites"]) == 2
@@ -135,7 +143,7 @@ def test_a_site_that_produced_nothing_is_reported_not_hidden():
 def test_a_site_that_FAILED_is_flagged_and_the_others_still_return():
     """One bad site must not cost the hunter the other three."""
     a = _doc([{"rank": 1, "area_km2": 4.0, "habitat_score": 0.30}])
-    out = worker._merge([a, None], [(1.0, 1.0), (2.0, 2.0)])
+    out = worker._merge([a, None], _plans((1.0, 1.0), (2.0, 2.0)))
     s = {x["site"]: x for x in out["sites"]}
     assert s[2]["ok"] is False and "could not be analysed" in s[2]["note"]
     assert len(out["areas"]) == 1
@@ -148,7 +156,7 @@ def test_the_shared_scaffolding_comes_from_one_site_not_a_blend():
              {"legal": {"zone": "13"}, "methodology": {"x": 1}})
     b = _doc([{"rank": 1, "area_km2": 9.0, "habitat_score": 0.9}],
              {"legal": {"zone": "27"}, "methodology": {"x": 2}})
-    out = worker._merge([a, b], [(1.0, 1.0), (2.0, 2.0)])
+    out = worker._merge([a, b], _plans((1.0, 1.0), (2.0, 2.0)))
     assert out["legal"]["zone"] == "13", "legal came from somewhere other than site 1"
     assert out["methodology"]["x"] == 1
 
@@ -156,7 +164,7 @@ def test_the_shared_scaffolding_comes_from_one_site_not_a_blend():
 def test_map_layers_from_all_sites_are_carried():
     a = _doc([], {"browse_zones": [{"ll": [[0, 0]], "area_km2": 1}]})
     b = _doc([], {"browse_zones": [{"ll": [[1, 1]], "area_km2": 2}]})
-    out = worker._merge([a, b], [(1.0, 1.0), (2.0, 2.0)])
+    out = worker._merge([a, b], _plans((1.0, 1.0), (2.0, 2.0)))
     assert len(out["browse_zones"]) == 2
     assert {z["site"] for z in out["browse_zones"]} == {1, 2}
 
@@ -172,7 +180,7 @@ def test_camp_ids_do_not_collide_across_sites():
              {"camps": [{"id": "A", "site": {"lat": 1, "lon": 1}}]})
     b = _doc([{"rank": 1, "area_km2": 9.0, "habitat_score": 0.9, "camp": "A"}],
              {"camps": [{"id": "A", "site": {"lat": 2, "lon": 2}}]})
-    out = worker._merge([a, b], [(1.0, 1.0), (2.0, 2.0)])
+    out = worker._merge([a, b], _plans((1.0, 1.0), (2.0, 2.0)))
     ids = [c["id"] for c in out["camps"]]
     assert len(set(ids)) == 2, f"camp ids collided: {ids}"
     # every area must point at a camp that exists, and at ITS OWN site's camp

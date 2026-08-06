@@ -58,6 +58,34 @@ def sites_of(req: dict):
     return out
 
 
+def windows_of(req: dict):
+    """The date windows this request wants analysed, as [[start, end], ...].
+
+    A WINDOW IS A SEPARATE MODEL RUN, not a different label on one. The habitat surface
+    is phase-weighted (habitat_phase.tif — cow-weighted at peak rut, feed-weighted after
+    it), and behavior, synth and the contract all read the dates too. So mid-September
+    bow season and late-October rifle produce genuinely different huntability, different
+    site mixes and different stands on the same ground. Rendering one run's answer under
+    two date headings would be a lie that looks like a feature.
+
+    Unlike SITES, windows share their geography — so the geography cache (#79) makes the
+    acquire stage of the second window nearly free, and the real cost is the compute
+    stages only.
+    """
+    raw = req.get("windows") or []
+    out = []
+    for w in raw[:4]:
+        try:
+            a, b = str(w[0]), str(w[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if a and b:
+            out.append([a, b])
+    if not out:
+        out = [list(req.get("target_dates") or ["2026-09-25", "2026-10-05"])]
+    return out
+
+
 def build_ctx(name: str, req: dict):
     """Rebuild the analysis Context from the stored request. Mirrors what the API used
     to do inline; kept here so the worker depends on the STORE, not on the API.
@@ -116,18 +144,22 @@ def build_ctx(name: str, req: dict):
     return Context(aoi=aoi, species=load_species(species), model=model), res
 
 
-def _merge(docs, sites):
-    """Fold per-site contracts into ONE plan the app can draw.
+def _merge(docs, plans):
+    """Fold per-PLAN contracts into ONE document the app can draw.
 
-    Areas keep their own site's identity and are re-ranked ACROSS sites by expected
-    encounter (area x mean huntability) — the same ordering a single-site run uses, so
-    "rank 1" means the same thing whether the hunter compared one camp or four. Every
-    feature carries `site`, because an area, a stand and a route belonging to different
-    ground must never be readable as one plan.
+    A "plan" is one (site, window) pair — the unit that actually gets computed. Sites
+    vary the ground; windows vary the dates, and because the habitat surface is
+    phase-weighted a window is a genuinely different model run rather than a relabelling.
 
-    Site 1's contract supplies the shared scaffolding (legal gate, methodology, legend,
-    region, coverage). It is the AOI centre and the one the request was built around;
-    merging legal verdicts across sites would be inventing a claim nobody computed.
+    Areas keep their plan's identity and are re-ranked ACROSS all of them by expected
+    encounter (area x mean huntability) — the same ordering a single run uses internally,
+    so "rank 1" means the same thing however many places and seasons were compared. Every
+    feature carries `site` and `window`, because an area, a stand and a route belonging to
+    different ground or different weeks must never be readable as one plan.
+
+    Plan 1's contract supplies the shared scaffolding (legal gate, methodology, legend,
+    region, coverage). Merging legal verdicts across places would invent a claim nobody
+    computed.
     """
     base = None
     for d in docs:
@@ -149,22 +181,22 @@ def _merge(docs, sites):
 
     ranked = []
     letters = iter("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-    for i, d in enumerate(docs, start=1):
+    for d, pl in zip(docs, plans):
         if d is None:
             continue
-        # CAMP IDS COLLIDE ACROSS SITES. Each site's contract letters its own camps from
-        # A, so two sites both produce a "Camp A" — and the app finds an area's camp by
-        # matching that letter. Left alone, site 2's areas would attach to site 1's camp
-        # and the brief would send a hunter to the wrong cabin. Re-letter globally and
-        # carry the rename into the areas that reference it.
+        si, wi = pl["site"], pl["window"]
+        # CAMP IDS COLLIDE ACROSS PLANS. Each contract letters its own camps from A, and
+        # the app finds an area's camp by matching that letter. Left alone, a second
+        # plan's areas attach to the first plan's camp and the brief sends a hunter to
+        # the wrong cabin. Re-letter globally and carry the rename into the areas.
         remap = {}
         for c in (d.get("camps") or []):
             old = c.get("id")
-            new = next(letters, old)
-            remap[old] = new
-            base["camps"].append(dict(c, id=new, site=i))
+            new_id = next(letters, old)
+            remap[old] = new_id
+            base["camps"].append(dict(c, id=new_id, site=si, window=wi))
         for a in (d.get("areas") or []):
-            a = dict(a, site=i, site_rank=a.get("rank"))
+            a = dict(a, site=si, window=wi, site_rank=a.get("rank"))
             if a.get("camp") in remap:
                 a["camp"] = remap[a["camp"]]
             ranked.append(a)
@@ -173,37 +205,68 @@ def _merge(docs, sites):
                 continue
             for it in (d.get(k) or []):
                 if isinstance(it, dict):
-                    it = dict(it, site=i)
+                    it = dict(it, site=si, window=wi)
                 base[k].append(it)
 
-    # Rank across sites on the same measure a single site ranks on internally.
     ranked.sort(key=lambda a: (a.get("area_km2") or 0) * (a.get("habitat_score") or 0),
                 reverse=True)
     for n, a in enumerate(ranked, start=1):
         a["rank"] = n
     base["areas"] = ranked
 
-    # Per-site summary — what the hunter actually asked for when they entered four
-    # coordinates: how these places compare, and on what.
-    out_sites = []
-    for i, (d, (lat, lon)) in enumerate(zip(docs, sites), start=1):
-        if d is None:
-            out_sites.append({"site": i, "lat": lat, "lon": lon, "ok": False,
-                              "areas": 0, "note": "this site could not be analysed"})
-            continue
-        ar = d.get("areas") or []
-        best = max((a.get("habitat_score") or 0) for a in ar) if ar else 0.0
-        out_sites.append({
-            "site": i, "lat": lat, "lon": lon, "ok": True,
-            "areas": len(ar),
+    n_sites = len({p["site"] for p in plans})
+    n_wins = len({p["window"] for p in plans})
+
+    def _roll(sel):
+        """Summarise the subset of plans matching `sel`."""
+        idx = [i for i, p in enumerate(plans) if sel(p)]
+        ars = [a for a in ranked
+               if any(a.get("site") == plans[i]["site"] and a.get("window") == plans[i]["window"]
+                      for i in idx)]
+        ok = any(docs[i] is not None for i in idx)
+        best = max((a.get("habitat_score") or 0) for a in ars) if ars else 0.0
+        return {
+            "ok": ok, "areas": len(ars),
             "best_habitat": round(float(best), 3),
-            "total_km2": round(sum((a.get("area_km2") or 0) for a in ar), 1),
-            "best_rank_overall": min([a["rank"] for a in ranked if a.get("site") == i],
-                                     default=None),
-        })
-    base["sites"] = out_sites
-    base["meta"] = dict(base.get("meta") or {}, multi_site=True,
-                        site_count=len([d for d in docs if d is not None]))
+            "total_km2": round(sum((a.get("area_km2") or 0) for a in ars), 1),
+            "best_rank_overall": min([a["rank"] for a in ars], default=None),
+        }
+
+    if n_sites > 1:
+        seen, out_sites = set(), []
+        for pl in plans:
+            if pl["site"] in seen:
+                continue
+            seen.add(pl["site"])
+            r = _roll(lambda p, s=pl["site"]: p["site"] == s)
+            out_sites.append(dict(r, site=pl["site"], lat=pl["lat"], lon=pl["lon"],
+                                  note=None if r["ok"] else "this site could not be analysed"))
+        base["sites"] = out_sites
+
+    if n_wins > 1:
+        # PER-WINDOW COMPARISON — the thing a hunter is asking when they enter bow season
+        # AND rifle season: not "which dates are on the calendar" but "which of these
+        # weeks is worth taking off work, and what changes between them".
+        seen, out_wins = set(), []
+        for i, pl in enumerate(plans):
+            if pl["window"] in seen:
+                continue
+            seen.add(pl["window"])
+            r = _roll(lambda p, w=pl["window"]: p["window"] == w)
+            d = docs[i]
+            rut = (d or {}).get("rut") or {}
+            tg = rut.get("targets") or []
+            out_wins.append(dict(
+                r, window=pl["window"], start=pl["dates"][0], end=pl["dates"][1],
+                phase=(tg[0].get("phase") if tg else None),
+                rut_read=rut.get("hunt_read"),
+                note=None if r["ok"] else "this window could not be analysed"))
+        base["windows"] = out_wins
+
+    base["meta"] = dict(base.get("meta") or {},
+                        multi_site=n_sites > 1, site_count=n_sites,
+                        multi_window=n_wins > 1, window_count=n_wins,
+                        plan_count=len([d for d in docs if d is not None]))
     return base
 
 
@@ -217,44 +280,56 @@ def run(jid: str) -> int:
     from .config import cache_dir
     name = f"job_{jid}"
     sites = sites_of(req)
-    multi = len(sites) > 1
+    windows = windows_of(req)
+    # ONE RUN PER (SITE, WINDOW). Sites vary the ground and each needs its own acquire;
+    # windows share geography, so the geography cache (#79) makes their acquire nearly
+    # free and only the compute stages repeat.
+    plans = [{"site": si, "lat": lat, "lon": lon, "window": wi, "dates": list(w)}
+             for si, (lat, lon) in enumerate(sites, start=1)
+             for wi, w in enumerate(windows, start=1)]
+    multi = len(plans) > 1
     try:
-        jobstore.update(jid, pid=os.getpid(), site_count=len(sites))
+        jobstore.update(jid, pid=os.getpid(), site_count=len(sites),
+                        window_count=len(windows), plan_count=len(plans))
         done_stages = set(jobstore.read(jid).get("done_stages") or [])
         docs, res = [], None
 
-        for si, (slat, slon) in enumerate(sites, start=1):
-            # Each site is a SEPARATE analysis with its own cache: different geography,
-            # different rasters. Sharing one cache directory would have site 2 overwrite
-            # site 1's terrain and quietly report the wrong ground for both.
-            sub_req = dict(req, lat=slat, lon=slon)
-            sub_name = name if not multi else f"{name}_s{si}"
+        for pi, pl in enumerate(plans, start=1):
+            # Each plan is a SEPARATE analysis with its own cache. Different geography
+            # means different rasters; different DATES mean a different phase-weighted
+            # habitat surface. Sharing one cache directory would have the second plan
+            # overwrite the first and quietly report one answer under two headings.
+            sub_req = dict(req, lat=pl["lat"], lon=pl["lon"], target_dates=pl["dates"])
+            sub_name = name if not multi else f"{name}_s{pl['site']}w{pl['window']}"
             ctx, res = build_ctx(sub_name, sub_req)
-            if si == 1:
+            if pi == 1:
                 jobstore.update(jid, res_m=res)
 
             for i, stage in enumerate(STAGES):
                 if jobstore.cancelled(jid):
                     jobstore.update(jid, status="cancelled", stage="cancelled")
                     return 0
-                key = stage if not multi else f"s{si}:{stage}"
+                key = stage if not multi else f"p{pi}:{stage}"
                 if key in done_stages:
                     continue
-                # Progress spans all sites, so a 4-site run does not sit at 100% three
+                # Progress spans every plan, so a 4-plan run does not sit at 100% three
                 # times over.
-                frac = ((si - 1) * len(STAGES) + i) / (len(sites) * len(STAGES))
+                frac = ((pi - 1) * len(STAGES) + i) / (len(plans) * len(STAGES))
                 jobstore.update(jid, stage=stage, progress=round(frac, 2),
-                                site=si if multi else None)
+                                site=pl["site"] if multi else None,
+                                window=pl["window"] if len(windows) > 1 else None)
                 pipeline.run_stage(stage, ctx)
                 done_stages.add(key)
                 jobstore.update(jid, done_stages=sorted(done_stages))
 
             sub_out = outputs_dir(sub_name) / "transect.json"
             if not sub_out.exists():
-                raise RuntimeError(f"contract stage produced no transect.json for site {si}")
+                raise RuntimeError(
+                    f"contract stage produced no transect.json for site {pl['site']} "
+                    f"window {pl['window']}")
             docs.append(json.loads(sub_out.read_text()))
 
-        merged = _merge(docs, sites)
+        merged = _merge(docs, plans)
         out = outputs_dir(name) / "transect.json"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(merged))
@@ -264,7 +339,7 @@ def run(jid: str) -> int:
         # that now, or "Recalculate in my areas" 404s on every run this engine produces.
         st = jobstore.read(jid) or {}
         try:
-            (cache_dir(name if not multi else f"{name}_s1") / "job_meta.json").write_text(
+            (cache_dir(name if not multi else f"{name}_s1w1") / "job_meta.json").write_text(
                 json.dumps({"req": req, "uid": st.get("uid"), "res_m": res,
                             "at": time.time()}))
         except Exception as e:  # noqa: BLE001 — a finished analysis is not worth failing
@@ -273,7 +348,7 @@ def run(jid: str) -> int:
 
         jobstore.update(jid, status="done", stage="done", progress=1.0,
                         result=str(out), finished=time.time())
-        print(f"[worker] {jid} done ({len(sites)} site(s))")
+        print(f"[worker] {jid} done ({len(sites)} site(s) x {len(windows)} window(s))")
         return 0
     except Exception as e:  # noqa: BLE001
         jobstore.update(jid, status="error", error=str(e),
