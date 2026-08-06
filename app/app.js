@@ -991,6 +991,32 @@ function packout(a){
 // 'fallback' = outside the source's envelope, using a coarser substitute (expected,
 // info); 'missing' = declared in-coverage but nothing landed this run (degraded, warn).
 // A collapsed summary by default; the caveats expand. Empty (older contract) → nothing.
+/* SITE COMPARISON (T9.1). When a hunter enters more than one known site they are asking
+   one question — which of these places is worth my week — and until now the engine
+   answered it for the first one only and said nothing about the rest. This is the answer
+   made visible: every site, whether it produced anything, and where its best ground
+   ranks against the others. A site that returned NOTHING is shown, not omitted; that is
+   a finding about the ground, and hiding it is what the old bug did by accident. */
+function siteCompareBlock(){
+  const S=DOC.sites||[];
+  if(S.length<2) return '';
+  const rows=S.map(s=>{
+    const ll=`${s.lat.toFixed(4)}, ${s.lon.toFixed(4)}`;
+    if(!s.ok) return `<div class="row" style="justify-content:space-between;padding:5px 0">
+        <span class="mono t-micro">${s.site} · ${ll}</span>
+        <span class="t-micro" style="color:var(--danger)">could not be analysed</span></div>`;
+    if(!s.areas) return `<div class="row" style="justify-content:space-between;padding:5px 0">
+        <span class="mono t-micro">${s.site} · ${ll}</span>
+        <span class="t-micro" style="color:var(--text-3)">no ground cleared the bar</span></div>`;
+    return `<div class="row" style="justify-content:space-between;padding:5px 0">
+        <span class="mono t-micro">${s.site} · ${ll}</span>
+        <span class="t-micro">${s.areas} area${s.areas>1?'s':''} · ${s.total_km2} km² · habitat ${s.best_habitat}${s.best_rank_overall?` · best is #${s.best_rank_overall} overall`:''}</span></div>`;
+  }).join('');
+  return `<div class="sec"><div class="t-micro" style="margin-bottom:6px">SITES COMPARED</div>
+    ${rows}
+    <div class="s" style="margin-top:6px">Each site was analysed on its own ground and the
+    areas below are ranked across all of them.</div></div>`;
+}
 function coverageBlock(){
   const m=DOC.coverage_manifest||[];
   if(!m.length) return '';
@@ -1060,6 +1086,7 @@ function buildPanel(){
     + ((g.flags||[]).length?`<div class="callout" data-kind="warn"><span class="mark">!</span><div class="body"><b>${(g.flags||[]).length} thing${g.flags.length>1?'s':''} to confirm before you go</b>${(g.flags||[]).join('<br>')}</div></div>`:'')
     + (cf&&cf.caveats?`<div class="callout" data-kind="info"><span class="mark">i</span><div class="body">${[].concat(cf.caveats).join(' ')}</div></div>`:'')
     + (DOC.strategy&&DOC.strategy.density_per_10km2?`<div class="s" style="margin-top:8px">Density ≈ <b class="mono">${DOC.strategy.density_per_10km2}</b> moose/10 km² (${DOC.strategy.density_is_estimate?'estimate':'survey'}) — expect long silences; coverage beats sitting.</div>`:'')
+    + siteCompareBlock()
     + coverageBlock();
   const m=DOC.methodology;
   document.getElementById('method').innerHTML=
@@ -1106,7 +1133,8 @@ function areaCard(a){
     .map(e=>`<div class="ev" data-kind="${e.k}"><span class="op">${e.k==='pro'?'+':'!'}</span><span class="txt">${e.t}</span></div>`).join('');
   return `<div class="card ${far?'dim':''}" data-rank="${a.rank}">
     <div class="top"><div class="badge ${a.rank<=2?'top':''}">${a.rank}</div>
-      <div class="ttl">Area ${a.rank}</div><div class="val">${a.area_km2} km²</div></div>
+      <div class="ttl">Area ${a.rank}${a.site&&(DOC.sites||[]).length>1?` <span class="t-micro" style="opacity:.8">· site ${a.site}</span>`:''}</div>
+      <div class="val">${a.area_km2} km²</div></div>
     <div class="metaline">${a.conf?confGauge(a.conf.score)+`<span>conf ${Math.round(a.conf.score*100)}%</span>`:''}
       <span>${km(dr/1000)} to road</span></div>
     ${a.habitat_score!=null?`<div class="axes">
