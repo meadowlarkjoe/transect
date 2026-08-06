@@ -260,12 +260,31 @@ def _cut_zones(ctx, cache):
                 if gm.area / 1e6 >= 0.06:
                     polys.append(gm)
         polys.sort(key=lambda p: p.area, reverse=True)
+        from rasterio.features import geometry_mask
         for gm in polys[:14]:
+            # THE CUT HISTORY, PER POLYGON. The band ("prime regen") is a 15-year bucket;
+            # a hunter wants the actual years, because a 1998 cut and a 2012 cut are both
+            # "regen" and are not the same ground to walk. Carried on the feature so the
+            # identify card can say it without a second lookup.
+            yrs = None
+            try:
+                inside = ~geometry_mask([gm.__geo_interface__], out_shape=cy.shape,
+                                        transform=prof["transform"], invert=False)
+                vv = cy[inside & (cy > 0)]
+                if vv.size:
+                    yrs = {"first": int(vv.min()), "last": int(vv.max()),
+                           "median": int(np.median(vv)),
+                           "age_median": int(year - np.median(vv))}
+            except Exception:
+                pass
             gw = to_wgs(gm).simplify(0.0006)
             for pp in (gw.geoms if gw.geom_type == "MultiPolygon" else [gw]):
                 ring = [[round(x, 5), round(y, 5)] for x, y in pp.exterior.coords]
                 if len(ring) >= 4:
-                    out.append({"cls": name, "ll": ring, "area_km2": round(gm.area / 1e6, 1)})
+                    z = {"cls": name, "ll": ring, "area_km2": round(gm.area / 1e6, 1)}
+                    if yrs:
+                        z["years"] = yrs
+                    out.append(z)
     v = cy[cy > 0]
     meta = {"first_year": int(v.min()), "last_year": int(v.max()),
             "pct_of_aoi": round(float((cy > 0).mean()) * 100, 1)}

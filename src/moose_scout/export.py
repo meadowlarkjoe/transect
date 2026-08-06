@@ -80,21 +80,34 @@ _SECONDARY = {"tertiary", "unclassified", "residential"}
 _TRACKISH = {"track", "service"}
 
 
-def _road_class(highway, other_tags):
-    """Drivability class from the OSM highway tag, refined by surface/tracktype (#32):
-      artery — paved through-road (Route 389 and the like)
-      road   — secondary/local drivable road
-      track  — resource / logging road: gravel, often rough or seasonal
-    A drivable class is DOWNGRADED to 'track' when its surface reads unpaved. This is a
-    display + honesty aid; the drivable raster (roads.tif) is unchanged."""
-    hw = (highway or "").lower()
+def _is_unpaved(other_tags):
     ot = (other_tags or "").lower()
-    unpaved = any(s in ot for s in ("gravel", "dirt", "ground", "unpaved", "fine_gravel",
-                                    "compacted", "earth", "sand", "\"tracktype\""))
+    return any(s in ot for s in ("gravel", "dirt", "ground", "unpaved", "fine_gravel",
+                                 "compacted", "earth", "sand", "\"tracktype\""))
+
+
+def _road_class(highway, other_tags):
+    """The road's ROLE, from the OSM highway tag:
+      artery — through-road (Route 389 and the like)
+      road   — secondary/local drivable road
+      track  — resource / logging spur: narrow, often rough or seasonal
+
+    CLASS IS ROLE, NOT SURFACE, AND THE TWO SOURCES HAVE TO AGREE ON THAT.
+    This used to DOWNGRADE any unpaved road to 'track', which collapsed "gravel" into
+    "narrow spur". AQreseau+ never does that — it classifies by build standard, so a
+    CL1/CL2 haul road stays 'road' however much gravel is on it. The result was the same
+    physical logging road drawn SOLID where MRNF had mapped it and DASHED where OSM had,
+    which is the inconsistency a hunter sees on the map and cannot explain, because the
+    explanation is which agency happened to survey that kilometre.
+
+    The surface is still a real and useful fact, so it now travels as its own field
+    instead of being smuggled into the class where it contradicts the other source.
+    """
+    hw = (highway or "").lower()
     if hw in _ARTERY:
-        return "track" if unpaved else "artery"
+        return "artery"
     if hw in _SECONDARY:
-        return "track" if unpaved else "road"
+        return "road"
     if hw in _TRACKISH:
         return "track"
     return "road"
@@ -131,11 +144,15 @@ def _infra_lines(cache):
             for i, geom in enumerate(g.geometry):
                 if geom is None or geom.is_empty:
                     continue
+                unpaved = False
                 if has_cls:
                     cls = str(g["cls"].iloc[i] or t)   # AQréseau+ forest-road class
+                    # A forest road IS gravel; AQréseau+ says so by carrying a forest class.
+                    unpaved = bool(str(g["cls_chefor"].iloc[i]).strip()) if "cls_chefor" in g.columns else False
                 elif t == "road":
-                    cls = _road_class(g["highway"].iloc[i] if has_hw else None,
-                                      g["other_tags"].iloc[i] if has_ot else None)
+                    ot = g["other_tags"].iloc[i] if has_ot else None
+                    cls = _road_class(g["highway"].iloc[i] if has_hw else None, ot)
+                    unpaved = _is_unpaved(ot)
                 else:
                     cls = t
                 nm = g["name"].iloc[i] if has_nm else None
@@ -145,6 +162,8 @@ def _infra_lines(cache):
                     ll = [[round(x, 5), round(y, 5)] for x, y in part.coords]
                     if len(ll) >= 2:
                         rec = {"t": t, "cls": cls, "ll": ll}
+                        if unpaved:
+                            rec["unpaved"] = True
                         if nm:
                             rec["name"] = nm
                         out.append(rec)

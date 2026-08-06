@@ -357,6 +357,14 @@ input[type=range]:focus{box-shadow:none;border:0}
 .layer-row{display:grid;grid-template-columns:16px 32px 1fr auto;gap:10px;
   align-items:center;padding:7px 12px;cursor:pointer}
 .layer-row:hover{background:var(--surface-2)}
+/* A row with data-sub is PART OF the row above it, not a sibling — browse is a composite
+   and its inputs must look subordinate to it, or the panel reads as five unrelated green
+   layers. Indent plus a hairline spine, so the grouping survives when the parent scrolls
+   out of view. */
+.layer-row[data-sub]{padding-left:26px;position:relative}
+.layer-row[data-sub]::before{content:'';position:absolute;left:14px;top:0;bottom:0;
+  width:1px;background:rgba(255,255,255,.14)}
+.layer-row[data-sub] .name{font-size:11.5px;color:var(--text-2)}
 .layer-row .name{display:block;font:400 12px/1.2 var(--sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .layer-row .note{font:400 10px/1.35 var(--sans);color:var(--text-3);margin-top:2px;
   white-space:normal;overflow:visible}

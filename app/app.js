@@ -110,8 +110,11 @@ function patternTile(kind,hex){
   const [R,G,B]=rgb(hex);
   const col=(a)=>`rgba(${R},${G},${B},${a})`;
   if(kind==='stipple'){
-    c.fillStyle=col(.67);
-    [[3.5,3.5],[10.5,3.5],[3.5,10.5],[10.5,10.5]].forEach(([x,y])=>{c.beginPath();c.arc(x,y,1.4,0,7);c.fill();});
+    // Denser and stronger than it was: at r=1.4 / a=.67 the browse stipple all but
+    // vanished over a satellite basemap, which is the one layer a hunter most wants to
+    // read against the ground it describes.
+    c.fillStyle=col(.85);
+    [[3.5,3.5],[10.5,3.5],[3.5,10.5],[10.5,10.5],[7,7]].forEach(([x,y])=>{c.beginPath();c.arc(x,y,1.9,0,7);c.fill();});
   } else if(kind==='cross'){
     c.strokeStyle=col(.53);c.lineWidth=1.4;
     for(let o=-S;o<S*2;o+=6){c.beginPath();c.moveTo(o,0);c.lineTo(o+S,S);c.stroke();
@@ -517,10 +520,19 @@ function buildSources(){
   const burnZones=fc((DOC.burn_zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},
     properties:{cls:z.cls,area_km2:z.area_km2}})));
   const cutZones=fc((DOC.cut_zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},
-    properties:{cls:z.cls,area_km2:z.area_km2}})));
+    // The BAND is a 15-year bucket; the years are the thing a hunter actually wants —
+    // a 1998 cut and a 2012 cut are both "prime regen" and are not the same walk.
+    properties:{cls:z.cls,area_km2:z.area_km2,
+      yrFirst:(z.years&&z.years.first)||null, yrLast:(z.years&&z.years.last)||null,
+      yrMed:(z.years&&z.years.median)||null, ageMed:(z.years&&z.years.age_median)||null}})));
   const tenureZones=fc((DOC.tenure_zones||[]).map(t=>({type:'Feature',geometry:t.geometry,
     properties:{tenure:t.tenure,name:t.name,access:t.access,huntable:!!t.huntable}})));
-  const infra=fc((DOC.infra||[]).map(o=>({type:'Feature',geometry:{type:'LineString',coordinates:o.ll},properties:{t:o.t,cls:o.cls||o.t,name:o.name||''}})));
+  // `unpaved` is carried SEPARATELY from `cls` on purpose: class is the road's role
+  // (artery / road / track) and both data sources now agree on that, while surface is
+  // its own fact. Folding surface into the class is what made the same gravel logging
+  // road draw solid where MRNF mapped it and dashed where OSM did.
+  const infra=fc((DOC.infra||[]).map(o=>({type:'Feature',geometry:{type:'LineString',coordinates:o.ll},
+    properties:{t:o.t,cls:o.cls||o.t,name:o.name||'',unpaved:!!o.unpaved}})));
   const wetlandZones=zFC(DOC.wetland_zones);
   const beaverPonds=fc((DOC.beaver_ponds||[]).map(p=>({type:'Feature',geometry:{type:'Point',coordinates:p.ll},properties:{}})));
   return {browseSub,areas,areaLabels,camps,staging,packin,routes,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones,feedEdgeZones,burnZones,cutZones,wetlandZones,beaverPonds,tenureZones,infra};
@@ -569,24 +581,24 @@ function init(){
   const _bsub=(k)=>({type:'geojson',data:(S.browseSub&&S.browseSub[k])||fc([])});
   map.addSource('browse_cut_zones',_bsub('browse_cut_zones'));
   map.addLayer({id:'browse_cut_zones',type:'fill',source:'browse_cut_zones',
-    layout:{visibility:'none'},paint:{'fill-color':'#6FA83A','fill-opacity':0.22}});
+    layout:{visibility:'none'},paint:{'fill-pattern':'pat-browseCut','fill-opacity':0.95}});
   map.addLayer({id:'browse_cut_zones-line',type:'line',source:'browse_cut_zones',
-    layout:{visibility:'none'},paint:{'line-color':'#6FA83A','line-width':1.6,'line-opacity':0.95}});
+    layout:{visibility:'none'},paint:{'line-color':'#8FE04A','line-width':1.4,'line-opacity':0.9}});
   map.addSource('browse_burn_zones',_bsub('browse_burn_zones'));
   map.addLayer({id:'browse_burn_zones',type:'fill',source:'browse_burn_zones',
-    layout:{visibility:'none'},paint:{'fill-color':'#C4703A','fill-opacity':0.22}});
+    layout:{visibility:'none'},paint:{'fill-pattern':'pat-browseBurn','fill-opacity':0.95}});
   map.addLayer({id:'browse_burn_zones-line',type:'line',source:'browse_burn_zones',
-    layout:{visibility:'none'},paint:{'line-color':'#C4703A','line-width':1.6,'line-opacity':0.95}});
+    layout:{visibility:'none'},paint:{'line-color':'#5FBF57','line-width':1.4,'line-opacity':0.9}});
   map.addSource('browse_stand_zones',_bsub('browse_stand_zones'));
   map.addLayer({id:'browse_stand_zones',type:'fill',source:'browse_stand_zones',
-    layout:{visibility:'none'},paint:{'fill-color':'#3F8F7A','fill-opacity':0.22}});
+    layout:{visibility:'none'},paint:{'fill-pattern':'pat-browseStand','fill-opacity':0.95}});
   map.addLayer({id:'browse_stand_zones-line',type:'line',source:'browse_stand_zones',
-    layout:{visibility:'none'},paint:{'line-color':'#3F8F7A','line-width':1.6,'line-opacity':0.95}});
+    layout:{visibility:'none'},paint:{'line-color':'#3E9A63','line-width':1.4,'line-opacity':0.9}});
   map.addSource('browse_lc_zones',_bsub('browse_lc_zones'));
   map.addLayer({id:'browse_lc_zones',type:'fill',source:'browse_lc_zones',
-    layout:{visibility:'none'},paint:{'fill-color':'#8A8F5C','fill-opacity':0.22}});
+    layout:{visibility:'none'},paint:{'fill-pattern':'pat-browseLc','fill-opacity':0.95}});
   map.addLayer({id:'browse_lc_zones-line',type:'line',source:'browse_lc_zones',
-    layout:{visibility:'none'},paint:{'line-color':'#8A8F5C','line-width':1.6,'line-opacity':0.95}});
+    layout:{visibility:'none'},paint:{'line-color':'#9CA86B','line-width':1.4,'line-opacity':0.9}});
   // edge:'none' — stipple carries the identity; satellite-derived browse has no surveyed edge
   // TENURE — closed ground gets a hatched red wash + hard outline; bookable ground a
   // dashed amber outline only. This is the legal gate made visible.
@@ -771,10 +783,14 @@ function init(){
   map.addSource('scentArc',{type:'geojson',data:fc([])});
   map.addLayer({id:'scentArc',type:'line',source:'scentArc',minzoom:11,
     paint:{'line-color':'#9BD1C4','line-width':1.1,'line-dasharray':[1,2],'line-opacity':0.7}});
+  // SIZED TO BE FINDABLE. At 2.4-5.5 px these sat under site badges of 19-34 px and
+  // disappeared entirely beneath the shooter — which is the ONE icon they are always
+  // placed near, 25 m short of it by construction. Bigger, with a heavier halo so they
+  // read against a badge rather than dissolving into it.
   map.addLayer({id:'scent',type:'circle',source:'scent',minzoom:11,
-    paint:{'circle-radius':['interpolate',['linear'],['zoom'],11,2.4,15,5.5],
-      'circle-color':'#9BD1C4','circle-stroke-color':'#0b0f0d','circle-stroke-width':1,
-      'circle-opacity':0.95}});
+    paint:{'circle-radius':['interpolate',['linear'],['zoom'],11,4.5,15,9],
+      'circle-color':'#9BD1C4','circle-stroke-color':'#0b0f0d','circle-stroke-width':2,
+      'circle-opacity':0.98}});
   map.addLayer({id:'scent-label',type:'symbol',source:'scent',minzoom:13.2,
     filter:['==',['get','mid'],1],
     layout:{'text-field':'SCENT','text-size':10,'text-offset':[0,1.5],'text-font':['Open Sans Semibold'],'text-allow-overlap':true},
@@ -791,6 +807,11 @@ function init(){
       'circle-stroke-opacity':0.95}});
   map.addLayer({id:'sites',type:'symbol',source:'sites',
     layout:{'icon-image':['get','type'],'icon-size':SITE_SZ,'icon-allow-overlap':true}});
+  // ...and lifted ABOVE the site badges. Occlusion had to break one way or the other:
+  // a 9 px dot over a 30 px badge leaves the badge perfectly readable, while the badge
+  // over the dot erased it. The wick positions are the whole point of the scent layer —
+  // where the bull cuts cow scent BEFORE he reaches the shooter — so they win the overlap.
+  ['scentArc','scent','scent-label'].forEach(id=>{ if(map.getLayer(id)) map.moveLayer(id); });
   map.addLayer({id:'staging',type:'symbol',source:'staging',
     layout:{'icon-image':'parking','icon-size':['interpolate',['linear'],['zoom'],8,0.8,11,1.15,15,2],'icon-allow-overlap':true}});
   map.addLayer({id:'camps',type:'symbol',source:'camps',
@@ -1296,18 +1317,22 @@ const LAYERS=[
  // over one contributor's own raster, so switching off "satellite land cover" leaves
  // only ground backed by a surveyed, dated disturbance. A contributor with no data for
  // this AOI shows a count of 0 rather than disappearing: absent evidence is a fact.
- {k:'browseCut', group:'MODEL ZONES', sub:'browse', kind:'outline', edge:'solid',
-  name:'· from dated cuts', note:'Logging polygons with a cut year, aged through the browse curve — the hardest browse evidence there is.',
-  hex:'#6FA83A', on:false, lyr:'browseCut', count:()=>(DOC.browse_cut_zones||[]).length},
- {k:'browseBurn', group:'MODEL ZONES', sub:'browse', kind:'outline', edge:'solid',
-  name:'· from dated burns', note:'Mapped fire perimeters with a year. Peaks later than a cut — fire regenerates more slowly.',
-  hex:'#C4703A', on:false, lyr:'browseBurn', count:()=>(DOC.browse_burn_zones||[]).length},
- {k:'browseStand', group:'MODEL ZONES', sub:'browse', kind:'outline', edge:'solid',
-  name:'· from the stand map', note:'Surveyed stand species and canopy closure, but no date. Beats the satellite, loses to a dated disturbance.',
-  hex:'#3F8F7A', on:false, lyr:'browseStand', count:()=>(DOC.browse_stand_zones||[]).length},
- {k:'browseLc', group:'MODEL ZONES', sub:'browse', kind:'outline', edge:'solid',
-  name:'· from satellite land cover', note:'10 m land cover refined by greenness. Covers everywhere — and it is a guess everywhere it is used.',
-  hex:'#8A8F5C', on:false, lyr:'browseLc', count:()=>(DOC.browse_lc_zones||[]).length},
+ // GREEN RAMP, HARDEST EVIDENCE TO GUESS. They share the parent's stipple so they read
+ // as the same KIND of thing, differing only in shade — bright saturated green where a
+ // dated survey backs the ground, dull olive where it is a satellite's opinion. `sub`
+ // indents them under Browse / feeding: they are parts of it, not siblings of it.
+ {k:'browseCut', group:'MODEL ZONES', sub:'browse', kind:'stipple', edge:'none',
+  name:'from dated cuts', note:'Logging polygons with a cut year, aged through the browse curve — the hardest browse evidence there is.',
+  hex:'#8FE04A', on:false, lyr:'browseCut', count:()=>(DOC.browse_cut_zones||[]).length},
+ {k:'browseBurn', group:'MODEL ZONES', sub:'browse', kind:'stipple', edge:'none',
+  name:'from dated burns', note:'Mapped fire perimeters with a year. Peaks later than a cut — fire regenerates more slowly.',
+  hex:'#5FBF57', on:false, lyr:'browseBurn', count:()=>(DOC.browse_burn_zones||[]).length},
+ {k:'browseStand', group:'MODEL ZONES', sub:'browse', kind:'stipple', edge:'none',
+  name:'from the stand map', note:'Surveyed stand species and canopy closure, but no date. Beats the satellite, loses to a dated disturbance.',
+  hex:'#3E9A63', on:false, lyr:'browseStand', count:()=>(DOC.browse_stand_zones||[]).length},
+ {k:'browseLc', group:'MODEL ZONES', sub:'browse', kind:'stipple', edge:'none',
+  name:'from satellite land cover', note:'10 m land cover refined by greenness. Covers everywhere — and it is a guess everywhere it is used.',
+  hex:'#9CA86B', on:false, lyr:'browseLc', count:()=>(DOC.browse_lc_zones||[]).length},
  {k:'burns', group:'MODEL ZONES', kind:'hatch', edge:'solid', name:'Burn regeneration',
   note:'Fire perimeters by age — browse peaks 15–22 yr after a burn. Strongest single predictor here.',
   hex:'#C97A2B', icon:'flame', on:false, lyr:'burns', count:()=>(DOC.burn_zones||[]).length},
@@ -1523,7 +1548,7 @@ function buildLayersDock(){
         <input class="gop" type="range" min="10" max="100" value="${Math.round(groupOpacity[g]*100)}" data-g="${g}" title="Group opacity"></div>`;
     gr.forEach(({r,c})=>{
       const dis = c.state==='nodata' || c.state==='pending';
-      h+=`<label class="layer-row" data-k="${r.k}" data-state="${c.state}" data-edge="${r.edge}">
+      h+=`<label class="layer-row" data-k="${r.k}" data-state="${c.state}" data-edge="${r.edge}"${r.sub?` data-sub="${r.sub}"`:''}>
         <input type="checkbox" ${r.on&&!dis?'checked':''} ${dis?'disabled':''}>
         ${lpHTML(r)}
         <span class="lmeta"><span class="name">${r.name}</span>${showMeaning&&r.note?`<span class="note">${r.note}</span>`:''}</span>
@@ -4248,10 +4273,40 @@ const IDENTIFY = [
                                p.route?`On the ${p.route.replace('route_','')} leg.`:''
                               ].filter(Boolean).join(' ')},
   {lyr:'refugeZones',  row:'refuge',   title:()=>'Thermal refuge',   sub:p=>`${p.area_km2} km²`},
-  {lyr:'browseZones',  row:'browse',   title:()=>'Browse / feeding', sub:p=>`${p.area_km2} km²`},
-  {lyr:'burnZones',    row:'burns',    title:p=>`Burn regeneration · ${p.cls||''}`, sub:p=>`${p.area_km2} km²`},
+  // SPECIFIC BEFORE BLANKET. IDENTIFY takes the FIRST match under the cursor, so with
+  // browse listed first every hover on a cut reported "Browse / feeding, 140 km²" — the
+  // least informative true statement available. Browse is a composite covering most of
+  // the map; the layers that say WHY a piece of it scores have to be asked first.
   {lyr:'cutZones',     row:'cuts',     title:p=>({fresh:'Recent cut · fresh (<10 yr)',regen:'Recent cut · prime regen (10–25 yr)',closing:'Recent cut · closing in (26–40 yr)'}[p.cls]||'Logging cut'),
-                       sub:p=>`${p.area_km2} km² · logged ground, browse by age`},
+                       sub:p=>{
+                         const yr = (p.yrFirst&&p.yrLast)
+                           ? (p.yrFirst===p.yrLast ? `cut ${p.yrFirst}` : `cut ${p.yrFirst}–${p.yrLast}`)
+                           : '';
+                         const age = p.ageMed!=null ? `~${p.ageMed} yr old` : '';
+                         return [yr, age, `${p.area_km2} km²`].filter(Boolean).join(' · ');
+                       }},
+  {lyr:'burnZones',    row:'burns',    title:p=>`Burn regeneration · ${p.cls||''}`, sub:p=>`${p.area_km2} km²`},
+  {lyr:'browse_cut_zones',   row:'browseCut',   title:()=>'Browse — from dated cuts',
+                       sub:p=>`${p.area_km2} km² · scores ${p.score} on this source alone`},
+  {lyr:'browse_burn_zones',  row:'browseBurn',  title:()=>'Browse — from dated burns',
+                       sub:p=>`${p.area_km2} km² · scores ${p.score} on this source alone`},
+  {lyr:'browse_stand_zones', row:'browseStand', title:()=>'Browse — from the stand map',
+                       sub:p=>`${p.area_km2} km² · scores ${p.score} on this source alone`},
+  {lyr:'browse_lc_zones',    row:'browseLc',    title:()=>'Browse — from satellite land cover',
+                       sub:p=>`${p.area_km2} km² · scores ${p.score} on this source alone`},
+  // LAST of the browse family: the composite, which is what you get when nothing more
+  // specific is under the cursor. It leads with WHERE ITS ANSWER CAME FROM.
+  {lyr:'browseZones',  row:'browse',   title:()=>'Browse / feeding',
+                       sub:p=>{
+                         const bits=[];
+                         if(p.src) bits.push(`mostly the ${p.src}${p.srcShare!=null?` (${Math.round(p.srcShare*100)}%)`:''}`);
+                         if(p.agree!=null) bits.push(p.agree>=0.8?'sources agree'
+                                                    :p.agree>=0.5?'sources partly agree'
+                                                                 :'sources disagree here');
+                         if(p.score!=null) bits.push(`score ${p.score}`);
+                         bits.push(`${p.area_km2} km²`);
+                         return bits.join(' · ');
+                       }},
   {lyr:'funnelZones',  row:'funnel',   title:()=>'Funnel / pass',
                        // The NECK WIDTH is the claim this feature is making; area is not.
                        // "0.1 km²" is unfalsifiable — "a 180 m neck" is something you can
@@ -4273,8 +4328,12 @@ const IDENTIFY = [
   {lyr:'route-best',   row:'routes',   title:()=>'Hunt line',        sub:()=>'camp → stand, least-cost on foot'},
   {lyr:'route-hot',    row:'routes',   title:()=>'Midday line',      sub:()=>'camp → thermal refuge'},
   {lyr:'route-access', row:'access',   title:()=>'Access leg',       sub:()=>'staging point → this focus area'},
-  {lyr:'roads',        row:'roads',    title:p=>p.name||({artery:'Paved road',road:'Local road'}[p.cls]||'Road'),
-                       sub:p=>({artery:'Paved through-road',road:'Secondary drivable road'}[p.cls]||'Road')},
+  {lyr:'roads',        row:'roads',    title:p=>p.name||({artery:'Through road',road:'Local / forest road'}[p.cls]||'Road'),
+                       // Surface is reported rather than encoded in the line style — the
+                       // style says what the road is FOR, this says what it is made of.
+                       sub:p=>[({artery:'Through road',road:'Drivable road'}[p.cls]||'Road'),
+                               p.unpaved?'gravel / unpaved — scout the last spur on foot':'paved'
+                              ].filter(Boolean).join(' · ')},
   {lyr:'roads-track',  row:'roads',    title:p=>p.name||'Resource / logging track',
                        sub:()=>'Gravel two-track — may be rough or seasonal; scout before you trust it'},
   {lyr:'trails',       row:'trails',   title:p=>p.name||'Foot trail',
