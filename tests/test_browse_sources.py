@@ -85,18 +85,28 @@ def test_habitat_reads_the_config_rather_than_a_second_copy_of_it():
 # ------------------------------------------------------------------- the combine
 
 
-def _combine(sources, support_w=0.25):
+def _combine(sources):
     """The precedence combine, mirrored here so the ordering can be tested on scalars.
 
-    Kept deliberately small: this asserts the RULE (most precise source present wins,
-    the rest corroborate), which is the thing that changed.
+    The most precise source PRESENT decides the cell. Agreement among the others is
+    computed separately and reported; it does not move the number. An earlier version
+    blended 25% toward the mean of the other sources and that penalised the best
+    evidence — see test_corroboration_must_not_deflate_the_best_evidence.
     """
+    order = ["cut", "burn", "stand", "landcover"]
+    present = [n for n in order if n in sources]
+    return float(np.clip(sources[present[0]], 0, 1))
+
+
+def _agree(sources):
+    """1 = every source says the same thing, 0 = as far apart as they can be."""
     order = ["cut", "burn", "stand", "landcover"]
     present = [n for n in order if n in sources]
     base = sources[present[0]]
     others = [sources[n] for n in present[1:]]
-    support = sum(others) / len(others) if others else base
-    return float(np.clip(base * (1 - support_w) + support * support_w, 0, 1))
+    if not others:
+        return 0.5
+    return float(np.clip(1 - abs(base - sum(others) / len(others)), 0, 1))
 
 
 def test_a_surveyed_stand_can_LOWER_a_satellite_guess():
@@ -119,18 +129,39 @@ def test_a_dated_cut_outranks_both_stand_and_land_cover():
 
 def test_agreement_and_disagreement_are_distinguishable():
     """max() gave the same answer for 'one source says prime' and 'all four say prime'.
-    They are different evidence and must produce different numbers."""
-    unanimous = _combine({"cut": 0.9, "stand": 0.9, "landcover": 0.9})
-    lonely = _combine({"cut": 0.9, "stand": 0.1, "landcover": 0.1})
-    assert unanimous > lonely, "corroboration must count for something"
-    assert max(0.9, 0.9, 0.9) == max(0.9, 0.1, 0.1)   # under max() they were identical
+    They are different evidence, and the difference is now carried by the AGREEMENT
+    figure rather than by nudging the score — see the test below for why."""
+    unanimous = _agree({"cut": 0.9, "stand": 0.9, "landcover": 0.9})
+    lonely = _agree({"cut": 0.9, "stand": 0.1, "landcover": 0.1})
+    assert unanimous > lonely, "corroboration must be visible somewhere"
+    assert unanimous >= 0.95 and lonely <= 0.3
 
 
-def test_authority_still_dominates_its_corroborators():
-    """Corroboration adjusts; it does not vote the authoritative source down. A prime
-    dated cut surrounded by disagreement is still good ground."""
+def test_corroboration_must_not_deflate_the_best_evidence():
+    """THE REGRESSION THIS EXISTS FOR, and it reached the hunter.
+
+    Corroboration was folded INTO the score: 25% of the way toward the mean of the other
+    sources. So a prime dated cut at 1.00, sitting beside a land-cover guess of 0.45,
+    came out at 0.86. Across a real AOI the top of the scale deflated (p99 0.992 ->
+    0.864) and every downstream threshold — all of them calibrated in absolute physical
+    units, not percentiles — bit deeper than intended. The visible result was a plan with
+    ZERO focus areas on ground that had three good ones an hour earlier.
+
+    The authoritative source is the best evidence there is for that cell. Averaging it
+    toward weaker evidence discards information. Agreement describes CONFIDENCE and
+    belongs next to the number, not inside it.
+    """
+    prime_cut_with_weak_support = _combine({"cut": 1.0, "landcover": 0.45})
+    assert prime_cut_with_weak_support == pytest.approx(1.0), \
+        "the best evidence on the map is being marked down for being alone"
+    # ...and the disagreement is still reported, just not charged to the score.
+    assert _agree({"cut": 1.0, "landcover": 0.45}) < 0.6
+
+
+def test_authority_keeps_its_own_cell():
+    """A prime dated cut surrounded by disagreement is still a prime dated cut."""
     v = _combine({"cut": 1.0, "stand": 0.0, "landcover": 0.0})
-    assert v >= 0.7, f"the dated cut lost control of its own cell (got {v})"
+    assert v == pytest.approx(1.0), f"the dated cut lost control of its own cell (got {v})"
 
 
 def test_a_lone_source_is_returned_unchanged():

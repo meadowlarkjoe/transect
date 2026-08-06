@@ -323,8 +323,19 @@ def run(ctx: Context) -> None:
     # toward their own, and their agreement is recorded. Agreement is the thing max()
     # could never express — four sources saying "prime" is stronger evidence than one,
     # and a hunter deserves to be told which of the two they are looking at.
+    # CORROBORATION IS REPORTED, NOT BLENDED IN. It used to move the answer 25% of the
+    # way toward the mean of the other sources, and that quietly PENALISED THE BEST
+    # EVIDENCE: a prime dated cut scoring 1.0, corroborated by a land-cover guess of
+    # ~0.45, came out at 0.86. Measured across a real AOI the top of the scale deflated
+    # (p99 0.992 -> 0.864, p90 0.826 -> 0.779) and every absolute threshold downstream —
+    # which is calibrated in physical units, not percentiles — cut deeper into the
+    # distribution than it was meant to. The visible result was a plan with ZERO focus
+    # areas on ground that had three good ones an hour earlier.
+    #
+    # The authoritative source IS the best evidence available for that cell; averaging it
+    # toward weaker evidence throws information away. Agreement is a statement about
+    # CONFIDENCE and belongs beside the number, not inside it.
     ORDER = [("cut", 4), ("burn", 3), ("stand", 2), ("landcover", 1)]
-    SUPPORT_W = 0.25          # authority keeps 3/4 of the say; corroboration moves the rest
 
     present = [(nm, code) for nm, code in ORDER if nm in src]
     base = np.zeros(shape, "float32")
@@ -347,7 +358,7 @@ def run(ctx: Context) -> None:
         sup_n += other.astype("float32")
     support = np.where(sup_n > 0, sup_sum / np.maximum(sup_n, 1e-6), base).astype("float32")
 
-    browse = np.clip(base * (1.0 - SUPPORT_W) + support * SUPPORT_W, 0.0, 1.0).astype("float32")
+    browse = np.clip(base, 0.0, 1.0).astype("float32")
     # 1 = every source agrees, 0 = they are as far apart as they can be. This is what
     # lets the identify card say "four sources agree" or "the satellite disagrees with
     # the stand map here" instead of showing a bare number with no history.
