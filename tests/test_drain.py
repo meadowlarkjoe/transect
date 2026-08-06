@@ -25,17 +25,30 @@ def _clean(tmp_path, monkeypatch):
     api.DRAINING = False
 
 
-def test_active_jobs_counts_only_live_runs():
+def _as_worker(monkeypatch, jid):
+    """Declare that this pid IS the worker for `jid`.
+
+    alive() stopped accepting "some process holds that number" as proof, because a
+    recycled pid kept dead jobs running for ever and jammed deploy drains. A test that
+    means "a run is genuinely in flight" now has to say so.
+    """
+    monkeypatch.setattr(jobstore, "_cmdline",
+                        lambda pid: f"python\x00-m\x00moose_scout.worker\x00{jid}\x00")
+
+
+def test_active_jobs_counts_only_live_runs(monkeypatch):
     import os
     jobstore.create("a", {}, uid=None); jobstore.update("a", pid=os.getpid())
+    _as_worker(monkeypatch, "a")
     jobstore.create("b", {}, uid=None); jobstore.update("b", status="done")
     jobstore.create("c", {}, uid=None); jobstore.update("c", pid=999_999_999)
     assert api._active_jobs() == 1, "finished and dead jobs are not in flight"
 
 
-def test_health_reports_what_the_deploy_needs():
+def test_health_reports_what_the_deploy_needs(monkeypatch):
     import os
     jobstore.create("x", {}, uid=None); jobstore.update("x", pid=os.getpid())
+    _as_worker(monkeypatch, "x")
     h = api.health()
     assert h["active_jobs"] == 1
     assert h["draining"] is False
