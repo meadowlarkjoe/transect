@@ -3230,6 +3230,49 @@ function briefSection(sec, numbered){
   if(sec.note) h+=`<p class="s" style="opacity:.82"><i>${briefMD(sec.note)}</i></p>`;
   return h;
 }
+/* THE CAMP VERDICT + THE ROTATION (T9.3).
+   Rendered from doc.camp_plan, which the engine only emits for a fixed camp — so this
+   returns nothing for every other hunt style and no caller has to special-case it. */
+function campPlanBlock(){
+  const cp=DOC.camp_plan; if(!cp||cp.kind!=='camp') return '';
+  const v=cp.verdict||{};
+  if(!v.areas) return `<div class="sec"><div class="kicker">This camp</div>
+    <p class="s">${escHtml(v.line||'')}</p></div>`;
+  const rob=cp.robust||{};
+  const robRows=Object.keys(rob).sort((x,y)=>rob[y].octants-rob[x].octants).map(fa=>{
+    const r=rob[fa];
+    return `<div class="row" style="justify-content:space-between;padding:3px 0">
+      <span class="t-micro">Area ${fa}</span>
+      <span class="t-micro" style="color:${r.octants>=4?'var(--good)':r.octants>=2?'var(--text-2)':'var(--danger)'}">
+        works on ${r.octants}/8 winds · ${r.winds.join(' ')}</span></div>`;
+  }).join('');
+  const rot=(cp.rotation||[]).slice(0,14).map(d=>{
+    const pick = d.areas&&d.areas.length ? `Area ${d.areas.join(' or ')}`
+               : (d.second&&d.second.length ? `Area ${d.second[0]} (closest)` : '—');
+    return `<div class="row" style="justify-content:space-between;padding:4px 0;border-top:1px solid var(--line,rgba(255,255,255,.08))">
+      <span class="mono t-micro">${escHtml(d.date||'')} · ${escHtml(d.wind_from||'?')}${d.wind_kmh!=null?' '+Math.round(d.wind_kmh)+'k':''}${d.t_max_c!=null?' · '+Math.round(d.t_max_c)+'°':''}</span>
+      <span class="t-micro" style="text-align:right">${escHtml(pick)}${d.hot?' <span style="color:var(--warn,#e2c044)">· hot</span>':''}</span></div>`;
+  }).join('');
+  return `<div class="sec">
+    <div class="kicker">This camp</div>
+    <h2 style="margin:2px 0 8px">How good is hunting here?</h2>
+    <p class="s">${escHtml(v.line||'')}</p>
+    <div class="axes" style="margin:8px 0 10px">
+      <div class="ax"><span class="k">HABITAT</span><span class="bar"><i style="width:${Math.round((v.habitat||0)*100)}%"></i></span><span class="v">${v.habitat}</span></div>
+    </div>
+    ${v.packin_max_km!=null?`<div class="s">Pack-out from ${v.packin_min_km}–${v.packin_max_km} km, camp to area.</div>`:''}
+    ${(v.caveats||[]).map(c=>`<div class="ev" data-kind="con"><span class="op">!</span><span class="txt">${escHtml(c)}</span></div>`).join('')}
+    ${cp.rut_read?`<div class="callout" data-kind="info" style="margin-top:10px"><span class="mark">i</span><div class="body">${cp.rut_read}</div></div>`:''}
+    <div class="t-micro" style="margin-top:14px">WHICH AREA, WHICH DAY</div>
+    <p class="s">${escHtml(cp.how||'')}</p>
+    ${rot?`<div style="margin-top:6px">${rot}</div>`:'<p class="s">No forecast for these dates yet.</p>'}
+    ${robRows?`<div class="t-micro" style="margin-top:14px">WIND ROBUSTNESS</div>
+      <p class="s">How many of the eight wind directions each area can be hunted on — the
+      number that matters for a stand you build once and use for years.</p>
+      <div style="margin-top:4px">${robRows}</div>`:''}
+  </div>`;
+}
+
 /* ---------------- brief — scoped to the CHOSEN area ---------------- */
 function renderBrief(){
   const a=(DOC.areas||[]).find(x=>x.rank===lastSel)||(DOC.areas||[])[0];
@@ -3256,6 +3299,11 @@ function renderBrief(){
   const g2=DOC.legal||{};
   let h=`<div class="seg" style="margin-bottom:14px">`+
     DOC.areas.map(x=>`<button class="briefpick" data-rank="${x.rank}" ${x.rank===a.rank?'aria-pressed="true"':''}>Area ${x.rank}</button>`).join('')+`</div>`;
+  // T9.3 — A CAMP HUNT IS ASKED A DIFFERENT QUESTION. The area tabs above still let a
+  // hunter drill into any one piece of ground, but for a fixed camp the brief LEADS with
+  // the camp, because the areas around it are complements they will hunt across a week,
+  // not candidates competing for it.
+  h+=campPlanBlock();
   // ---- the plan this brief is written for ----
   h+=`<div class="kicker">Field brief · Zone ${g2.zone||'?'} · ${(g2.huntable_tenures||['—'])[0]} · ${g2.diy_possible?'DIY':'restricted'}</div>
     <h2>Your hunt — Area ${a.rank}</h2>

@@ -430,6 +430,151 @@ BROWSE_SUBLAYERS = [
 ]
 
 
+def _ang_diff(a, b):
+    """Smallest angle between two bearings, 0..180."""
+    return abs((float(a) - float(b) + 180.0) % 360.0 - 180.0)
+
+
+WIND_TOL_DEG = 45.0     # same tolerance the map uses to colour a stand's wind ring
+
+
+def camp_plan(ctx, areas, waypoints, weather, camps, rut):
+    """The brief a CABIN hunter actually needs (T9.3).
+
+    A find-sites hunt asks "which of these places should I go to", and ranking areas
+    against each other answers it. A hunt from a camp you already own asks something
+    else entirely: "how good is hunting THIS cabin, and which of the ground I can reach
+    should I hunt today". The areas around a camp are COMPLEMENTS, not competitors —
+    you will hunt all of them across a week — so ranking them against each other is
+    answering a question nobody asked.
+
+    Two parts, both joins over data the contract already has rather than new modelling:
+
+      VERDICT   — the camp as a whole: how much reachable ground cleared the bar, how
+                  good it is, how far you carry a bull out, and what is thin about it.
+      ROTATION  — which area suits each day, from the forecast wind against the stands'
+                  own optimal approach bearings. Plus how WIND-ROBUST each area is,
+                  which is the question that matters for a cabin you hunt every year:
+                  a stand that only works on a north wind is worth far less than one
+                  that works on four directions.
+
+    Returns None for a hunt with no fixed camp — this is not the brief for those.
+    """
+    if not getattr(ctx.aoi.hunter, "fixed_camp", None):
+        return None
+    if not areas:
+        return {"kind": "camp", "verdict": {
+            "areas": 0,
+            "line": "No ground within your stated walk from camp cleared the quality bar. "
+                    "That is a statement about this radius, not about the cabin — widen "
+                    "the walk or check the coverage notes before reading it as bad ground."}}
+
+    # ---- VERDICT: the camp, not a league table of its parts --------------------------
+    tot = sum(float(a.get("area_km2") or 0) for a in areas)
+    wsum = sum(float(a.get("area_km2") or 0) * float(a.get("habitat_score") or 0)
+               for a in areas)
+    hab = (wsum / tot) if tot else 0.0
+    packin = []
+    for c in (camps or []):
+        packin.extend((c.get("packin_km_by_area") or {}).values())
+    stands = [w for w in waypoints
+              if (w.get("properties") or {}).get("legend") in
+              ("rut_calling", "saline_blind", "glassing", "thermal_refuge")]
+
+    caveats = []
+    if hab < 0.30:
+        caveats.append("the habitat score across this ground is modest — it is honest, "
+                       "not a formality; expect to work for it")
+    if tot < 5:
+        caveats.append(f"only {tot:.1f} km² cleared the bar inside your walk, so the hunt "
+                       "is concentrated whether you like it or not")
+    if packin and max(packin) > 3:
+        caveats.append(f"the far area is a {max(packin):.1f} km carry with a bull down — "
+                       "plan the pack-out before you shoot, not after")
+
+    verdict = {
+        "areas": len(areas),
+        "total_km2": round(tot, 1),
+        "habitat": round(hab, 3),
+        "stands": len(stands),
+        "packin_min_km": round(min(packin), 1) if packin else None,
+        "packin_max_km": round(max(packin), 1) if packin else None,
+        "caveats": caveats,
+        "line": (f"From this camp you can work {tot:.1f} km² across "
+                 f"{len(areas)} area{'s' if len(areas) != 1 else ''}, "
+                 f"holding {len(stands)} stand{'s' if len(stands) != 1 else ''}, at a "
+                 f"mean habitat score of {hab:.2f}."),
+    }
+
+    # ---- WIND ROBUSTNESS: which ground works on how many winds -----------------------
+    # Sampled over the 8 compass octants rather than over the forecast, because a blind
+    # you build has to earn its place across seasons, not across one week's weather.
+    by_area = {}
+    for w in stands:
+        p = w.get("properties") or {}
+        fa = p.get("focus_area")
+        ow = (p.get("optimal_wind") or {}).get("from_deg")
+        if fa is not None and ow is not None:
+            by_area.setdefault(fa, []).append(float(ow))
+    octants = [i * 45.0 for i in range(8)]
+    robust = {}
+    for fa, bearings in by_area.items():
+        works = [o for o in octants
+                 if any(_ang_diff(b, o) <= WIND_TOL_DEG for b in bearings)]
+        robust[fa] = {"octants": len(works),
+                      "winds": [windmod.compass(o) for o in works]}
+
+    # ---- ROTATION: which area on which day -------------------------------------------
+    rotation = []
+    hot_c = 15.0
+    try:
+        hot_c = float((ctx.model.weather or {}).get("midday_hot_threshold_c", 15.0))
+    except Exception:
+        pass
+    for day in (weather or {}).get("days", []) or []:
+        wd = day.get("wind_from_deg")
+        if wd is None:
+            continue
+        fits = []
+        for fa, bearings in by_area.items():
+            best = min((_ang_diff(b, wd) for b in bearings), default=None)
+            if best is not None:
+                fits.append((best, fa))
+        fits.sort()
+        ok = [fa for d, fa in fits if d <= WIND_TOL_DEG]
+        hot = (day.get("t_max_c") is not None and float(day["t_max_c"]) >= hot_c)
+        wet = (day.get("precip_mm") or 0) >= 5
+        if ok:
+            why = (f"wind {day.get('wind_from_compass') or round(wd)}° suits "
+                   f"area {ok[0]}")
+        elif fits:
+            why = (f"no area is wind-right on a {day.get('wind_from_compass') or round(wd)} "
+                   f"wind — area {fits[0][1]} is the closest; still-hunt it into the wind "
+                   f"rather than calling from the stand")
+        else:
+            why = "no stand has an approach bearing on this ground"
+        rotation.append({
+            "date": day.get("date"),
+            "wind_from": day.get("wind_from_compass"),
+            "wind_kmh": day.get("wind_kmh"),
+            "t_max_c": day.get("t_max_c"),
+            "areas": ok,
+            "second": [fa for d, fa in fits if d > WIND_TOL_DEG][:1],
+            "note": why,
+            "hot": bool(hot),
+            "wet": bool(wet),
+            "hot_note": ("warm for the date — hunt the thermal refuge midday and keep the "
+                         "sits to first and last light") if hot else None,
+        })
+
+    return {"kind": "camp", "verdict": verdict,
+            "robust": robust, "rotation": rotation,
+            "rut_read": (rut or {}).get("hunt_read"),
+            "how": ("These areas are not competing for your week — you will hunt all of "
+                    "them. Pick by the wind on the day, and keep the ones that work on "
+                    "the most directions for the days the forecast lets you down.")}
+
+
 def _haversine_km(a, b):
     (lat1, lon1), (lat2, lon2) = a, b
     R = 6371.0
@@ -805,6 +950,14 @@ def build(ctx: Context) -> dict:
     # Field-plan sections (#67): calling script, ordered day plan, ground-truth checklist.
     # Structured (same producers that render brief.md) so the app's Brief tab shows them
     # instead of only the markdown export carrying them. Grounded in phase + area count.
+    # T9.3 — a camp hunt gets a brief about the CAMP, not a league table of its parts.
+    # None for every other hunt style, so nothing downstream has to special-case it.
+    try:
+        doc["camp_plan"] = camp_plan(ctx, area_out, wp_out, wthr, camps, doc.get("rut"))
+    except Exception as e:  # noqa: BLE001 — a brief section is not worth failing a run
+        print(f"[contract] camp_plan skipped ({e})")
+        doc["camp_plan"] = None
+
     try:
         from . import synth as _synth
         n_gt = sum(1 for w in wp_out if w.get("type") == "validate_ground")
