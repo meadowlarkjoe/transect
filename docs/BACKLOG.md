@@ -186,7 +186,7 @@ Cadence and scheduling are Joe's call.
 Everything here came from using the thing. Ordered by the honest severity rule: a
 SILENTLY WRONG answer outranks a missing one, which outranks an ugly one.
 
-### T9.1 — Known sites 2–4 never reach the engine · `ready`  ← NEXT
+### T9.1 — Known sites 2–4 never reach the engine · `done` (2026-08-06)
 `aoi.sites` is validated in `api.py`, threaded through `config.py`, echoed into
 `doc.meta` — and read by NOTHING in the analysis. `sites[0]` is only the AOI centre; the
 rest are drawn as client-side rings and discarded. Setup promises "up to 4 sites — each
@@ -201,14 +201,14 @@ loudly; and a test fails if `sites` has no consumer in the analysis path.
 stages per site, not per-site downloads. Build the N-runs harness here — T9.2 is then
 nearly free.
 
-### T9.2 — Bow vs rifle: multiple date windows compared · `blocked` *(by T9.1)*
+### T9.2 — Bow vs rifle: multiple date windows compared · `done` (2026-08-06)
 Not a prose change: the habitat surface is phase-weighted (`habitat_phase.tif`,
 cow-weighted at peak rut vs feed-weighted post-rut), so mid-Sept bow and Oct rifle are
 different MODEL RUNS with different site mixes and stands.
 **Done when:** Setup accepts N date windows, the brief carries a per-window verdict plus
 a comparison, and acquire runs once for all of them.
 
-### T9.3 — Camp-hunt brief answers the right question · `ready`
+### T9.3 — Camp-hunt brief answers the right question · `done` (2026-08-06)
 For a fixed camp the brief still ranks areas against each other. The areas around a
 cabin are COMPLEMENTS, not competitors. The question is "how good is hunting this cabin,
 and which area on which conditions".
@@ -220,7 +220,7 @@ exist — this is a join, not new modelling.
 cabin you hunt every year, a blind that only works on a north wind is worth far less
 than one that works on four. Nothing scores this today.
 
-### T9.4 — Stack a hover card per feature under the cursor · `ready`
+### T9.4 — Stack a hover card per feature under the cursor · `ready`  ← NEXT
 IDENTIFY shows the first match only, so reading a spot means toggling layers on and off.
 **Done when:** hovering ground covered by several layers shows a card per feature, in the
 existing priority order.
