@@ -225,11 +225,15 @@ IDENTIFY shows the first match only, so reading a spot means toggling layers on 
 **Done when:** hovering ground covered by several layers shows a card per feature, in the
 existing priority order.
 
-### T9.5 — See all your plans on one map · `ready`  ← NEXT
+### T9.5 — See all your plans on one map · `done` (2026-08-06)
 **Done when:** the dashboard can draw every saved plan's areas at once, and the app can
 show other plans as a background layer.
 
-### T9.6 — Share a plan by email; attribute drawings · `ready` *(needs a human decision)*
+### T9.6 — Share a plan by email; attribute drawings · `done` (2026-08-06)
+Decisions taken: CO-EDIT, and invites to unregistered addresses wait and resolve on
+sign-up. Shares are keyed by email so that resolution needs no reconciliation step.
+Owner-only for re-sharing and delete. Co-edit collisions are reported via a version
+check, not merged. No email is sent by the app.
 No sharing primitive exists: every plan query filters on `uid`, and drawings live inside
 the plan blob with no author.
 **Decisions first (Joe):** read-only vs co-edit for a shared plan — recommend read-only,
@@ -248,7 +252,7 @@ the existing MapLibre map offscreen rather than re-implementing symbology server
 with scale bar, north arrow and datum, because this is the artifact that goes in a pack
 where there is no cell service.
 
-### T9.8 — Abri sommaire / baux de villégiature · `ready`
+### T9.8 — Abri sommaire / baux de villégiature · `ready`  ← NEXT
 A leased rustic shelter on public land. NOT a legal barrier — the land stays huntable —
 so it must never gate access. It is a PRESSURE signal: someone hunts that ground every
 season, and it is secondary evidence the ground is usable.
