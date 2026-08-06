@@ -48,9 +48,14 @@
     <button data-sort="date">Hunt date</button>
     <button data-sort="name">Name</button>
   </div>
+  <div class="seg" style="margin:0;width:auto">
+    <button data-view="grid" aria-pressed="true" data-i18n="plans.viewCards">Cards</button>
+    <button data-view="map" data-i18n="plans.viewMap">All on one map</button>
+  </div>
 </div>
 
 <div class="grid" id="grid"></div>
+<div id="allmap" style="display:none;padding:0 4px 20px"></div>
 <div class="empty" id="empty" style="display:none"></div>
 
 <footer>
@@ -150,6 +155,15 @@ function render(){
   });
   else list.sort((a,b)=>((b.updated||0)-(a.updated||0)) || (((b.data||b).savedAt||0)-((a.data||a).savedAt||0)));
 
+  if(VIEW==='map'){
+    $('grid').style.display='none'; $('allmap').style.display='';
+    $('allmap').innerHTML=allMapHTML(list);
+    $('allmap').querySelectorAll('[data-goto]').forEach(g=>g.onclick=()=>{
+      location.href='app?plan='+encodeURIComponent(g.dataset.goto); });
+    $('empty').style.display='none';
+    return;
+  }
+  $('grid').style.display=''; $('allmap').style.display='none';
   $('grid').innerHTML = list.map(card).join('') +
     `<a class="newcard" href="app?tab=setup"><div><div style="font-size:22px;line-height:1">+</div>
       <div style="font:500 12.5px/1.4 var(--sans);margin-top:8px">New hunt plan</div>
@@ -277,6 +291,7 @@ function openShare(btn){
   const link=location.origin+location.pathname.replace(/plans(\.html)?$/,'app')+'?plan='+encodeURIComponent(id);
   const m=document.createElement('div'); m.className='sheet'; SHEET=m;
   m.innerHTML=
+    `<button data-a="invite">Share with a hunting partner<small>Give someone an email address's worth of access — they can edit${p.role==='owner'?'':' · owner only'}</small></button>`+
     `<button data-a="link">Copy link<small>Reopens on your own signed-in devices</small></button>`+
     `<button data-a="json">Download plan file<small>.json — setup, drawings${hasDoc?' and the full analysis':''}</small></button>`+
     `<button data-a="gpx" ${g?'':'disabled'}>Download waypoints<small>${g?'.gpx — waypoints + routes for OnX/Garmin':'Needs a cached analysis'}</small></button>`;
@@ -290,6 +305,7 @@ function openShare(btn){
         body:'The browser would not let the page write to your clipboard, so here it is to copy by hand.'
           +'<input class="nmedit" style="margin-top:10px;font:500 11px/1.4 var(--mono)" readonly value="'+esc(link)+'">'})
         .then(()=>{}); setTimeout(()=>{const i=document.querySelector('.modal input'); if(i){i.focus();i.select();}},30); }); }
+    if(a.a==='invite'){ closeShare(); openInvite(p); return; }
     if(a.a==='json') dl(slug(p.name)+'.transect.json','application/json',JSON.stringify(p.data||p,null,1));
     if(a.a==='gpx'&&g) dl(slug(p.name)+'.gpx','application/gpx+xml',g);
     closeShare();
@@ -297,7 +313,117 @@ function openShare(btn){
   btn.closest('.pfoot').appendChild(m);
 }
 
+/* SHARING (T9.6). Access is granted to an EMAIL ADDRESS, and deliberately works even
+   when nobody owns that address yet — a hunting party is exactly the case where the
+   other person has not signed up. The invite waits in the table and starts working the
+   moment they sign in with it, so the dialog says so plainly rather than letting an
+   invite to an unregistered address look broken.
+
+   No email is sent. Sending mail on someone's behalf is a separate decision and a
+   separate consent; the share is live and the hunter passes on the address themselves. */
+async function openInvite(p){
+  if(!API||!tok()){ await ask({title:'Sign in to share',
+    body:'Sharing puts the plan on your account so another hunter can open it. Local-only plans have nowhere to share from.'}); return; }
+  let cur={owner:null,shares:[]};
+  try{ const r=await fetch(API+'/plans/'+encodeURIComponent(p.id)+'/shares',
+        {headers:{Authorization:'Bearer '+tok()}});
+       if(r.ok) cur=await r.json(); }catch(e){}
+  const rows=(cur.shares||[]).map(sh=>
+    `<div style="display:flex;align-items:center;gap:8px;padding:4px 0">
+       <span style="flex:1;font:500 11px/1.4 var(--mono)">${esc(sh.email)}</span>
+       <span style="font-size:10px;opacity:.7">${sh.registered?'can edit':'waiting for sign-up'}</span>
+       ${p.role==='owner'?`<button data-revoke="${esc(sh.email)}" style="background:none;border:none;color:#C9564A;cursor:pointer;font-size:14px">×</button>`:''}
+     </div>`).join('')||'<div style="opacity:.6;font-size:11px">Nobody else yet.</div>';
+  const owner=p.role==='owner';
+  const a=await ask({title:'Share this plan',
+    body:`<div style="font-size:11.5px;line-height:1.55;color:var(--text-2)">
+        Whoever you add can <b>open and edit</b> this plan — the same map, the same drawings.
+        You do not have to wait for them to have an account: an invite to an address nobody
+        has signed up with yet simply waits, and starts working the moment they do.
+        <br><br>Transect does not send the email — pass the address on yourself.</div>
+      ${owner?`<input id="shEmail" class="nmedit" style="margin-top:10px" placeholder="their email address">`:''}
+      <div style="margin-top:10px">${rows}</div>`,
+    actions: owner?[{id:'no',label:'Done'},{id:'add',label:'Give access',primary:true}]
+                  :[{id:'no',label:'Done'}]});
+  document.querySelectorAll('[data-revoke]').forEach(b=>b.onclick=async()=>{
+    await fetch(API+'/plans/'+encodeURIComponent(p.id)+'/share?email='+encodeURIComponent(b.dataset.revoke),
+      {method:'DELETE',headers:{Authorization:'Bearer '+tok()}});
+  });
+  if(a!=='add') return;
+  const em=(document.getElementById('shEmail')||{}).value||'';
+  if(!em.trim()) return;
+  try{
+    const r=await fetch(API+'/plans/'+encodeURIComponent(p.id)+'/share',
+      {method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+tok()},
+       body:JSON.stringify({email:em.trim()})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok){ await ask({title:'Could not share',body:esc(String(j.detail||r.status))}); return; }
+    await ask({title:'Access given',
+      body:j.registered
+        ? `<b>${esc(j.email)}</b> can open and edit this plan now — it will appear in their plans list.`
+        : `<b>${esc(j.email)}</b> has no account yet. The invite is saved: the plan appears in their list the moment they sign up with that address. Transect will not email them, so let them know.`});
+  }catch(e){ await ask({title:'Could not share',body:'The engine did not answer.'}); }
+}
+
+/* ALL PLANS ON ONE MAP (T9.5).
+   Plans were only ever viewable one at a time, so a hunter with four camps across a
+   region had no way to see how they sit relative to each other — which is the question
+   you ask when you are deciding where the season goes.
+
+   Drawn as ONE SVG in a shared lon/lat frame rather than by adding a map library to
+   this page: the areas are the answer, and the dashboard already renders plan geometry
+   this way. A plan whose summary has no real coordinates (saved before T9.5, with no
+   cached analysis to backfill from) is LISTED as unplaceable rather than quietly
+   omitted — a missing plan on a map reads as "I have no plan there". */
+let VIEW='grid';
+function allMapHTML(list){
+  const wgeo=list.map(p=>({p,g:((p.data||p).sum||{}).geo,b:((p.data||p).sum||{}).box}))
+                 .filter(x=>x.g&&(x.g.ok||[]).length);
+  const missing=list.length-wgeo.length;
+  if(!wgeo.length) return `<div class="empty" style="display:block">No plan has coordinates
+    to place yet. Run an analysis and it will appear here.</div>`;
+  let w=1e9,e=-1e9,so=1e9,n=-1e9;
+  wgeo.forEach(x=>[...(x.g.ok||[]),...(x.g.ex||[])].forEach(r=>r.forEach(c=>{
+    w=Math.min(w,c[0]); e=Math.max(e,c[0]); so=Math.min(so,c[1]); n=Math.max(n,c[1]); })));
+  const padx=(e-w)*0.08||0.05, pady=(n-so)*0.08||0.05;
+  w-=padx; e+=padx; so-=pady; n+=pady;
+  // Equirectangular with a cos(lat) correction so the shapes are not stretched — this
+  // is a locator, not a survey, and it says so in the caption.
+  const midlat=(n+so)/2, kx=Math.cos(midlat*Math.PI/180);
+  const W=1000, H=Math.max(260,Math.min(760, W*((n-so)/((e-w)*kx||1))));
+  const X=lon=>((lon-w)/((e-w)||1))*W, Y=lat=>((n-lat)/((n-so)||1))*H;
+  const path=r=>r.map((c,i)=>(i?'L':'M')+X(c[0]).toFixed(1)+' '+Y(c[1]).toFixed(1)).join('')+'Z';
+  const COL=['#C8963E','#3FBF6E','#4FB0E5','#C9564A','#9B7FD4','#E0A62E'];
+  const body=wgeo.map((x,i)=>{
+    const c=COL[i%COL.length];
+    const ok=(x.g.ok||[]).map(r=>`<path d="${path(r)}" fill="${c}" fill-opacity=".22" stroke="${c}" stroke-width="1.4"/>`).join('');
+    const ex=(x.g.ex||[]).map(r=>`<path d="${path(r)}" fill="none" stroke="#C9564A" stroke-width="1.1" stroke-dasharray="4 3"/>`).join('');
+    const all=[...(x.g.ok||[]),...(x.g.ex||[])].flat();
+    const cx=all.reduce((s,p)=>s+X(p[0]),0)/all.length, cy=all.reduce((s,p)=>s+Y(p[1]),0)/all.length;
+    return `<g data-goto="${esc(x.p.id)}" style="cursor:pointer">${ok}${ex}
+      <text x="${cx.toFixed(0)}" y="${cy.toFixed(0)}" text-anchor="middle"
+        style="font:600 13px var(--sans);fill:#fff;paint-order:stroke;stroke:#0b0f0d;stroke-width:3">${esc((x.p.name||'Plan').slice(0,28))}</text></g>`;
+  }).join('');
+  const legend=wgeo.map((x,i)=>`<span style="display:inline-flex;align-items:center;gap:5px;margin-right:12px">
+      <i style="width:10px;height:10px;border-radius:2px;background:${COL[i%COL.length]}"></i>
+      <a href="app?plan=${encodeURIComponent(x.p.id)}" style="color:var(--text-2);text-decoration:none;font-size:11px">${esc(x.p.name||'Untitled')}</a></span>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H.toFixed(0)}" style="width:100%;height:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px">${body}</svg>
+    <div style="margin-top:10px">${legend}</div>
+    <div style="margin-top:8px;font:400 11px/1.5 var(--sans);color:var(--text-3)">
+      Focus areas only, in a flat lon/lat frame — a locator for how your plans sit
+      relative to each other, not a survey. Dashed red is excluded ground.
+      ${missing?`<br><b>${missing} plan${missing>1?'s':''}</b> could not be placed: no
+        analysis has been run on ${missing>1?'them':'it'} yet.`:''}
+    </div>`;
+}
+
 $('q').oninput=render;
+document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>{
+  VIEW=b.dataset.view;
+  document.querySelectorAll('[data-view]').forEach(x=>x.removeAttribute('aria-pressed'));
+  b.setAttribute('aria-pressed','true');
+  render();
+});
 document.querySelectorAll('[data-sort]').forEach(b=>b.onclick=()=>{
   sortBy=b.dataset.sort;
   document.querySelectorAll('[data-sort]').forEach(x=>x.removeAttribute('aria-pressed'));
@@ -319,6 +445,21 @@ $('out').onclick=()=>{ try{localStorage.removeItem('transect_tok');localStorage.
   // summary from it so they report COMPUTED and draw a preview instead of NOT RUN.
   PLANS.forEach(p=>{
     const s=p.data||p;
+    // Backfill the lon/lat rings for plans whose summary predates them (T9.5). A plan
+    // with a cached doc can produce them exactly; one without simply is not placeable
+    // on the shared map, and the map says so rather than pretending.
+    if(s.sum && !s.sum.geo && s.doc && s.doc.box){
+      const ring=a=>{const g=a.geometry||{};return g.type==='Polygon'?g.coordinates[0]
+        :g.type==='MultiPolygon'?(g.coordinates[0]||[])[0]:null;};
+      const geo=(rs,mr,mp)=>{const out=[];for(const r of rs.slice(0,mr)){if(!r||r.length<3)continue;
+        const st=Math.max(1,Math.ceil(r.length/mp)),q=[];
+        for(let i=0;i<r.length;i+=st)q.push([+r[i][0].toFixed(4),+r[i][1].toFixed(4)]);
+        if(q.length>=3)out.push(q);}return out;};
+      const A=s.doc.areas||[];
+      s.sum.box=s.doc.box;
+      s.sum.geo={ok:geo(A.filter(a=>a.status!=='excluded').map(ring).filter(Boolean),6,20),
+                 ex:geo(A.filter(a=>a.status==='excluded').map(ring).filter(Boolean),4,14)};
+    }
     if(s.sum || !s.doc) return;
     const d=s.doc, a=d.areas||[], b=d.box;
     const paths=(rings,mr,mp)=>{ const out=[];

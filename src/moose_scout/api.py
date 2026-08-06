@@ -107,7 +107,50 @@ def _db():
     con.execute("CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, email TEXT UNIQUE, pw TEXT, created REAL)")
     con.execute("CREATE TABLE IF NOT EXISTS sessions(token TEXT PRIMARY KEY, uid INTEGER, created REAL)")
     con.execute("CREATE TABLE IF NOT EXISTS plans(id TEXT PRIMARY KEY, uid INTEGER, name TEXT, data TEXT, updated REAL)")
+    # SHARING (T9.6). Keyed by EMAIL, not by user id, and that is the whole design:
+    # a hunting party is exactly the case where the other person has not signed up yet.
+    # An invite to an unregistered address simply sits here until someone signs in with
+    # it, at which point the join below starts matching. No pending-invite table, no
+    # reconciliation job, nothing to go stale.
+    con.execute("CREATE TABLE IF NOT EXISTS plan_shares("
+                "plan_id TEXT, email TEXT, role TEXT, invited_by INTEGER, created REAL,"
+                "PRIMARY KEY(plan_id, email))")
+    # CO-EDIT SAFETY. The plan is one blob, so two editors are last-write-wins unless
+    # something notices. `version` is bumped on every write; a client that sends the
+    # version it started from gets a 409 instead of silently flattening the other
+    # person's work. Not a CRDT — an honest collision report, which is what a two-person
+    # hunting party actually needs.
+    for ddl in ("ALTER TABLE plans ADD COLUMN version INTEGER DEFAULT 0",
+                "ALTER TABLE plans ADD COLUMN updated_by INTEGER"):
+        try:
+            con.execute(ddl)
+        except sqlite3.OperationalError:
+            pass        # already migrated
     return con
+
+
+def _email_of(con, uid):
+    r = con.execute("SELECT email FROM users WHERE id=?", (uid,)).fetchone()
+    return (r[0] or "").strip().lower() if r else None
+
+
+def _plan_access(con, pid, uid):
+    """What this user may do with this plan: 'owner', 'edit', or None.
+
+    Ownership is by uid; a share is by EMAIL, resolved at query time so an invite sent
+    before the person signed up starts working the moment they do.
+    """
+    row = con.execute("SELECT uid FROM plans WHERE id=?", (pid,)).fetchone()
+    if not row:
+        return None
+    if row[0] == uid:
+        return "owner"
+    em = _email_of(con, uid)
+    if not em:
+        return None
+    sh = con.execute("SELECT role FROM plan_shares WHERE plan_id=? AND email=?",
+                     (pid, em)).fetchone()
+    return (sh[0] or "edit") if sh else None
 
 
 def _hash_pw(pw, salt=None):
@@ -143,6 +186,9 @@ class PlanIn(BaseModel):
     id: str
     name: str = ""
     data: dict = {}
+    # The version this client started from. None = "I did not look", which keeps older
+    # clients working; a number lets the server refuse to flatten a co-editor's save.
+    base_version: int | None = None
 
 
 class ScoutReq(BaseModel):
@@ -532,9 +578,21 @@ def get_plans(authorization: str = Header(default=None)):
     if not uid:
         raise HTTPException(401, "sign in to sync plans")
     con = _db()
-    rows = con.execute("SELECT id, name, data, updated FROM plans WHERE uid=? ORDER BY updated DESC", (uid,)).fetchall()
+    em = _email_of(con, uid)
+    rows = con.execute(
+        "SELECT p.id, p.name, p.data, p.updated, p.uid, p.version, u.email "
+        "FROM plans p LEFT JOIN users u ON u.id = p.uid "
+        "WHERE p.uid = ? OR p.id IN (SELECT plan_id FROM plan_shares WHERE email = ?) "
+        "ORDER BY p.updated DESC", (uid, em or "")).fetchall()
     con.close()
-    return {"plans": [{"id": r[0], "name": r[1], "data": json.loads(r[2]), "updated": r[3]} for r in rows]}
+    return {"plans": [{"id": r[0], "name": r[1], "data": json.loads(r[2]), "updated": r[3],
+                       # A shared plan must SAY it is shared. A hunter editing someone
+                       # else's plan without knowing it is the same class of surprise as
+                       # a plan silently overwritten.
+                       "role": "owner" if r[4] == uid else "edit",
+                       "owner_email": r[6] if r[4] != uid else None,
+                       "version": r[5] or 0}
+                      for r in rows]}
 
 
 @app.put("/plans")
@@ -543,12 +601,36 @@ def put_plan(p: PlanIn, authorization: str = Header(default=None)):
     if not uid:
         raise HTTPException(401, "sign in to sync plans")
     con = _db()
-    con.execute("INSERT INTO plans(id, uid, name, data, updated) VALUES(?,?,?,?,?) "
-                "ON CONFLICT(id) DO UPDATE SET name=excluded.name, data=excluded.data, updated=excluded.updated",
-                (p.id, uid, p.name, json.dumps(p.data), time.time()))
+    row = con.execute("SELECT uid, version FROM plans WHERE id=?", (p.id,)).fetchone()
+    if row:
+        # AUTHORIZE THE UPDATE. `ON CONFLICT(id) DO UPDATE` did not check the owner at
+        # all, so any signed-in account could overwrite any plan whose id it knew. Plan
+        # ids are client-side uuids so it was impractical rather than open, but it was
+        # never an authorization decision — and adding sharing makes it one.
+        acc = _plan_access(con, p.id, uid)
+        if acc not in ("owner", "edit"):
+            con.close()
+            raise HTTPException(403, "not your plan")
+        cur = row[1] or 0
+        if p.base_version is not None and int(p.base_version) < cur:
+            # Somebody else saved since this client loaded. Hand back what is stored so
+            # the client can show the collision rather than flattening their work.
+            data = con.execute("SELECT name, data, updated FROM plans WHERE id=?",
+                               (p.id,)).fetchone()
+            con.close()
+            raise HTTPException(409, {"detail": "stale-version", "version": cur,
+                                      "name": data[0], "updated": data[2]})
+        con.execute("UPDATE plans SET name=?, data=?, updated=?, version=?, updated_by=? "
+                    "WHERE id=?",
+                    (p.name, json.dumps(p.data), time.time(), cur + 1, uid, p.id))
+    else:
+        con.execute("INSERT INTO plans(id, uid, name, data, updated, version, updated_by) "
+                    "VALUES(?,?,?,?,?,?,?)",
+                    (p.id, uid, p.name, json.dumps(p.data), time.time(), 1, uid))
+    ver = con.execute("SELECT version FROM plans WHERE id=?", (p.id,)).fetchone()[0]
     con.commit()
     con.close()
-    return {"ok": True}
+    return {"ok": True, "version": ver}
 
 
 @app.delete("/plans/{pid}")
@@ -556,5 +638,81 @@ def del_plan(pid: str, authorization: str = Header(default=None)):
     uid = _uid(authorization)
     if not uid:
         raise HTTPException(401, "sign in to sync plans")
-    con = _db(); con.execute("DELETE FROM plans WHERE id=? AND uid=?", (pid, uid)); con.commit(); con.close()
+    # DELETE IS OWNER-ONLY even though editing is shared. Co-editing a plan and being
+    # able to destroy it are different powers, and losing someone else's season of work
+    # is not a recoverable mistake.
+    con = _db()
+    con.execute("DELETE FROM plans WHERE id=? AND uid=?", (pid, uid))
+    con.execute("DELETE FROM plan_shares WHERE plan_id=? AND ? IN "
+                "(SELECT uid FROM plans WHERE id=?)", (pid, uid, pid))
+    con.commit(); con.close()
+    return {"ok": True}
+
+
+class ShareIn(BaseModel):
+    email: str
+    role: str = "edit"
+
+
+@app.get("/plans/{pid}/shares")
+def get_shares(pid: str, authorization: str = Header(default=None)):
+    uid = _uid(authorization)
+    if not uid:
+        raise HTTPException(401, "sign in first")
+    con = _db()
+    if _plan_access(con, pid, uid) is None:
+        con.close(); raise HTTPException(403, "not your plan")
+    rows = con.execute(
+        "SELECT s.email, s.role, s.created, u.id IS NOT NULL "
+        "FROM plan_shares s LEFT JOIN users u ON lower(u.email) = s.email "
+        "WHERE s.plan_id=? ORDER BY s.created", (pid,)).fetchall()
+    owner = con.execute("SELECT u.email FROM plans p LEFT JOIN users u ON u.id=p.uid "
+                        "WHERE p.id=?", (pid,)).fetchone()
+    con.close()
+    return {"owner": owner[0] if owner else None,
+            # `registered` is the honest bit: an invite to an address with no account is
+            # accepted and simply waits. Saying so beats a share that looks broken.
+            "shares": [{"email": r[0], "role": r[1], "created": r[2],
+                        "registered": bool(r[3])} for r in rows]}
+
+
+@app.post("/plans/{pid}/share")
+def add_share(pid: str, sh: ShareIn, authorization: str = Header(default=None)):
+    uid = _uid(authorization)
+    if not uid:
+        raise HTTPException(401, "sign in first")
+    em = (sh.email or "").strip().lower()
+    if "@" not in em or len(em) < 5:
+        raise HTTPException(400, "that does not look like an email address")
+    con = _db()
+    # Only the OWNER may hand out access. A co-editor re-sharing someone else's plan is
+    # a decision that belongs to the person whose work it is.
+    if _plan_access(con, pid, uid) != "owner":
+        con.close(); raise HTTPException(403, "only the plan's owner can share it")
+    if em == (_email_of(con, uid) or ""):
+        con.close(); raise HTTPException(400, "that is your own address")
+    con.execute("INSERT INTO plan_shares(plan_id, email, role, invited_by, created) "
+                "VALUES(?,?,?,?,?) ON CONFLICT(plan_id, email) DO UPDATE SET role=excluded.role",
+                (pid, em, "edit" if sh.role != "view" else "view", uid, time.time()))
+    con.commit()
+    known = con.execute("SELECT 1 FROM users WHERE lower(email)=?", (em,)).fetchone()
+    con.close()
+    # NO EMAIL IS SENT. Sending mail on a user's behalf is a separate decision and a
+    # separate consent; the share is live and the hunter can pass on the address.
+    return {"ok": True, "email": em, "registered": bool(known)}
+
+
+@app.delete("/plans/{pid}/share")
+def del_share(pid: str, email: str, authorization: str = Header(default=None)):
+    uid = _uid(authorization)
+    if not uid:
+        raise HTTPException(401, "sign in first")
+    em = (email or "").strip().lower()
+    con = _db()
+    acc = _plan_access(con, pid, uid)
+    # The owner may revoke anyone; anyone may remove THEMSELVES from a plan.
+    if acc != "owner" and em != (_email_of(con, uid) or ""):
+        con.close(); raise HTTPException(403, "only the owner can revoke someone else")
+    con.execute("DELETE FROM plan_shares WHERE plan_id=? AND email=?", (pid, em))
+    con.commit(); con.close()
     return {"ok": True}

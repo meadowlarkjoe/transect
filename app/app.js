@@ -2144,7 +2144,13 @@ const DRAW_STYLE={
 let _drawId=1;
 function _drawFeat(geom,dtype,label){
   const s=DRAW_STYLE[dtype]||DRAW_STYLE.area;
+  // AUTHOR (T9.6). A shared plan is co-edited, so a drawing has to say who put it there
+  // — otherwise the party has a map with four people's marks on it and no way to ask
+  // anyone what they meant. Stamped at creation; existing drawings are backfilled to the
+  // plan's owner on load, which is the only honest guess available for them.
+  let by=null; try{ by=localStorage.getItem('transect_email')||null; }catch(e){}
   return {type:'Feature',geometry:geom,properties:{id:_drawId++,dtype,label:label||'',
+    by:by, at:Date.now(),
     stroke:s.stroke,fill:s.fill,fo:s.fo,lo:s.lo,lw:3.4,style:'solid',hidden:false}};
 }
 function onDrawClick(e){
@@ -2264,7 +2270,11 @@ function renderDrawManager(){
       +`<b style="flex:1;font-size:11px;color:#9fb0b8">${_DT_NAME[t]} · ${byType[t].length}</b></div>`;
     byType[t].forEach(f=>{ const p=f.properties;
       h+=`<div style="display:flex;align-items:center;gap:6px;padding:1px 0 1px 16px">`
-        +`<span data-open="${p.id}" title="${esc(p.note||'')}" style="flex:1;color:${p.hidden?'#66727a':'#c7d0d4'};cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name)||esc(p.label)||_DT_NAME[t]}</span>`
+        +`<span data-open="${p.id}" title="${esc((p.note||'')+(p.by?`\n${p.byAssumed?'assumed ':''}by ${p.by}`:''))}" style="flex:1;color:${p.hidden?'#66727a':'#c7d0d4'};cursor:pointer;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name)||esc(p.label)||_DT_NAME[t]}`
+        // WHO DREW IT. On a shared plan a map carries several people's marks, and a mark
+        // you cannot attribute is a mark you cannot ask about. Only shown when the plan
+        // actually has more than one author — solo hunters do not need to be told.
+        +`${(p.by&&_drawAuthors().size>1)?`<span style="opacity:.55;font-size:10px"> · ${esc(String(p.by).split('@')[0])}${p.byAssumed?'?':''}</span>`:''}</span>`
         +`<button data-del="${p.id}" style="background:none;border:none;color:#C9564A;cursor:pointer;font-size:14px;padding:0 2px">×</button></div>`;
     });
   });
@@ -2274,6 +2284,12 @@ function renderDrawManager(){
   el.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>openDrawEditor(+b.dataset.open));
   el.querySelectorAll('button[data-del]').forEach(b=>b.onclick=()=>{ const id=+b.dataset.del; drawSaved=drawSaved.filter(x=>x.properties.id!==id); if(drawEditId===id)exitDrawEdit(); renderAnnot(); });
   const ca=document.getElementById('dmClear'); if(ca) ca.onclick=()=>{ const de=document.getElementById('drawEdit'); if(de)de.remove(); clearDraw(); };
+}
+/* Distinct authors among the current drawings — the panel only names people when there
+   is more than one, because a solo hunter does not need to be told they drew their own
+   line. */
+function _drawAuthors(){
+  return new Set((drawSaved||[]).map(f=>(f.properties||{}).by).filter(Boolean));
 }
 // Elevation sampler (inverse of the thermal grid mapping) + per-drawing stats.
 function _elevAtLL(lon,lat){ const e=DOC.elev,b=DOC.box; if(!e||!b||!e.v)return null;
@@ -3676,6 +3692,20 @@ function planSummary(doc){
       ex:_thumbPaths(areas.filter(a=>a.status==='excluded').map(ring).filter(Boolean), box, 4, 24),
       water:_thumbPaths(((doc.hydro&&doc.hydro.lakes)||[]), box, 20, 14)
     };
+    // REAL COORDINATES, not just the card thumbnail (T9.5). The thumb paths are
+    // normalised to THIS plan's own box, which makes them useless for drawing several
+    // plans together — every plan would land on top of every other. Keeping a budgeted
+    // ring in lon/lat is what lets the dashboard put them all on one map.
+    const geo=(rings,maxR,maxP)=>{ const out=[];
+      for(const r of rings.slice(0,maxR)){
+        if(!r||r.length<3) continue;
+        const st=Math.max(1,Math.ceil(r.length/maxP)), q=[];
+        for(let i=0;i<r.length;i+=st) q.push([+r[i][0].toFixed(4),+r[i][1].toFixed(4)]);
+        if(q.length>=3) out.push(q); }
+      return out; };
+    s.box=box;
+    s.geo={ ok:geo(areas.filter(a=>a.status!=='excluded').map(ring).filter(Boolean),6,20),
+            ex:geo(areas.filter(a=>a.status==='excluded').map(ring).filter(Boolean),4,14) };
   }
   return s;
 }
@@ -3685,6 +3715,8 @@ function savePlans(a){ try{localStorage.setItem('transect_plans',JSON.stringify(
     t('dlg.storageBody'),'warn'); } }
 /* The plan currently on screen, if it came from (or was saved to) the store. Keeps
    a re-run updating that plan instead of spawning a duplicate every time. */
+let PLAN_OWNER=null;     // email of the plan's owner, for drawing backfill
+let PLAN_VERSION=null;   // the plan version this client loaded (T9.6 co-edit)
 let CUR_PLAN_ID=null;
 let LAST_JOB_ID=null;   // the AOI whose rasters the server retains for /rescope
 function markDirtySoft(){ try{ setPlanName(PLAN_NAME,false); }catch(e){} }
@@ -3761,7 +3793,21 @@ async function savePlanNow(force){
     const p=currentPlan(PLAN_NAME||'', authed);
     if(CUR_PLAN_ID) p.id=CUR_PLAN_ID;          // re-running replaces, never piles up
     if(authed){
-      await apiF('/plans',{method:'PUT',body:JSON.stringify({id:p.id,name:p.name,data:p})});
+      // CO-EDIT (T9.6). Send the version this client started from so the server can
+      // refuse a save that would flatten a co-editor's work rather than silently
+      // winning. A 409 is not an error to swallow — it means somebody else saved.
+      const r=await apiF('/plans',{method:'PUT',body:JSON.stringify(
+        {id:p.id,name:p.name,data:p,base_version:(PLAN_VERSION!=null?PLAN_VERSION:null)})});
+      if(r && r.status===409){
+        const who=(await r.json().catch(()=>({})))||{};
+        askModal({kind:'warn', title:t('dlg.conflictTitle','Somebody else saved this plan'),
+          body:t('dlg.conflictBody','This plan is shared, and another editor saved changes after you opened it. Saving now would replace their work. Reload to pick up their version — anything you drew since is still on screen until you do.'),
+          actions:[{id:'stay',label:t('dlg.conflictStay','Keep mine on screen')},
+                   {id:'reload',label:t('dlg.conflictReload','Reload theirs'),primary:true}]
+        }).then(a=>{ if(a==='reload') location.reload(); });
+        return;
+      }
+      if(r && r.ok){ try{ const j=await r.json(); if(j&&j.version!=null) PLAN_VERSION=j.version; }catch(e){} }
     }else{
       const arr=loadPlans().filter(x=>x.id!==p.id); arr.unshift(p); savePlans(arr);
     }
@@ -3797,6 +3843,9 @@ function applyPlan(p){
   // work on them — and bump the id counter past what we restored so new drawings don't clash.
   drawSaved.forEach(f=>{ const q=f.properties=f.properties||{};
     if(q.id==null) q.id=_drawId++;
+    // Drawings made before authorship existed belong to whoever owned the plan — the
+    // only honest attribution available. Marked so the panel can say "assumed".
+    if(q.by==null){ q.by=(PLAN_OWNER||null); q.byAssumed=true; }
     if(!q.dtype) q.dtype=f.geometry.type==='Polygon'?'area':f.geometry.type==='LineString'?'line':'pin';
     const s=DRAW_STYLE[q.dtype]||DRAW_STYLE.area;
     if(q.stroke==null)q.stroke=s.stroke; if(q.fill==null)q.fill=s.fill;
