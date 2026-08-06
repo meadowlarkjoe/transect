@@ -77,6 +77,26 @@ def extract_focus_areas(ctx, hunt, prof):
     # NOT inflate one polygon into a 180 km² blob a party could never work (audit #50).
     # The floor grows modestly so a big crew isn't handed a 3 km² pocket.
     min_km2 = min_km2 * min(2.0, crew_scale)
+    # ...BUT NEVER MORE THAN A SENSIBLE SHARE OF THE GROUND THE HUNTER CAN ACTUALLY REACH.
+    #
+    # This floor is stated in absolute km², which is right for a box you drew but wrong
+    # for a hunt bounded by how far you will walk from a camp. A hunter with a 2 km hunt
+    # radius has 12.6 km² in total; a party of four then needs 6 km² — 48% of everything
+    # they can reach — as ONE contiguous lobe above the quality bar. That cannot happen on
+    # any real ground, so the plan came back completely empty: no areas, and therefore no
+    # sites and no routes, because everything downstream is placed per area. The engine
+    # reported success and the map showed nothing.
+    #
+    # A focus area still has to be a chunk worth walking to; it just cannot be asked to be
+    # bigger than the hunt itself. 15% of reachable ground is the cap, and only ever
+    # LOWERS the floor — a big box keeps the full 3 km² (×crew) bar.
+    avail_km2 = float(np.isfinite(hunt).sum()) * px_area
+    if avail_km2 > 0:
+        capped = max(0.5, 0.15 * avail_km2)
+        if capped < min_km2:
+            print(f"[synth] focus-area floor {min_km2:.1f} -> {capped:.1f} km2 "
+                  f"({avail_km2:.1f} km2 reachable)")
+            min_km2 = capped
     FLOOR = float(fcfg.get("min_huntability", 0.30))   # ABSOLUTE admission bar
     tr = Transformer.from_crs(prof["crs"], "EPSG:4326", always_xy=True)
     to_wgs = lambda geom: shp_transform(lambda xs, ys: tr.transform(xs, ys), geom)

@@ -3993,11 +3993,28 @@ function pollJob(jid,headers,STAGE,stop,setBtn,line,onHead){
       .then(s=>{
         failedSince=0;
         if(s.status==='done'){
-          stop(); RUN_ACTIVE=false; lockSetupWhileRunning(); LAST_JOB_ID=jid; forgetJob(); setBtn('RUN ANALYSIS →',false); applyDoc(s.scout);
-          // a finished run should present its result: Overview, with the layers card
-          // showing what was drawn — even if it was dismissed earlier during Setup.
-          layersDismissed=false; setTab('overview'); syncDocks('overview');
-          autosavePlan();
+          stop(); RUN_ACTIVE=false; lockSetupWhileRunning(); LAST_JOB_ID=jid; forgetJob(); setBtn('RUN ANALYSIS →',false);
+          // THE RENDER RUNS IN ITS OWN try/catch, and this is not defensive padding.
+          // The .catch() at the bottom of this chain was written for NETWORK failures,
+          // but it sits on the whole promise chain — so an exception thrown in HERE,
+          // while drawing a finished result, came out as "ANALYSING… reconnecting" and
+          // retried for ever. The hunter watched a completed analysis report itself as a
+          // connection problem. A run that finished and then failed to DRAW is a
+          // different fact from a run we cannot reach, and it has to say so.
+          try{
+            applyDoc(s.scout);
+            // a finished run should present its result: Overview, with the layers card
+            // showing what was drawn — even if it was dismissed earlier during Setup.
+            layersDismissed=false; setTab('overview'); syncDocks('overview');
+            autosavePlan();
+          }catch(err){
+            console.error('render of finished analysis failed', err);
+            tellModal(t('dlg.renderTitle','The analysis finished but could not be drawn'),
+              escHtml(String((err&&err.message)||err))+
+              `<br><br>${escHtml(t('dlg.renderBody','The run itself completed and nothing was lost — this is a fault in the app drawing the result. The message above identifies it.'))}`,
+              'danger');
+          }
+          return;
         } else if(s.status==='error'){
           stop(); RUN_ACTIVE=false; lockSetupWhileRunning(); forgetJob(); setBtn('RUN ANALYSIS →',false);
           tellModal(t('dlg.failTitle'),
