@@ -3956,12 +3956,163 @@ function _download(name,text,mime){
   const a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click();
   setTimeout(()=>{URL.revokeObjectURL(u);a.remove();},2000);
 }
+/* ===========================================================================
+   BRIEF PDF (T9.7) — the written brief plus one map plate per theme.
+
+   WHY AN OFFSCREEN MAP AND NOT THE ONE ON SCREEN. getCanvas().toDataURL() returns a
+   BLANK image unless the map was created with preserveDrawingBuffer, and turning that
+   on permanently taxes every frame for every user to serve an export used occasionally.
+   A second map, created only while exporting, costs nothing the rest of the time — and
+   it can be sized for print and framed on the AOI rather than on wherever the hunter
+   happens to be looking.
+
+   WHY PRINT-TO-PDF AND NOT A PDF LIBRARY. The browser already has an excellent one, the
+   text stays selectable and searchable, and it avoids vendoring another megabyte into a
+   bundle that has to work offline. The page is written into a hidden iframe so no popup
+   blocker can eat it.
+
+   This is the artifact that goes in a pack where there is no cell service, so every
+   plate carries a scale bar, a north arrow and the datum. A map you cannot navigate
+   from is a picture.
+   =========================================================================== */
+const PLATES=[
+  {key:'overview', name:'Overview', rows:['huntZones','camps2','staging','routes','access'],
+   sites:true,
+   note:'Ranked focus areas with the huntability bands beneath them, your camp or staging '+
+        'point, and the approach lines between them. Bands are model output with no surveyed '+
+        'edge — treat the boundary as a gradient, not a fence.'},
+  {key:'browse', name:'Browse & feeding', rows:['browse','cuts','burns'],
+   note:'Where the food is. Browse is a composite: dated logging cuts and burns are surveyed '+
+        'polygons with a year on them, the rest is a satellite classification. The cut layer '+
+        'is drawn over it so you can see which of the green is actually backed by a dated cut.'},
+  {key:'refuge', name:'Thermal refuge & water', rows:['refuge','water','wetland','beaver'],
+   note:'Cool, closed cover for the middle of a warm day, plus the hydrography that shapes '+
+        'both travel and the funnels. Wetland is passable to a moose — it slows a hunter far '+
+        'more than it slows them.'},
+  {key:'travel', name:'Funnels & access', rows:['funnel','roads','trails','crossings'],
+   note:'Pinch points where travelling animals are forced together, and how you get in. '+
+        'Every funnel here has a measured neck width; road class is the road\'s ROLE, and '+
+        'the surface is stated separately in the app.'},
+  {key:'sites', name:'Stands', rows:['st-rut','st-saline','st-glass','refuge','routes'],
+   sites:true,
+   note:'Where to sit and how to come in. Every one is a hypothesis to ground-truth on '+
+        'foot — the model reads habitat, not animals.'},
+];
+
+async function _plateMap(){
+  const host=document.createElement('div');
+  host.style.cssText='position:fixed;left:-10000px;top:0;width:1400px;height:900px';
+  document.body.appendChild(host);
+  const m=new maplibregl.Map({container:host,style:baseStyle(),
+    center:map.getCenter(),zoom:map.getZoom(),
+    preserveDrawingBuffer:true,   // the whole reason this second map exists
+    attributionControl:false,interactive:false});
+  await new Promise(r=>m.on('load',r));
+  return {m,host};
+}
+
+async function _plateShot(m,rows){
+  // Only the rows this plate is about. Everything else is hidden so a plate makes ONE
+  // point — a plate showing all 25 layers is the screenshot the hunter already has.
+  // Match on the row key OR its layer group: the huntability bands are three rows
+  // (hz-high/medium/low) that all share the `huntZones` layer, so a plate naming the
+  // group would otherwise show no bands at all — a silently empty plate, which is the
+  // failure this whole codebase keeps producing when a name is matched in one namespace
+  // and defined in another.
+  LAYERS.forEach(r=>{
+    const on = rows.includes(r.k) || rows.includes(r.lyr);
+    (LYR_MAP[r.lyr||r.k]||[]).forEach(id=>{
+      if(m.getLayer(id)) m.setLayoutProperty(id,'visibility', on?'visible':'none');
+    });
+  });
+  await new Promise(r=>{ const done=()=>{m.off('idle',done);r();}; m.on('idle',done);
+                         setTimeout(done,2500); });   // never hang the export on a slow tile
+  return m.getCanvas().toDataURL('image/png');
+}
+
+function _briefPlainText(){
+  /* The written brief, taken from the DOM the hunter has already read, so the PDF can
+     never disagree with the screen. */
+  const el=document.getElementById('brief');
+  return el?el.innerHTML:'';
+}
+
+async function exportBriefPDF(btn){
+  const label=btn?btn.textContent:null;
+  if(btn){ btn.disabled=true; btn.textContent='Rendering plates…'; }
+  let ctxm=null;
+  try{
+    ctxm=await _plateMap();
+    if(!DOC.blank && (DOC.areas||[]).length)
+      ctxm.m.fitBounds(bbox(DOC.areas),{padding:60,duration:0});
+    else if(DOC.box)
+      ctxm.m.fitBounds([[DOC.box.w,DOC.box.s],[DOC.box.e,DOC.box.n]],{padding:60,duration:0});
+    const shots=[];
+    for(const pl of PLATES){
+      if(btn) btn.textContent=`Rendering ${pl.name}…`;
+      shots.push({...pl,img:await _plateShot(ctxm.m,pl.rows)});
+    }
+    const m=DOC.meta||{}, g=DOC.legal||{};
+    const scale=`Datum WGS 84 · centre ${(m.center||{}).lat?.toFixed?.(4)}, ${(m.center||{}).lon?.toFixed?.(4)} · box ${m.radius_km} km`;
+    const doc=`<!doctype html><meta charset="utf-8">
+      <title>Transect — ${escHtml(m.title||m.aoi||'hunt brief')}</title>
+      <style>
+        @page{size:A4;margin:14mm}
+        body{font:11pt/1.5 -apple-system,system-ui,sans-serif;color:#111}
+        h1{font-size:19pt;margin:0 0 2mm} h2{font-size:13pt;margin:8mm 0 2mm}
+        .meta{font:9pt/1.4 ui-monospace,monospace;color:#555;margin-bottom:6mm}
+        .plate{page-break-inside:avoid;margin:0 0 8mm}
+        .plate img{width:100%;border:1px solid #bbb}
+        .cap{font:9.5pt/1.45 sans-serif;color:#333;margin-top:2mm}
+        .foot{font:8.5pt/1.4 ui-monospace,monospace;color:#666;margin-top:1mm}
+        .warn{border:1px solid #b00;background:#fff5f5;padding:3mm;margin:4mm 0;font-size:10pt}
+        .brief :is(button,input,.seg,.briefpick){display:none!important}
+        .brief{font-size:10.5pt}
+        .north{float:right;font:9pt/1 sans-serif;color:#333}
+      </style>
+      <h1>${escHtml(m.title||m.aoi||'Hunt brief')}</h1>
+      <div class="meta">${escHtml(scale)}<br>
+        Zone ${escHtml(String(g.zone||'?'))} · ${escHtml((g.huntable_tenures||['—'])[0])} ·
+        ${g.diy_possible?'DIY':'restricted'} · engine rev ${escHtml(String(DOC.engine_revision||'?'))} ·
+        dates ${escHtml((m.target_dates||[]).join(' → '))}</div>
+      <div class="warn"><b>À valider sur le terrain.</b> Every mark in this document is a
+        modelled hypothesis to ground-truth on foot — the model reads habitat, not animals.
+        Hunting regulations, zone boundaries and access change: verify before you go.</div>
+      ${shots.map(s=>`<div class="plate">
+        <h2>${escHtml(s.name)}<span class="north">N ↑</span></h2>
+        <img src="${s.img}">
+        <div class="cap">${escHtml(s.note)}</div>
+        <div class="foot">${escHtml(scale)}</div>
+      </div>`).join('')}
+      <h2 style="page-break-before:always">The written brief</h2>
+      <div class="brief">${_briefPlainText()}</div>`;
+    const fr=document.createElement('iframe');
+    fr.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+    document.body.appendChild(fr);
+    fr.contentDocument.open(); fr.contentDocument.write(doc); fr.contentDocument.close();
+    // Give the images a moment to decode, or the print dialog captures empty boxes.
+    await new Promise(r=>setTimeout(r,600));
+    fr.contentWindow.focus(); fr.contentWindow.print();
+    setTimeout(()=>fr.remove(),60000);
+  }catch(err){
+    console.error('brief PDF failed',err);
+    tellModal(t('dlg.pdfTitle','Could not build the PDF'),
+      escHtml(String((err&&err.message)||err))+
+      `<br><br>${escHtml(t('dlg.pdfBody','Nothing was lost — this only affects the export. The map and the brief on screen are unchanged.'))}`,
+      'danger');
+  }finally{
+    if(ctxm){ try{ctxm.m.remove();}catch(e){} ctxm.host.remove(); }
+    if(btn){ btn.disabled=false; btn.textContent=label; }
+  }
+}
+
 function initExport(){
   const btn=document.getElementById('exportBtn'), menu=document.getElementById('exportMenu'); if(!btn) return;
   btn.onclick=()=>menu.classList.toggle('hidden');
   const slug=((DOC.meta||{}).aoi||'transect').replace(/[^a-z0-9]+/gi,'_');
   menu.querySelectorAll('button[data-fmt]').forEach(b=>b.onclick=()=>{
     const wz=document.getElementById('exZones').checked;
+    if(b.dataset.fmt==='pdf'){ menu.classList.add('hidden'); exportBriefPDF(b); return; }
     if(b.dataset.fmt==='gpx') _download(slug+'.gpx',buildGPX(wz),'application/gpx+xml');
     else _download(slug+'.kml',buildKML(wz),'application/vnd.google-earth.kml+xml');
     menu.classList.add('hidden');
@@ -4484,6 +4635,48 @@ const SITE_LABEL={rut_calling:'Calling position',thermal_refuge:'Thermal refuge'
   saline_blind:'Feeding edge',funnel:'Funnel / pass',glassing:'Glassing knob',
   validate_ground:'Ground-truth check',base_camp:'Base camp',parking:'Staging / parking'};
 let idHover=null;
+/* ONE CARD PER FEATURE UNDER THE CURSOR (T9.4).
+   It used to show only the FIRST match, so reading a spot where several layers overlap
+   — which is most interesting ground, since that is what "interesting" means here —
+   meant toggling layers off and on to interrogate them one at a time. Reported as
+   exactly that. Now every hit renders its own card, in IDENTIFY order (specific before
+   blanket), capped so a busy pixel does not fill the screen. */
+const ID_MAX_CARDS = 4;
+
+function idCardHTML(def, f){
+  const p=f.properties||{};
+  const rk=typeof def.row==='function'?def.row(p):def.row;
+  const row=rk?LAYERS.find(r=>r.k===rk):null;
+  const sub=(def.sub&&def.sub(p))||'';
+  // #71 — say WHY this is here and how sure we are. Modelled features carry a
+  // confidence + plain-language reasons from the engine; layers that come straight
+  // from an official dataset name the SOURCE instead of inventing a rationale, so a
+  // hunter can tell "we measured this" from "we inferred this".
+  let why=[]; try{ why=typeof p.why==='string'?JSON.parse(p.why):(p.why||[]); }catch(e){ why=[]; }
+  // browse zones carry `why` as an OBJECT ({source, share}), not a list of reasons —
+  // rendering an object here printed "[object Object]" at the hunter.
+  if(why && !Array.isArray(why)) why = why.source ? ['mostly the '+why.source] : [];
+  const conf=p.conf!=null?(typeof p.conf==='object'?p.conf.score:p.conf):null;
+  const prov=(DOC.layer_provenance||{})[rk]||null;
+  const pct=v=>Math.round(v*100)+'%';
+  // Which site / season this belongs to, when a run compared several (T9.1/T9.2). Two
+  // features from different ground or different weeks must never read as one place.
+  const tag=[(p.site!=null && (DOC.sites||[]).length>1)?('site '+p.site):'',
+             (p.window!=null && (DOC.windows||[]).length>1)?('season '+p.window):'']
+            .filter(Boolean).join(' · ');
+  return `<div class="iditem">
+    <div class="idhead">${row?iconBadge(row.icon,row.hex,18,def.chip&&def.chip(p)):''}
+      <span>${def.title(p)}</span></div>`+
+    (tag?`<div class="idsub" style="opacity:.7">${tag}</div>`:'')+
+    (sub?`<div class="idsub">${sub}</div>`:'')+
+    (conf!=null?`<div class="idsub" style="color:#e2c044">Confidence ${pct(conf)}${p.band?' · '+p.band:''}</div>`:'')+
+    ((why&&why.length)?`<div class="idsub" style="opacity:.9">${
+       why.map(w=>'· '+String(w)).join('<br>')}</div>`:'')+
+    (prov?`<div class="idsub" style="opacity:.75">Source: ${prov.source} · ${pct(prov.conf)}</div>`:'')+
+    (row?`<div class="idrow">${row.name}</div>`:'')+
+  `</div>`;
+}
+
 function buildIdentify(){
   if(document.getElementById('idCard')) return;
   const el=document.createElement('div');
@@ -4499,30 +4692,19 @@ function buildIdentify(){
       [[e.point.x-4,e.point.y-4],[e.point.x+4,e.point.y+4]],
       {layers:live.map(d=>d.lyr)});
     if(!hits.length){ clearIdentify(); return; }
-    // honour IDENTIFY order (points before polygons), not paint order
-    const def=live.find(d=>hits.some(h=>h.layer.id===d.lyr));
-    const f=hits.find(h=>h.layer.id===def.lyr);
-    const p=f.properties||{};
-    const rk=typeof def.row==='function'?def.row(p):def.row;
-    const row=rk?LAYERS.find(r=>r.k===rk):null;
-    const sub=(def.sub&&def.sub(p))||'';
-    // #71 — say WHY this is here and how sure we are. Modelled features carry a
-    // confidence + plain-language reasons from the engine; layers that come straight
-    // from an official dataset name the SOURCE instead of inventing a rationale, so a
-    // hunter can tell "we measured this" from "we inferred this".
-    let why=[]; try{ why=typeof p.why==='string'?JSON.parse(p.why):(p.why||[]); }catch(e){ why=[]; }
-    const conf=p.conf!=null?(typeof p.conf==='object'?p.conf.score:p.conf):null;
-    const prov=(DOC.layer_provenance||{})[rk]||null;
-    const pct=v=>Math.round(v*100)+'%';
-    el.innerHTML=
-      `<div class="idhead">${row?iconBadge(row.icon,row.hex,18,def.chip&&def.chip(p)):''}
-         <span>${def.title(p)}</span></div>`+
-      (sub?`<div class="idsub">${sub}</div>`:'')+
-      (conf!=null?`<div class="idsub" style="color:#e2c044">Confidence ${pct(conf)}${p.band?' · '+p.band:''}</div>`:'')+
-      ((why&&why.length)?`<div class="idsub" style="opacity:.9">${
-         why.map(w=>'· '+String(w)).join('<br>')}</div>`:'')+
-      (prov?`<div class="idsub" style="opacity:.75">Source: ${prov.source} · ${pct(prov.conf)}</div>`:'')+
-      (row?`<div class="idrow">${row.name}</div>`:'');
+    // Walk IDENTIFY order (points before polygons, specific before blanket) and take
+    // each layer's nearest hit. One card per LAYER rather than per feature: two
+    // adjacent polygons of the same kind under one pixel are the same answer twice.
+    const picked=[];
+    for(const def of live){
+      const f=hits.find(h=>h.layer.id===def.lyr);
+      if(f) picked.push({def,f});
+    }
+    if(!picked.length){ clearIdentify(); return; }
+    const shown=picked.slice(0,ID_MAX_CARDS);
+    const more=picked.length-shown.length;
+    el.innerHTML=shown.map(x=>idCardHTML(x.def,x.f)).join('')+
+      (more>0?`<div class="idmore">+${more} more layer${more>1?'s':''} here — hide one to see it</div>`:'');
     el.classList.remove('hidden');
     const r=el.getBoundingClientRect(), pad=14, cx=e.originalEvent.clientX, cy=e.originalEvent.clientY;
     let x=cx+pad, y=cy+pad;
@@ -4530,8 +4712,11 @@ function buildIdentify(){
     if(y+r.height > innerHeight-8) y=cy-r.height-pad;
     el.style.left=Math.max(8,x)+'px'; el.style.top=Math.max(8,y)+'px';
     map.getCanvas().style.cursor='pointer';
-    if(idHover!==def.lyr){ if(idHover) emphasiseMapLayer(idHover,false);
-      emphasiseMapLayer(def.lyr,true); idHover=def.lyr; }
+    // Emphasis still follows the TOP card only — lighting up four layers at once is
+    // the flashing this codebase has already been told off for.
+    const top=shown[0].def.lyr;
+    if(idHover!==top){ if(idHover) emphasiseMapLayer(idHover,false);
+      emphasiseMapLayer(top,true); idHover=top; }
   });
   map.on('mouseout',clearIdentify);
 }

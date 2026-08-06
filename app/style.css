@@ -629,6 +629,12 @@ body.weather-on .maplibregl-ctrl-bottom-left{bottom:calc(var(--weather-h,170px) 
   backdrop-filter:var(--blur);border:1px solid var(--line-2);border-radius:var(--r-md);
   box-shadow:var(--e-pop);padding:9px 11px}
 #idCard.hidden{display:none}
+/* T9.4 — one card per layer under the cursor. A hairline between items so a stack reads
+   as several answers rather than one long one, and a cap note when there are more. */
+#idCard .iditem + .iditem{margin-top:9px;padding-top:9px;border-top:1px solid var(--line)}
+#idCard .idmore{margin-top:8px;padding-top:7px;border-top:1px dashed var(--line);
+  font:400 10px/1.4 var(--sans);color:var(--text-3)}
+#idCard{max-height:70vh;overflow:hidden}
 #idCard .idhead{display:flex;align-items:center;gap:8px;font:600 12.5px/1.25 var(--sans);color:var(--text)}
 #idCard .idsub{margin-top:5px;font:400 11px/1.5 var(--sans);color:var(--text-2);text-wrap:pretty}
 #idCard .idrow{margin-top:6px;padding-top:6px;border-top:1px solid var(--line);

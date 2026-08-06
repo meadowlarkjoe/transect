@@ -81,3 +81,25 @@ def test_unit_formatters_cannot_throw_on_a_missing_value():
     assert "typeof v === 'number' && isFinite(v)" in src or \
            "typeof v==='number'&&isFinite(v)" in src, \
         "the guard must test finiteness, not truthiness — a measured 0 is not unknown"
+
+
+def test_every_brief_plate_names_layers_that_exist():
+    """A PLATES entry naming a key that resolves to nothing renders a blank map with a
+    confident caption under it — the same silently-empty failure as a toggle that flips
+    no layer, and harder to notice because a map plate always LOOKS like a map.
+
+    Row keys and layer-group names live in different namespaces (the huntability bands
+    are three rows sharing one `huntZones` group), so a plate may legitimately name
+    either — but it must name something.
+    """
+    import re
+    src = open(APP).read()
+    plate_keys = set()
+    for m in re.finditer(r"rows:\[([^\]]*)\]", src):
+        plate_keys.update(re.findall(r"'([^']+)'", m.group(1)))
+    row_keys = set(re.findall(r"\{k:'([^']+)'", src))
+    lyr_vals = set(re.findall(r"lyr:'([^']+)'", src))
+    lyr_map = set(re.findall(r"^\s*([A-Za-z0-9_-]+):\[", src, re.M))
+    known = row_keys | lyr_vals | lyr_map
+    unknown = sorted(k for k in plate_keys if k not in known)
+    assert not unknown, f"brief plates name layers that do not exist: {unknown}"
