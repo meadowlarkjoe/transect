@@ -98,3 +98,54 @@ def test_scoring_cells_and_no_polygons_is_the_shape_of_the_bug(tmp_path):
         # This is the diagnosis, spelled out where someone will read it.
         assert True, ("cells scored but nothing polygonized — binary_opening erodes "
                       "int(120/res) px, so features thinner than ~2x that are erased")
+
+
+def test_a_small_excellent_polygon_beats_a_big_mediocre_one(tmp_path):
+    """#89, THE INVERSION THE HUNTER SPOTTED FROM THE MAP.
+
+    He noticed that cuts marked "closing in" were being drawn as browse while the ones
+    marked "prime regen" were not — the exact opposite of what the raster said. The
+    cause was that every filter in _polygonize selected for SIZE: a flat min_km2 floor
+    regardless of quality, and `polys[:per_class]` sorted by area, so the broad mediocre
+    shapes took all the slots and the small excellent ones were never drawn.
+
+    A quarter-hectare of prime regen is worth more to a hunter than a square kilometre
+    of mediocre ground. The layer has to be able to say so.
+    """
+    a = np.zeros((400, 400), "float32")
+    a[40:180, 40:180] = 0.55            # ~7.8 km2 of mediocre
+    a[300:330, 300:330] = 0.95          # ~0.36 km2 of prime — UNDER the 0.8 km2 floor
+    p = _write(tmp_path, a, res=20.0)
+    out = _polygonize(_Ctx(), p.parent, p.name, [("browse", 0.30)],
+                      min_km2=0.8, smooth_m=280, per_class=8)
+    assert out, "nothing polygonized at all"
+    small = [o for o in out if o["area_km2"] < 1.0]
+    assert small, "the small prime block was dropped by the area floor — this is the bug"
+    # ...and it must come FIRST, because the slots go to the best ground, not the biggest.
+    assert out[0]["score"] >= out[-1]["score"], "polygons are not ranked by value"
+    assert out[0]["area_km2"] < out[-1]["area_km2"], \
+        "the best polygon here is the SMALL one; ranking still favours area"
+
+
+def test_weak_ground_still_has_to_be_big_enough_to_matter(tmp_path):
+    """The floor is relaxed for strong ground, not removed. Otherwise every scrap of
+    marginal habitat becomes a polygon and the map is noise again — which is the
+    failure mode the size filters were originally (over)reacting to."""
+    a = np.zeros((400, 400), "float32")
+    a[300:315, 300:315] = 0.35          # tiny AND mediocre: 0.09 km2 at 20 m
+    p = _write(tmp_path, a, res=20.0)
+    out = _polygonize(_Ctx(), p.parent, p.name, [("browse", 0.30)],
+                      min_km2=0.8, smooth_m=280, per_class=8)
+    assert not out, "a tiny patch of mediocre ground should not earn a polygon"
+
+
+def test_every_polygon_reports_the_score_it_was_kept_for(tmp_path):
+    """Ranking by value is only defensible if the value travels with the polygon — the
+    map and the identify card have to be able to show what the ranking was based on."""
+    a = np.zeros((300, 300), "float32")
+    a[60:200, 60:200] = 0.8
+    p = _write(tmp_path, a, res=20.0)
+    out = _polygonize(_Ctx(), p.parent, p.name, [("browse", 0.30)],
+                      min_km2=0.4, smooth_m=200, per_class=8)
+    assert out and all("score" in o for o in out), "polygons carry no score"
+    assert 0.0 <= out[0]["score"] <= 1.0

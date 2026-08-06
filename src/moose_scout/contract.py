@@ -20,7 +20,25 @@ from . import rasterio_utils as ru
 def _polygonize(ctx, cache, tif, bands, min_km2=1.5, smooth_m=320, per_class=8, simp=0.0008):
     """Classify a 0..1 raster into a FEW cohesive class polygons (defined areas, not
     heat). `bands` = [(name, lo)] ascending; a cell takes the highest class whose lo
-    it meets. Heavy smoothing + morphology + top-N-by-area keeps it legible + light."""
+    it meets.
+
+    EVERY FILTER IN HERE USED TO SELECT FOR SIZE, AND SIZE IS NOT THE POINT.
+    A hunter noticed it from the map alone: the small discrete cutblocks the model scored
+    HIGHEST were missing, while broad older ground it scored lower was drawn. Four
+    separate steps conspired —
+
+      * a uniform_filter wide enough to dilute a small strong patch into its surroundings,
+      * binary_opening at 120 m, which erases anything thinner than ~240 m outright
+        (this is what silently deleted every funnel: 7,444 cells scored, 0 survived),
+      * min_km2, a flat area floor applied regardless of how good the ground is, and
+      * `polys[:per_class]` sorted BY AREA, so the biggest shapes took the slots.
+
+    Nothing failed and nothing warned; the layer just quietly showed the worse ground.
+    Now: the morphology is sized to remove speckle rather than features, a polygon can
+    buy its way past the area floor by SCORING WELL, and the per-class slots go to the
+    best polygons rather than the biggest. Thin and small is the whole point of a seam,
+    a neck, or a fresh cutblock.
+    """
     import numpy as np
     from pyproj import Transformer
     from rasterio.features import shapes as rio_shapes
@@ -40,7 +58,12 @@ def _polygonize(ctx, cache, tif, bands, min_km2=1.5, smooth_m=320, per_class=8, 
     sm[~finite] = np.nan
     tr = Transformer.from_crs(prof["crs"], "EPSG:4326", always_xy=True)
     to_wgs = lambda g: shp_transform(lambda xs, ys: tr.transform(xs, ys), g)
-    it = max(1, int(round(120 / res)))
+    # OPENING REMOVES SPECKLE; IT MUST NOT REMOVE FEATURES. At 120 m it erased anything
+    # narrower than ~240 m — wider than a funnel neck, wider than plenty of real
+    # cutblocks. 50 m clears single-cell noise and leaves the geometry alone. CLOSING is
+    # the safe one (it fills gaps rather than deleting), so it keeps the larger radius.
+    it_open = max(1, int(round(50 / res)))
+    it_close = max(1, int(round(120 / res)))
 
     cls_id = np.zeros(arr.shape, dtype="int32")
     for i, (_name, lo) in enumerate(bands, start=1):
@@ -52,21 +75,42 @@ def _polygonize(ctx, cache, tif, bands, min_km2=1.5, smooth_m=320, per_class=8, 
         mask = cls_id == i
         if not mask.any():
             continue
-        mask = binary_fill_holes(binary_closing(binary_opening(mask, iterations=it), iterations=it * 2))
+        mask = binary_fill_holes(binary_closing(binary_opening(mask, iterations=it_open),
+                                                iterations=it_close))
         polys = []
         for g, v in rio_shapes(mask.astype("uint8"), mask=mask, transform=prof["transform"]):
             if v != 1:
                 continue
             gm = shp_shape(g)
-            if gm.area / 1e6 >= min_km2:
-                polys.append(gm)
-        polys.sort(key=lambda p: p.area, reverse=True)
-        for gm in polys[:per_class]:
+            km2 = gm.area / 1e6
+            # How good is this ground, measured on the RAW raster rather than the smoothed
+            # one — smoothing is for drawing a clean edge, not for judging the contents.
+            try:
+                from rasterio.features import geometry_mask
+                inside = ~geometry_mask([g], out_shape=arr.shape, transform=prof["transform"],
+                                        invert=False)
+                vals = arr[inside & finite]
+                score = float(np.nanmean(vals)) if vals.size else 0.0
+            except Exception:
+                score = 0.0
+            # A SMALL POLYGON CAN BUY ITS WAY IN BY BEING GOOD. A quarter-hectare of prime
+            # regen is worth more to a hunter than a square kilometre of mediocre ground,
+            # and the flat area floor could never express that. Strong ground gets the
+            # floor cut to a quarter; weak ground still has to be big enough to matter.
+            strong = score >= 0.75
+            floor = min_km2 * (0.25 if strong else 1.0)
+            if km2 >= floor:
+                polys.append((gm, km2, score))
+        # Rank by VALUE, not area. `polys[:per_class]` sorted by size is what handed every
+        # slot to the broad mediocre shapes and dropped the small excellent ones.
+        polys.sort(key=lambda t: (t[2], t[1]), reverse=True)
+        for gm, km2, score in polys[:per_class]:
             gw = to_wgs(gm).simplify(simp)
             for pp in (gw.geoms if gw.geom_type == "MultiPolygon" else [gw]):
                 ring = [[round(x, 5), round(y, 5)] for x, y in pp.exterior.coords]
                 if len(ring) >= 4:
-                    out.append({"cls": name, "ll": ring, "area_km2": round(gm.area / 1e6, 1)})
+                    out.append({"cls": name, "ll": ring, "area_km2": round(km2, 1),
+                                "score": round(score, 3)})
     return out
 
 
@@ -264,28 +308,98 @@ def _browse_zones(ctx, cache, min_km2=0.8, smooth_m=280):
         10: ("Forest-edge browse", "Regenerating conifer/mixedwood edge — the cover-to-forage seam.",
              "All day where cover meets forage; prime travel/feeding edge."),
     }
-    it = max(1, int(round(120 / res)))
+    # Same size-vs-value fix as _polygonize (#89): open only far enough to kill speckle,
+    # let strong ground past the area floor, and rank by score rather than by area. This
+    # is the function that produced the inversion the hunter saw — small prime cutblocks
+    # missing while broad older ground was drawn.
+    it_open = max(1, int(round(50 / res)))
+    it_close = max(1, int(round(120 / res)))
+    # PROVENANCE (#96). browse.tif is a composite; these say which source decided a cell
+    # and how well the others agreed, so a zone can explain itself instead of showing a
+    # bare number with no history. Absent on plans computed before rev 21.
+    SRC_NAME = {4: "dated logging cut", 3: "dated burn", 2: "forest-stand map",
+                1: "satellite land cover"}
+    src_r = agr_r = None
+    try:
+        src_r = ru.read(cache / "browse_source.tif")[0]
+        agr_r = ru.read(cache / "browse_agree.tif")[0]
+    except Exception:
+        pass
+    from rasterio.features import geometry_mask
+    raw = np.nan_to_num(browse)
+
     out = []
     for cls, (name, what, when) in TYPES.items():
         mask = (lc == cls) & (br > 0.4)
         if not mask.any():
             continue
-        mask = binary_closing(binary_opening(mask, iterations=it), iterations=it * 2)
+        mask = binary_closing(binary_opening(mask, iterations=it_open), iterations=it_close)
         polys = []
         for g, v in rio_shapes(mask.astype("uint8"), mask=mask, transform=prof["transform"]):
-            if v == 1:
-                gm = shp_shape(g)
-                if gm.area / 1e6 >= min_km2:
-                    polys.append(gm)
-        polys.sort(key=lambda p: p.area, reverse=True)
-        for gm in polys[:8]:
+            if v != 1:
+                continue
+            gm = shp_shape(g)
+            km2 = gm.area / 1e6
+            try:
+                inside = ~geometry_mask([g], out_shape=raw.shape,
+                                        transform=prof["transform"], invert=False)
+            except Exception:
+                inside = None
+            score = float(np.nanmean(raw[inside])) if inside is not None and inside.any() else 0.0
+            floor = min_km2 * (0.25 if score >= 0.75 else 1.0)
+            if km2 >= floor:
+                polys.append((gm, km2, score, inside))
+        polys.sort(key=lambda t: (t[2], t[1]), reverse=True)
+        for gm, km2, score, inside in polys[:8]:
+            why = None
+            agree = None
+            if src_r is not None and inside is not None and inside.any():
+                codes = np.nan_to_num(src_r)[inside].astype(int)
+                codes = codes[codes > 0]
+                if codes.size:
+                    vals, cnts = np.unique(codes, return_counts=True)
+                    top = int(vals[int(np.argmax(cnts))])
+                    share = float(cnts.max() / codes.size)
+                    why = {"source": SRC_NAME.get(top, "unknown"),
+                           "share": round(share, 2)}
+                if agr_r is not None:
+                    a = np.nan_to_num(agr_r)[inside]
+                    if a.size:
+                        agree = round(float(a.mean()), 2)
             gw = to_wgs(gm).simplify(0.0008)
             for pp in (gw.geoms if gw.geom_type == "MultiPolygon" else [gw]):
                 ring = [[round(x, 5), round(y, 5)] for x, y in pp.exterior.coords]
                 if len(ring) >= 4:
-                    out.append({"type": name, "what": what, "when": when,
-                                "area_km2": round(gm.area / 1e6, 1), "ll": ring})
+                    z = {"type": name, "what": what, "when": when,
+                         "area_km2": round(km2, 1), "score": round(score, 3), "ll": ring}
+                    if why:
+                        z["why"] = why
+                    if agree is not None:
+                        z["agree"] = agree
+                    out.append(z)
     return out
+
+
+# Which contributor each browse sub-layer comes from, in the order a hunter should read
+# them: hardest evidence first. `key` is the doc field, `tif` the raster habitat.py wrote.
+BROWSE_SUBLAYERS = [
+    {"key": "browse_cut_zones", "tif": "browse_cut.tif", "cls": "cut",
+     "name": "From dated cuts",
+     "note": "Logging polygons with a cut year, aged through the browse curve. The hardest "
+             "browse evidence there is — a surveyed shape with a date on it."},
+    {"key": "browse_burn_zones", "tif": "burn_browse.tif", "cls": "burn",
+     "name": "From dated burns",
+     "note": "Mapped fire perimeters with a year, aged the same way. Peaks later than a cut "
+             "because fire regenerates more slowly."},
+    {"key": "browse_stand_zones", "tif": "browse_stand.tif", "cls": "stand",
+     "name": "From the forest-stand map",
+     "note": "Surveyed stand species and canopy closure, but no date attached. Beats the "
+             "satellite, loses to a dated disturbance."},
+    {"key": "browse_lc_zones", "tif": "browse_lc.tif", "cls": "landcover",
+     "name": "From satellite land cover",
+     "note": "10 m land-cover classes refined by greenness. Covers everywhere, including "
+             "north of the stand-map limit — and it is a guess everywhere it is used."},
+]
 
 
 def _haversine_km(a, b):
@@ -775,6 +889,21 @@ def build(ctx: Context) -> dict:
         doc["hunt_zones"] = []
     try:
         doc["browse_zones"] = _browse_zones(ctx, cache)
+        # #96: browse is a composite, so the map can show it as one. Each sub-layer is
+        # the SAME polygonizer over that contributor's own raster, which means a hunter
+        # can turn off the satellite guess and see only the ground backed by a surveyed,
+        # dated cut. Absent (empty) on any plan computed before rev 21, and absent for
+        # any contributor this AOI has no data for — an empty list is honest here.
+        for sub in BROWSE_SUBLAYERS:
+            try:
+                doc[sub["key"]] = _polygonize(ctx, cache, sub["tif"],
+                                              [(sub["cls"], 0.45)], min_km2=0.4,
+                                              smooth_m=180, per_class=10, simp=0.0006)
+            except Exception:
+                doc[sub["key"]] = []
+        doc["browse_sublayers"] = [{"key": s["key"], "cls": s["cls"], "name": s["name"],
+                                    "note": s["note"], "n": len(doc.get(s["key"]) or [])}
+                                   for s in BROWSE_SUBLAYERS]
     except Exception:
         doc["browse_zones"] = []
     # FEEDING EDGE as the BAND it is (#70). A single icon on a seam that runs for

@@ -487,7 +487,18 @@ function buildSources(){
   const huntZones=fc((DOC.hunt_zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},
     properties:{cls:z.cls,area_km2:z.area_km2}})));
   const browseZones=fc((DOC.browse_zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},
-    properties:{type:z.type,what:z.what,when:z.when,area_km2:z.area_km2}})));
+    properties:{type:z.type,what:z.what,when:z.when,area_km2:z.area_km2,score:z.score,
+      // #96 provenance — which source decided this ground and how well the rest agreed.
+      // Absent on plans computed before rev 21, so every reader has to tolerate null.
+      src:(z.why&&z.why.source)||null, srcShare:(z.why&&z.why.share)||null, agree:(z.agree!=null?z.agree:null)}})));
+  // BROWSE SUB-LAYERS (#96). browse.tif is a composite of four kinds of evidence; these
+  // are the same polygonizer run over each contributor on its own, so the hunter can
+  // switch off the satellite guess and see only ground backed by a dated, surveyed cut.
+  const browseSub={};
+  (DOC.browse_sublayers||[]).forEach(sl=>{
+    browseSub[sl.key]=fc((DOC[sl.key]||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},
+      properties:{area_km2:z.area_km2,score:z.score,name:sl.name,note:sl.note}})));
+  });
   const zFC=(zones)=>fc((zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},properties:{area_km2:z.area_km2}})));
   const refugeZones=zFC(DOC.refuge_zones), funnelZones=zFC(DOC.funnel_zones);
   // #70: the feeding EDGE is a band, not a dot — draw its real extent alongside the
@@ -502,7 +513,7 @@ function buildSources(){
   const infra=fc((DOC.infra||[]).map(o=>({type:'Feature',geometry:{type:'LineString',coordinates:o.ll},properties:{t:o.t,cls:o.cls||o.t,name:o.name||''}})));
   const wetlandZones=zFC(DOC.wetland_zones);
   const beaverPonds=fc((DOC.beaver_ponds||[]).map(p=>({type:'Feature',geometry:{type:'Point',coordinates:p.ll},properties:{}})));
-  return {areas,areaLabels,camps,staging,packin,routes,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones,feedEdgeZones,burnZones,cutZones,wetlandZones,beaverPonds,tenureZones,infra};
+  return {browseSub,areas,areaLabels,camps,staging,packin,routes,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones,feedEdgeZones,burnZones,cutZones,wetlandZones,beaverPonds,tenureZones,infra};
 }
 
 function init(){
@@ -538,6 +549,18 @@ function init(){
   // the likelihood bands, and texture survives overlap where another fill can't.
   map.addLayer({id:'browseZones',type:'fill',source:'browseZones',
     layout:{visibility:'none'},paint:{'fill-pattern':'pat-browse','fill-opacity':0.9}});
+  // One layer per browse contributor (#96). Outlined rather than filled: these sit ON
+  // TOP of the composite, so a solid wash would just hide the thing it is explaining.
+  // Colour runs hard-evidence -> guess, matching the precedence the engine uses.
+  const BSUB_COL={browse_cut_zones:'#6FA83A',browse_burn_zones:'#C4703A',
+                  browse_stand_zones:'#3F8F7A',browse_lc_zones:'#8A8F5C'};
+  Object.keys(BSUB_COL).forEach(k=>{
+    map.addSource(k,{type:'geojson',data:(S.browseSub&&S.browseSub[k])||fc([])});
+    map.addLayer({id:k,type:'fill',source:k,layout:{visibility:'none'},
+      paint:{'fill-color':BSUB_COL[k],'fill-opacity':0.22}});
+    map.addLayer({id:k+'-line',type:'line',source:k,layout:{visibility:'none'},
+      paint:{'line-color':BSUB_COL[k],'line-width':1.6,'line-opacity':0.95}});
+  });
   // edge:'none' — stipple carries the identity; satellite-derived browse has no surveyed edge
   // TENURE — closed ground gets a hatched red wash + hard outline; bookable ground a
   // dashed amber outline only. This is the legal gate made visible.
@@ -773,8 +796,26 @@ function init(){
     new maplibregl.Popup().setLngLat(e.lngLat)
       .setHTML(`<h4><span style="color:${cl.c}">●</span> ${cl.label||p.cls} · ${p.area_km2} km²</h4><div class="s">${HUNT_WHY[p.cls]||''}</div>`).addTo(map);});
   onFeat('browseZones',e=>{ const p=e.features[0].properties;
+    // #96 — browse is a composite, so the card says which source decided this ground and
+    // whether the others backed it up. A number with no history is what made this layer
+    // hard to trust. Older plans carry no provenance; the block simply does not render.
+    let prov='';
+    if(p.src){
+      const sh=p.srcShare!=null?` (${Math.round(p.srcShare*100)}% of it)`:'';
+      const ag=p.agree==null?'' : (p.agree>=0.8?'the other sources agree'
+              : p.agree>=0.5?'the other sources partly agree'
+              : '<b>the other sources disagree here</b>');
+      prov=`<div class="s" style="margin-top:6px"><b>Why:</b> mostly the ${p.src}${sh}${ag?' — '+ag:''}.</div>`;
+    }
+    const sc=(p.score!=null)?`<div class="s" style="margin-top:4px"><b>Score:</b> ${p.score}</div>`:'';
     new maplibregl.Popup().setLngLat(e.lngLat)
-      .setHTML(`<h4>${p.type} · ${p.area_km2} km²</h4><div class="s">${p.what}</div><div class="s" style="margin-top:4px"><b>When:</b> ${p.when}</div>`).addTo(map);});
+      .setHTML(`<h4>${p.type} · ${p.area_km2} km²</h4><div class="s">${p.what}</div><div class="s" style="margin-top:4px"><b>When:</b> ${p.when}</div>${sc}${prov}`).addTo(map);});
+  ['browse_cut_zones','browse_burn_zones','browse_stand_zones','browse_lc_zones'].forEach(k=>{
+    onFeat(k,e=>{ const p=e.features[0].properties;
+      new maplibregl.Popup().setLngLat(e.lngLat)
+        .setHTML(`<h4>${p.name} · ${p.area_km2} km²</h4><div class="s">${p.note}</div>`+
+                 `<div class="s" style="margin-top:4px"><b>Score from this source alone:</b> ${p.score}</div>`).addTo(map);});
+  });
   onFeat('refugeZones',e=>{ new maplibregl.Popup().setLngLat(e.lngLat)
     .setHTML(`<h4><span style="color:${REFUGE_COL}">▨</span> Thermal refuge · ${e.features[0].properties.area_km2} km²</h4><div class="s">${ZONE_WHY.refuge}</div>`).addTo(map);});
   ['tenureZones-line','tenureZones-line-ok'].forEach(id=>
@@ -1187,6 +1228,10 @@ const LYR_MAP={feedEdge:['feedEdgeZones','feedEdgeZones-line'],areas:['areas-fil
   refuge:['refugeZones'],
   funnel:['funnelZones'],
   browse:['browseZones'],
+  browseCut:['browse_cut_zones','browse_cut_zones-line'],
+  browseBurn:['browse_burn_zones','browse_burn_zones-line'],
+  browseStand:['browse_stand_zones','browse_stand_zones-line'],
+  browseLc:['browse_lc_zones','browse_lc_zones-line'],
   burns:['burnZones','burnZones-line'],
   cuts:['cutZones','cutZones-line'],
   wetland:['wetlandZones','wetlandZones-line'],beaver:['beaverPonds'],
@@ -1221,6 +1266,22 @@ const LAYERS=[
  {k:'browse', group:'MODEL ZONES', kind:'stipple', edge:'none', name:'Browse / feeding',
   note:'Regen & riparian forage — the food itself', hex:'#8FB43A', icon:'leaf', on:false, lyr:'browse',
   count:()=>(DOC.browse_zones||[]).length},
+ // #96 — the parts browse is made of, indented under it. Each is the SAME polygonizer
+ // over one contributor's own raster, so switching off "satellite land cover" leaves
+ // only ground backed by a surveyed, dated disturbance. A contributor with no data for
+ // this AOI shows a count of 0 rather than disappearing: absent evidence is a fact.
+ {k:'browseCut', group:'MODEL ZONES', sub:'browse', kind:'outline', edge:'solid',
+  name:'· from dated cuts', note:'Logging polygons with a cut year, aged through the browse curve — the hardest browse evidence there is.',
+  hex:'#6FA83A', on:false, lyr:'browseCut', count:()=>(DOC.browse_cut_zones||[]).length},
+ {k:'browseBurn', group:'MODEL ZONES', sub:'browse', kind:'outline', edge:'solid',
+  name:'· from dated burns', note:'Mapped fire perimeters with a year. Peaks later than a cut — fire regenerates more slowly.',
+  hex:'#C4703A', on:false, lyr:'browseBurn', count:()=>(DOC.browse_burn_zones||[]).length},
+ {k:'browseStand', group:'MODEL ZONES', sub:'browse', kind:'outline', edge:'solid',
+  name:'· from the stand map', note:'Surveyed stand species and canopy closure, but no date. Beats the satellite, loses to a dated disturbance.',
+  hex:'#3F8F7A', on:false, lyr:'browseStand', count:()=>(DOC.browse_stand_zones||[]).length},
+ {k:'browseLc', group:'MODEL ZONES', sub:'browse', kind:'outline', edge:'solid',
+  name:'· from satellite land cover', note:'10 m land cover refined by greenness. Covers everywhere — and it is a guess everywhere it is used.',
+  hex:'#8A8F5C', on:false, lyr:'browseLc', count:()=>(DOC.browse_lc_zones||[]).length},
  {k:'burns', group:'MODEL ZONES', kind:'hatch', edge:'solid', name:'Burn regeneration',
   note:'Fire perimeters by age — browse peaks 15–22 yr after a burn. Strongest single predictor here.',
   hex:'#C97A2B', icon:'flame', on:false, lyr:'burns', count:()=>(DOC.burn_zones||[]).length},
@@ -1370,11 +1431,18 @@ function layerCSS(kind,hex,dash){
 function lpHTML(r){
   if(r.kind==='line')
     return `<span class="lp lp--line"><i style="border-top:2px ${r.dash||'solid'} ${r.hex}"></i></span>`;
-  if(r.kind==='point')
+  // BRACES. `if(r.kind==='point')` guarded only the `if(r.chips)` line, so the
+  // point-badge return below it ran for EVERY row and the fill branch was unreachable
+  // dead code. Every zone row — the browse stipple, the burn hatch, the tenure exclude
+  // wash — was drawn in the panel as an icon badge, which is precisely what the comment
+  // above layerCSS says must never happen: "a hunter can never trust a swatch that
+  // doesn't match what's drawn". It was an invariant asserted in prose and not in code.
+  if(r.kind==='point'){
     if(r.chips)
-    return `<span class="lp lp--point lp--pair">${r.chips.map(c=>
-      iconBadge(r.icon,r.hex,16,c)).join('')}</span>`;
-  return `<span class="lp lp--point">${iconBadge(r.icon,r.hex,18)}</span>`;
+      return `<span class="lp lp--point lp--pair">${r.chips.map(c=>
+        iconBadge(r.icon,r.hex,16,c)).join('')}</span>`;
+    return `<span class="lp lp--point">${iconBadge(r.icon,r.hex,18)}</span>`;
+  }
   return `<span class="lp lp--fill" style="${layerCSS(r.kind,r.hex,r.dash)}"></span>`;
 }
 /* Rounded-square badge, layer colour, halo, glyph colour COMPUTED from luminance
@@ -2694,6 +2762,8 @@ function applyDoc(newDoc){        // re-bind the whole map + panels to fresh eng
   const S=buildSources();
   const setD=(id,data)=>{const s=map.getSource(id); if(s&&data) s.setData(data);};
   setD('huntZones',S.huntZones); setD('browseZones',S.browseZones);
+  ['browse_cut_zones','browse_burn_zones','browse_stand_zones','browse_lc_zones']
+    .forEach(k=>setD(k,(S.browseSub&&S.browseSub[k])||fc([])));
   setD('refugeZones',S.refugeZones); setD('funnelZones',S.funnelZones); setD('burnZones',S.burnZones); setD('cutZones',S.cutZones); setD('tenureZones',S.tenureZones);
   setD('wetlandZones',S.wetlandZones); setD('beaverPonds',S.beaverPonds);
   setD('rivers',S.rivers); setD('lakes',S.lakes); setD('crossings',S.crossings); setD('infra',S.infra);
