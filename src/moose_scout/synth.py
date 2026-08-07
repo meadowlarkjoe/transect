@@ -155,6 +155,7 @@ def extract_focus_areas(ctx, hunt, prof):
         peaks = peak_local_max(hs, num_peaks=NO_CAP, min_distance=min_dist_px,
                                threshold_abs=floor, exclude_border=False)
         out = []
+        dbg = []
         for (pr, pc) in peaks:
             near = (Y - pr) ** 2 + (X - pc) ** 2 <= radius_px ** 2
             # ADMISSION AND EXTENT ARE DIFFERENT QUESTIONS, and one constant was answering
@@ -193,8 +194,33 @@ def extract_focus_areas(ctx, hunt, prof):
             sel = binary_fill_holes(binary_closing(lbl == comp, iterations=2))
             area = int(sel.sum()) * px_area
             if area < min_a:
+                if os.environ.get("FOCUS_DEBUG"):
+                    dbg.append((float(hs[pr, pc]), (int(pr), int(pc)), area,
+                                float(np.nanmean(hunt[sel])), f"dropped: < {min_a:.1f} km2"))
                 continue
+            if os.environ.get("FOCUS_DEBUG"):
+                dbg.append((float(hs[pr, pc]), (int(pr), int(pc)), area,
+                            float(np.nanmean(hunt[sel])), "KEPT"))
             out.append((float(hs[pr, pc]), area, float(np.nanmean(hunt[sel])), sel))
+        if os.environ.get("FOCUS_DEBUG"):
+            # EVERY PEAK AND ITS FATE, from inside the real loop. Reconstructing this
+            # from outside gave three different wrong answers before it was clear the
+            # reconstruction was the problem — so the question gets asked here or not
+            # at all.
+            fin = np.isfinite(hunt)
+            gy, gx = np.unravel_index(int(np.argmax(np.where(fin, hs, -1))), hs.shape)
+            print(f"[synth] _find(floor={floor:.3f}, gate_f={gate_f}, min_area={min_a:.1f}) "
+                  f"-> {len(peaks)} peaks, {len(out)} kept")
+            print(f"[synth]    surface: finite {int(fin.sum())} cells, rows "
+                  f"{int(np.where(fin.any(axis=1))[0].min())}-"
+                  f"{int(np.where(fin.any(axis=1))[0].max())}, cols "
+                  f"{int(np.where(fin.any(axis=0))[0].min())}-"
+                  f"{int(np.where(fin.any(axis=0))[0].max())}")
+            print(f"[synth]    smoothed max {hs[fin].max():.3f} at ({gy},{gx}); "
+                  f"raw max {np.nanmax(hunt):.3f}")
+            for pk, rc, ar, mn, why in sorted(dbg, reverse=True):
+                print(f"[synth]    peak {rc} smoothed {pk:.3f} lobe {ar:6.1f} km2 "
+                      f"mean {mn:.3f}  {why}")
         return out
 
     # Primary pass at the absolute floor, then ONE mild fallback (still absolute, not a
@@ -623,6 +649,23 @@ def run(ctx: Context, manual_areas=None) -> None:
     # then plans inside the hunter's polygon.
     if manual_areas:
         features, area_masks = _manual_focus_areas(manual_areas, hunt, prof, res)
+    # PERSIST THE POOL THE EXTRACTION ACTUALLY CHOSE FROM (T6.4).
+    #
+    # `hunt` reaches here already narrowed — a 2 km border crop for filter artefacts, and
+    # the reachability/camp-radius mask above. On one real box that leaves rows 254-754 of
+    # a 1008-row raster: a 10 km window inside a 20 km box.
+    #
+    # Nothing downstream could see that, and the null-model benchmark got it wrong FOUR
+    # times in a row — each time drawing its "best possible area" from ground the model
+    # was structurally forbidden to select, and each time producing a confident verdict
+    # that the extraction was choosing badly. The last of those put the ideal area at
+    # (241, 759), outside this window on both axes. Guessing the mask from outside does
+    # not work; writing it down does.
+    try:
+        ru.write(cache / "focus_pool.tif",
+                 np.isfinite(hunt).astype("float32"), prof)
+    except Exception as _e:  # noqa: BLE001 — diagnostics must never fail a run
+        print(f"[synth] focus_pool not written: {_e}")
     if not manual_areas or not area_masks:
         features, area_masks = extract_focus_areas(ctx, hunt, prof)
 

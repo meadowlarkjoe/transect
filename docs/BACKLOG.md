@@ -19,46 +19,52 @@ underserved. Within a band, cheaper first.
 
 ### Band 1 — SILENTLY WRONG (the product states something untrue)
 
-| # | Ticket | Why it is here |
-|---|--------|----------------|
-| 1 | **T6.4** One box captures 2%; instrumented, not yet explained | Ranking and the extent bar are both ruled out. Three reconstructions of the extraction disagreed with the real code, so FOCUS_DEBUG now asks it directly. |
+**Empty as of 2026-08-07.** Everything that reached this band has been either fixed or
+disproved. Worth recording how the last four went, because it is a pattern rather than a
+coincidence: T6.1, T6.3 and T6.4 all began as "the model is doing something wrong" and
+all three turned out to be the MEASUREMENT being wrong — a tautological null, a
+mis-configured baseline, and four successive versions of the wrong choice-set. The engine
+was in better shape than its instruments said every time.
+
+The instruments are now written down rather than reconstructed (`focus_pool.tif`,
+`FOCUS_DEBUG=1`), which is what should stop the next one.
 
 ### Band 2 — MISSING (a real gap you can see)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 2 | **T10.21** A portage route is not an extraction route | T10.20 lets a canoe portage in. Coming out with a quartered bull is a different problem, and one walk_km covers both. |
-| 3 | **T10.6** PDF brief renders no analysis | Shipped in T9.7 on the strength of the plates existing; nobody checked what was on them. Basemap only. |
-| 4 | **T10.5** Camp icon regressed to a numbered circle | Collateral from T9.3/T9.1. A camp is not a site index. |
-| 5 | **T10.11 + T10.10** Pitch does not enable terrain; the SAT/2D chip is a constant | Two halves of one complaint, both small, both confirmed in the source. |
-| 6 | **T9.10b** Decide the fine-grid neck detector | Built and gated off in rev 22. Needs a real A/B, not a permanent flag. |
-| 7 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
-| 8 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
-| 9 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
-| 10 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
-| 11 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
-| 12 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
+| 1 | **T10.21** A portage route is not an extraction route | T10.20 lets a canoe portage in. Coming out with a quartered bull is a different problem, and one walk_km covers both. |
+| 2 | **T10.6** PDF brief renders no analysis | Shipped in T9.7 on the strength of the plates existing; nobody checked what was on them. Basemap only. |
+| 3 | **T10.5** Camp icon regressed to a numbered circle | Collateral from T9.3/T9.1. A camp is not a site index. |
+| 4 | **T10.11 + T10.10** Pitch does not enable terrain; the SAT/2D chip is a constant | Two halves of one complaint, both small, both confirmed in the source. |
+| 5 | **T9.10b** Decide the fine-grid neck detector | Built and gated off in rev 22. Needs a real A/B, not a permanent flag. |
+| 6 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
+| 7 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
+| 8 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
+| 9 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
+| 10 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
+| 11 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
 
 ### Band 3 — UGLY (it works and reads badly)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 13 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
-| 14 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
+| 12 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
+| 13 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
 
 ### Band 4 — PLATFORM (nobody sees it; it decides how fast the rest goes)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 15 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
-| 16 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
-| 17 | **T4.1** Extract the Québec legal adapter | The most province-locked file. Blocks T4.2. |
-| 18 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
-| 19 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
-| 20 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
-| 21 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
-| 22 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
-| 23 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
+| 14 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
+| 15 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
+| 16 | **T4.1** Extract the Québec legal adapter | The most province-locked file. Blocks T4.2. |
+| 17 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
+| 18 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
+| 19 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
+| 20 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
+| 21 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
+| 22 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
 
 ---
 
@@ -341,33 +347,56 @@ top-scoring cells, which trivially beat the oracle — so the settings that prod
 areas reported capture 2.3–3.2, the most flattering possible number for the worst
 possible outcome. `capture` is now None when the extraction produced nothing.
 
-### T6.4 — One box captures 2%; instrumented, NOT yet explained · `in-progress` (2026-08-07)
-Attempted and stopped short, deliberately. What is established, and what is not:
+### T6.4 — There was no extraction bug; the benchmark had the wrong pool, four times · `done` (2026-08-07)
+Resolved, and the answer overturns T6.1, T6.3 and T6.4 alike.
 
-**Established.**
-* The oracle centre on `job_0e92b5ca580d` sits at smoothed **0.344**, comfortably above
-  the 0.26 admission bar — so nothing structural prevents the extraction from finding it.
-* The real extraction reports only **2 candidates**, with smoothed peaks 0.275 and 0.351
-  and means 0.233 and 0.272, centred ~7 km from the oracle.
-* Ranking is NOT the cause. Both `area × mean` and `mean` alone put the same candidate
-  first, so the "big mediocre blob beats small excellent one" hypothesis from T6.3 does
-  not apply here.
+**The question was: why doesn't the ground at the oracle centre become a candidate?**
+Instrumenting the real `_find` — after three failed attempts to reconstruct it from
+outside — answered it in one line. The extraction surface on that box spans **rows
+254-754, cols 255-755**. The "best possible area" the benchmark was holding the model to
+sat at **(241, 759)** — outside the window on BOTH axes. The model was not picking the
+wrong ground. It is structurally forbidden from picking that ground.
 
-**Not established, and the reason this stopped.** Three separate attempts to reconstruct
-`extract_focus_areas` outside the pipeline all disagreed with it — first a wrong `gate_f`
-(0.80 against the 0.82 `_find` is called with), then a wrong `smoothing_m` (350 against
-the shipped 200), and finally a candidate set that still cannot be reconciled: the
-reconstruction finds 4 kept lobes with peaks 0.390/0.379/0.378/0.363 where the real code
-finds 2 at 0.275/0.351, from what should be identical inputs. Every conclusion drawn from
-that reconstruction is therefore untrustworthy, including any fix built on it.
+**`hunt` reaches the extraction narrowed twice** — the 2 km border crop for filter
+artefacts, and the reachability / camp-radius mask. On that box it leaves 78 km² of a
+400 km² raster. Nothing downstream could see it, so every attempt to reconstruct the pool
+guessed, and every guess erred in the same direction: flattering the null, damning the
+model.
 
-**What shipped instead:** `FOCUS_DEBUG=1` makes the real `extract_focus_areas` print its
-candidate list — peak, area, mean and rank-score per candidate, with the constants that
-produced them. That is the tool this needs; reconstructing the loop is not.
+| measurement | pool it used | verdict it gave |
+|---|---|---|
+| T6.1 | every finite cell (399 km²) | "captures 6-20%" |
+| T6.3 | + 2 km border crop (256 km²) | "captures 1.8-40.8%" |
+| **T6.4** | **recorded by synth (78 km²)** | **beats random on every box** |
 
-**Done when:** the candidate list from the instrumented run explains why the ground at
-the oracle centre does not become a candidate — read from the real code, not rebuilt
-beside it.
+**Corrected measurements, all three boxes:**
+
+| box | pool km² | model | random | fair oracle | headroom |
+|---|---|---|---|---|---|
+| job_0e92b5ca580d | 78.3 | **0.246** | 0.221 | 0.233 | 0.012 |
+| job_8892f779ddc9 | 34.3 | **0.247** | 0.231 | 0.244 | 0.013 |
+| job_20e209ca08d0 | 49.0 | **0.256** | 0.229 | 0.234 | 0.005 |
+
+The model beats a random draw on every box and matches or beats the best contiguous area
+on every box. Oracle headroom is 0.005-0.013 throughout — below the 0.02 floor — so there
+is no structure at this scale to capture, `capture` correctly reports n/a, and there is
+no extraction bug to fix.
+
+**The durable fix is that the pool is now WRITTEN DOWN.** `synth` records
+`focus_pool.tif` — the exact surface it extracted from — before extracting, and
+`validate` reads it. Guessing it from outside failed four consecutive times; this ends
+that class of error rather than correcting its fifth instance.
+
+**A limitation kept rather than hidden:** `_oracle_blob` centres on one Gaussian argmax
+and takes the n nearest cells, so when the selection is 23-54% of the pool it converges
+on the pool itself — which is why the model can score ABOVE it. The headroom guard
+suppresses `capture` there, which is the right outcome, but the oracle is weak at those
+fractions and a better construction would be needed if a box ever showed real headroom.
+
+**What this does NOT overturn:** T6.3's extent fix stands on its own evidence (an area
+grew until 64-73% of it was below the landscape mean, and trimming to its best half
+doubled the score of the ground handed over). T6.1's road-null result stands too — 0.4-19%
+overlap and weak rank correlation, on any pool.
 
 ### T6.2 — Backtest against harvest density · `blocked` *(by T6.1)*
 **Done when:** modelled huntability correlates (or demonstrably does not) with published

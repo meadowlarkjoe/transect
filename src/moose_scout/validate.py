@@ -95,12 +95,24 @@ def benchmark(cache: Path, sample: int = 200_000) -> dict:
     # pool was ground the model was never allowed to pick. A null model has to be given
     # the same choices as the thing it is a null for.
     res = abs(prof["transform"].a)
-    m = max(5, int(round(2000 / res)))
-    huntable = np.isfinite(hunt)
-    huntable[:m, :] = False
-    huntable[-m:, :] = False
-    huntable[:, :m] = False
-    huntable[:, -m:] = False
+    pool = cache / "focus_pool.tif"
+    if pool.exists():
+        # THE POOL, AS THE EXTRACTION RECORDED IT (T6.4). Guessing this from outside
+        # failed four times: first the 2 km border crop was missed entirely, then it was
+        # applied but the reachability/camp-radius mask was not. On one box the model's
+        # real choice set was rows 254-754 of a 1008-row raster, and the "best possible
+        # area" the benchmark held it to sat outside that window — so it was measured
+        # against ground it was forbidden to pick, and judged for not picking it.
+        huntable = np.nan_to_num(ru.read(pool)[0]) > 0.5
+    else:
+        # Older cache: the border crop is the part that can be reconstructed safely.
+        m = max(5, int(round(2000 / res)))
+        huntable = np.isfinite(hunt)
+        huntable[:m, :] = False
+        huntable[-m:, :] = False
+        huntable[:, :m] = False
+        huntable[:, -m:] = False
+    huntable &= np.isfinite(hunt)
     if not huntable.any():
         return {"ok": False, "why": "no huntable ground in this cache"}
 

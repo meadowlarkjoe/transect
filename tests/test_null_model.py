@@ -86,11 +86,15 @@ def test_confetti_fails_even_if_it_concentrates():
                                patches_random=5000))["beats_random"] is False
 
 
-def test_the_measured_capture_is_reported_not_flattered():
-    """THE FINDING, after the yardstick was corrected twice. Measured against a FAIR
-    oracle — the best contiguous area of the same size — a real box captures 2% of what
-    a walkable area could achieve there. The threshold was left where it fails rather
-    than moved until it passed; retuning to go green is the rev-21 mistake."""
+def test_the_capture_threshold_is_where_it_fails_not_where_it_flatters():
+    """The threshold sits where a poor selection FAILS, and was never moved to make a
+    result go green — that would be the rev-21 mistake.
+
+    Note the "2% of achievable" this was originally written around did not survive:
+    T6.4 found it was measured against ground the model could not select at all. With
+    the pool recorded (test_focus_pool.py) the model beats a random draw on every box.
+    The threshold stands regardless — it guards a real failure mode, it is not a claim
+    that the failure is currently happening."""
     for cap in (0.02, 0.05, 0.20):
         assert validate.verdict(_r(capture=cap))["beats_random"] is False, cap
     assert validate.verdict(_r(capture=0.30))["beats_random"] is True
