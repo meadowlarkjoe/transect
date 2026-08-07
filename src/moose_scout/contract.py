@@ -846,6 +846,10 @@ def build(ctx: Context) -> dict:
                  "extraction_modes": ctx.aoi.hunter.extraction_modes,
                  "watercraft": getattr(ctx.aoi.hunter, "watercraft", "none"),
                  "hunt_style": getattr(ctx.aoi.hunter, "hunt_style", "spike"),
+                 # T10.2 — what this plan was written for. A bow plan and a rifle
+                 # plan on the same ground are different plans, not the same one
+                 # with a different label.
+                 "method": getattr(ctx.aoi.hunter, "method", "rifle"),
                  # A cabin hunt runs on spike semantics, so hunt_style alone cannot tell
                  # anyone downstream that the hunter sleeps at a camp they named. Without
                  # this the brief had to ask the SETUP PANEL what kind of hunt this was —

@@ -86,7 +86,7 @@ def windows_of(req: dict):
     return out
 
 
-def build_ctx(name: str, req: dict):
+def build_ctx(name: str, req: dict, method: str | None = None):
     """Rebuild the analysis Context from the stored request. Mirrors what the API used
     to do inline; kept here so the worker depends on the STORE, not on the API.
 
@@ -110,6 +110,8 @@ def build_ctx(name: str, req: dict):
             residency=req.get("residency", "quebec_resident"),
             watercraft=req.get("watercraft") if req.get("watercraft") in ("none", "canoe", "motor") else "none",
             hunt_style=req.get("hunt_style") if req.get("hunt_style") in ("spike", "vehicle") else "spike",
+            method=method if method in METHODS else (
+                req.get("method") if req.get("method") in METHODS else "rifle"),
             transport={k: bool(tr.get(k)) for k in ("canoe", "motor", "atv")},
             sites=[tuple(s) for s in sites] if sites else None,
             # .get(k, default) only covers a MISSING key — an explicit null still
@@ -150,6 +152,41 @@ def build_ctx(name: str, req: dict):
 # adding a dated section later without adding it here is how this bug comes back.
 WINDOW_SECTIONS = ("rut", "strategy", "recommendations", "field_plan", "weather",
                    "behavior", "scent", "wind", "camp_plan")
+
+
+METHODS = ("rifle", "bow", "muzzleloader")
+
+
+def methods_of(req: dict):
+    """The method of take per window, aligned 1:1 with `windows_of(req)`.
+
+    A window is usually a SEASON and a season is usually a weapon — which is how Joe
+    framed it: "I gave it two hunting windows (rifle vs bow season)". So the method
+    belongs to the window, not to the hunt.
+
+    Carried as an optional THIRD element of each window so that every request that ever
+    worked still works: `["2026-10-10", "2026-10-25"]` is a rifle window, exactly as it
+    has always been treated.
+    """
+    raw = req.get("windows") or []
+    default = req.get("method") if req.get("method") in METHODS else "rifle"
+    out = []
+    for w in raw[:4]:
+        try:
+            a, b = str(w[0]), str(w[1])
+        except (TypeError, ValueError, IndexError):
+            continue
+        if not (a and b):
+            continue
+        m = None
+        try:
+            m = str(w[2]) if len(w) > 2 else None
+        except (TypeError, IndexError):
+            m = None
+        out.append(m if m in METHODS else default)
+    if not out:
+        out = [default]
+    return out
 
 
 def _merge(docs, plans):
@@ -279,7 +316,7 @@ def _merge(docs, plans):
             tg = rut.get("targets") or []
             entry = dict(
                 r, window=pl["window"], start=pl["dates"][0], end=pl["dates"][1],
-                dates=list(pl["dates"]),
+                dates=list(pl["dates"]), method=pl.get("method") or "rifle",
                 phase=(tg[0].get("phase") if tg else None),
                 rut_read=rut.get("hunt_read"),
                 note=None if r["ok"] else "this window could not be analysed")
@@ -310,10 +347,12 @@ def run(jid: str) -> int:
     name = f"job_{jid}"
     sites = sites_of(req)
     windows = windows_of(req)
+    methods = methods_of(req)
     # ONE RUN PER (SITE, WINDOW). Sites vary the ground and each needs its own acquire;
     # windows share geography, so the geography cache (#79) makes their acquire nearly
     # free and only the compute stages repeat.
-    plans = [{"site": si, "lat": lat, "lon": lon, "window": wi, "dates": list(w)}
+    plans = [{"site": si, "lat": lat, "lon": lon, "window": wi, "dates": list(w),
+              "method": methods[wi - 1] if wi - 1 < len(methods) else "rifle"}
              for si, (lat, lon) in enumerate(sites, start=1)
              for wi, w in enumerate(windows, start=1)]
     multi = len(plans) > 1
@@ -330,7 +369,7 @@ def run(jid: str) -> int:
             # overwrite the first and quietly report one answer under two headings.
             sub_req = dict(req, lat=pl["lat"], lon=pl["lon"], target_dates=pl["dates"])
             sub_name = name if not multi else f"{name}_s{pl['site']}w{pl['window']}"
-            ctx, res = build_ctx(sub_name, sub_req)
+            ctx, res = build_ctx(sub_name, sub_req, method=pl.get("method"))
             if pi == 1:
                 jobstore.update(jid, res_m=res)
 

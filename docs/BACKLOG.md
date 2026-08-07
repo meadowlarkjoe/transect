@@ -21,46 +21,45 @@ underserved. Within a band, cheaper first.
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 1 | **T10.2** Method of take not modelled per window | Bow stands placed on rifle logic. Makes T10.1 half a fix — right labels, wrong stands. |
-| 2 | **T6.1** Null-model benchmark | The model is unfalsifiable, and rev 21 moved the huntability scale under constants that are still absolute. Load-bearing since 2026-08-06. |
-| 3 | **T0.4** Tests that contaminate each other | Three synth tests fail regardless of the code, so a real regression is indistinguishable from the contamination. |
+| 1 | **T6.1** Null-model benchmark | The model is unfalsifiable, and rev 21 moved the huntability scale under constants that are still absolute. Load-bearing since 2026-08-06. |
+| 2 | **T0.4** Tests that contaminate each other | Three synth tests fail regardless of the code, so a real regression is indistinguishable from the contamination. |
 
 ### Band 2 — MISSING (a real gap you can see)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 4 | **T10.21** A portage route is not an extraction route | T10.20 lets a canoe portage in. Coming out with a quartered bull is a different problem, and one walk_km covers both. |
-| 5 | **T10.6** PDF brief renders no analysis | Shipped in T9.7 on the strength of the plates existing; nobody checked what was on them. Basemap only. |
-| 6 | **T10.5** Camp icon regressed to a numbered circle | Collateral from T9.3/T9.1. A camp is not a site index. |
-| 7 | **T10.11 + T10.10** Pitch does not enable terrain; the SAT/2D chip is a constant | Two halves of one complaint, both small, both confirmed in the source. |
-| 8 | **T9.10b** Decide the fine-grid neck detector | Built and gated off in rev 22. Needs a real A/B, not a permanent flag. |
-| 9 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
-| 10 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
-| 11 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
-| 12 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
-| 13 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
-| 14 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
+| 3 | **T10.21** A portage route is not an extraction route | T10.20 lets a canoe portage in. Coming out with a quartered bull is a different problem, and one walk_km covers both. |
+| 4 | **T10.6** PDF brief renders no analysis | Shipped in T9.7 on the strength of the plates existing; nobody checked what was on them. Basemap only. |
+| 5 | **T10.5** Camp icon regressed to a numbered circle | Collateral from T9.3/T9.1. A camp is not a site index. |
+| 6 | **T10.11 + T10.10** Pitch does not enable terrain; the SAT/2D chip is a constant | Two halves of one complaint, both small, both confirmed in the source. |
+| 7 | **T9.10b** Decide the fine-grid neck detector | Built and gated off in rev 22. Needs a real A/B, not a permanent flag. |
+| 8 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
+| 9 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
+| 10 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
+| 11 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
+| 12 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
+| 13 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
 
 ### Band 3 — UGLY (it works and reads badly)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 15 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
-| 16 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
+| 14 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
+| 15 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
 
 ### Band 4 — PLATFORM (nobody sees it; it decides how fast the rest goes)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 17 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
-| 18 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
-| 19 | **T4.1** Extract the Québec legal adapter | The most province-locked file. Blocks T4.2. |
-| 20 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
-| 21 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
-| 22 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
-| 23 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
-| 24 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
-| 25 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
+| 16 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
+| 17 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
+| 18 | **T4.1** Extract the Québec legal adapter | The most province-locked file. Blocks T4.2. |
+| 19 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
+| 20 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
+| 21 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
+| 22 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
+| 23 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
+| 24 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
 
 ---
 
@@ -425,16 +424,43 @@ run, because it is driven by zone density rather than rut phase. Carrying it per
 is right regardless; making it phase-aware is a separate question.
 
 
-### T10.2 — Method of take is not modelled per window · `ready`
-Reported: "shooting locations for a bow (max 30/40yds) are going to be different for
-those with a rifle (longer range, need visibility more than proximity — can reach out
-further / less concern about local scent as you wont be as close)."
-Today the weapon is not an input at all, so both windows get identically-placed stands.
-That makes T10.1 half a fix: separate briefs that still recommend the same 200 m
-sightline to a bow hunter are still the wrong answer, just labelled correctly.
-**Done when:** a window carries its method of take; shooter placement, the scent-wick
-arc and the glassing/visibility weighting all read it. A bow window wants proximity,
-cover and wind discipline; a rifle window wants sightline.
+### T10.2 — Method of take is modelled per window · `done` (2026-08-07)
+Reported alongside the multi-window brief: "we need to indicate what the method of take
+is for each hunting date range, as shooting locations for a bow (max 30/40yds) are going
+to be different for those with a rifle (longer range, need visibility more than proximity
+— can reach out further / less concern about local scent as you wont be as close)."
+
+Method of take was not an input at all. That made T10.1 half a fix: correctly labelled
+bow advice that still put the shooter 70 m from the caller — twice a bow's effective
+range — and still recommended glassing knobs a bow hunter cannot use.
+
+**It belongs to the WINDOW**, because a window is usually a season and a season is
+usually a weapon, which is how it was reported. It rides as an optional third element of
+each window (`["2026-09-12","2026-09-20","bow"]`) so every request that ever worked still
+works, and a two-element window is still a rifle window.
+
+**What it actually changes**, measured on a real box, same ground, rifle vs bow:
+
+| | rifle | bow |
+|---|---|---|
+| shooter downwind of caller | 70 m | **40 m** |
+| scent wicks | 45 m | **28 m** |
+| effective range quoted | 200 m | 35 m |
+| glassing sites placed | 3 | **2** |
+
+The scent layout is a function of the weapon because its whole purpose is to stop the
+bull at a distance the shooter can USE — the gap between wick and shooter must fit inside
+the effective range, which a test now pins for every method. The site mix gets a method
+weighting that MULTIPLIES the rut-phase weighting rather than replacing it (a bow hunt in
+the seeking phase is still a calling hunt): glassing 0.4x, calling 1.25x, funnels 1.3x.
+Rifle weights are all 1.0, so every existing plan is unmoved.
+
+The client was drawing the shooter at a literal `0.07` km — a rifle setup drawn for
+everybody. It now reads `DOC.scent.geometry`, which the wicks already did.
+
+**Caught by running it:** `_crew_plan` has no `ctx`, so quoting the geometry there raised
+a NameError — the same class of bug the routing code's own comment warns about. The
+distance is a parameter now, not a lookup.
 
 ### T10.3 — Which window an area belongs to is invisible on the map · `ready`
 Reported: "They overlap. Im guessing these are different for each season, but thats not

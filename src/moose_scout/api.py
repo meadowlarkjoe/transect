@@ -211,7 +211,10 @@ class ScoutReq(BaseModel):
     # Multiple DATE WINDOWS compared (T9.2) — e.g. bow season and rifle season. Each is a
     # separate model run, not a relabelling: the habitat surface is phase-weighted, so the
     # same ground scores differently in September and October. None = use target_dates.
+    # [start, end] or [start, end, method] — the third element is the method of take
+    # for THAT window (T10.2). Two elements keeps every older client working.
     windows: list[list[str]] | None = None
+    method: str | None = None          # method for the primary window
     # Nullable on purpose. A pydantic default only fills a MISSING key — an explicit
     # null is a validation error, and the client legitimately holds "not stated yet"
     # for these two. Rejecting the whole run over an unset walk distance, when we have

@@ -40,13 +40,59 @@ from __future__ import annotations
 # Placement geometry, in metres from the calling position along the DOWNWIND bearing.
 # Kept here (not in the client) so the brief, the map and the tests all quote one
 # source; the client only supplies the wind.
-GEOMETRY = {
-    "shooter_m": 70,        # existing caller/shooter split — the arc the bull swings
-    "wick_m": 45,           # 25 m short of the shooter: he stops in range, not past it
-    "flank_m": 25,          # crosswind offset of the two flanking wicks
-    "height_m": [1.0, 1.5], # off the ground: it disperses, and it stays out of the mud
-    "count": 3,
+# THE GEOMETRY IS A FUNCTION OF WHAT YOU ARE CARRYING (T10.2). Reported: "shooting
+# locations for a bow (max 30/40yds) are going to be different for those with a rifle
+# (longer range, need visibility more than proximity - can reach out further / less
+# concern about local scent as you wont be as close)."
+#
+# The whole point of the layout is that the bull stops to work out the cow scent at a
+# distance the shooter can USE. With a rifle, 25 m of margin between wick and shooter is
+# comfortable. With a bow the setup has to be tighter everywhere: a shooter 70 m from
+# the caller covers an arc a bow cannot reach across, so he moves in, and the wicks come
+# in with him. Muzzleloader sits between.
+#
+# `effective_m` is the ethical-shot convention hunters actually work to, not the
+# equipment's maximum, and it is what the brief quotes.
+METHOD_GEOMETRY = {
+    "rifle": {
+        "effective_m": 200,
+        "shooter_m": 70,        # the arc the bull swings through, downwind of the caller
+        "wick_m": 45,           # 25 m short of the shooter: he stops in range, not past it
+        "flank_m": 25,          # crosswind offset of the two flanking wicks
+        "height_m": [1.0, 1.5],
+        "count": 3,
+    },
+    "muzzleloader": {
+        "effective_m": 90,
+        "shooter_m": 55, "wick_m": 38, "flank_m": 20,
+        "height_m": [1.0, 1.5], "count": 3,
+    },
+    "bow": {
+        "effective_m": 35,
+        # Everything tightens. The bull has to stop inside ~35 m of the SHOOTER, and the
+        # shooter has to be near enough to the caller to cover the arc at all.
+        "shooter_m": 40, "wick_m": 28, "flank_m": 15,
+        "height_m": [1.0, 1.5], "count": 3,
+    },
 }
+
+# Kept for anything that still wants the default; `geometry_for` is the real entry point.
+GEOMETRY = METHOD_GEOMETRY["rifle"]
+
+
+def method_of(ctx) -> str:
+    try:
+        m = getattr(ctx.aoi.hunter, "method", "rifle")
+    except Exception:
+        m = "rifle"
+    return m if m in METHOD_GEOMETRY else "rifle"
+
+
+def geometry_for(method: str) -> dict:
+    """Placement geometry, in metres from the calling position along the DOWNWIND
+    bearing, for the weapon in hand. One source for the brief, the map and the tests;
+    the client only supplies the wind."""
+    return METHOD_GEOMETRY.get(method if method in METHOD_GEOMETRY else "rifle")
 
 
 def _cadence(day):
@@ -113,20 +159,24 @@ def plan(ctx, weather: dict | None):
     species = getattr(ctx.aoi, "species", "moose")
     region = getattr(getattr(ctx, "region", None), "code", None)
     days = ((weather or {}).get("days") or [])
+    method = method_of(ctx)
+    G = geometry_for(method)
     return {
-        "geometry": GEOMETRY,
+        "method": method,
+        "effective_m": G["effective_m"],
+        "geometry": G,
         "placement": (
             "Wicks go **across the downwind arc**, {wick} m downwind of the calling position "
             "and {flank} m either side of the caller→shooter line — {gap} m short of the shooter. "
             "A bull swings downwind to scent-check the cow he heard before he shows himself; "
             "this puts cow scent on that arc so he stops and works it out in range, instead of "
             "carrying on until he finds you."
-        ).format(wick=GEOMETRY["wick_m"], flank=GEOMETRY["flank_m"],
-                 gap=GEOMETRY["shooter_m"] - GEOMETRY["wick_m"]),
+        ).format(wick=G["wick_m"], flank=G["flank_m"],
+                 gap=G["shooter_m"] - G["wick_m"]),
         "cadence": [_cadence(d) for d in days],
         "handling": [
             "Hang wicks at {a:.1f}–{b:.1f} m — off the ground it disperses, and it stays "
-            "out of the mud.".format(a=GEOMETRY["height_m"][0], b=GEOMETRY["height_m"][1]),
+            "out of the mud.".format(a=G["height_m"][0], b=G["height_m"][1]),
             "Bottle and wicks go in a sealed bag until you are at the stand. Scent on your "
             "gloves, boots or pack turns your whole walk-in into a scent trail that leads "
             "a bull to the wrong place.",

@@ -1431,7 +1431,7 @@ const LAYERS=[
   hex:'#DCA94D', icon:'truck', on:true, lyr:'staging',
   count:()=>(DOC.waypoints||[]).filter(w=>w.type==='parking').length},
  {k:'shooters', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Shooter positions',
-  note:'Where the SHOOTER sets up — ~70 m downwind of its calling position, because a bull circles downwind to scent-check.', hex:'#FFD400', icon:'target', on:true, lyr:'shooters',
+  note:'Where the SHOOTER sets up, downwind of its calling position, because a bull circles downwind to scent-check. The distance follows your method of take — a bow setup is much tighter than a rifle one.', hex:'#FFD400', icon:'target', on:true, lyr:'shooters',
   count:()=>'—'},
  {k:'scent', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Scent wicks',
   note:'Where to hang cow scent — across the arc a bull swings downwind to scent-check, short of the shooter so he stops in range. Moves with the wind.',
@@ -2448,9 +2448,15 @@ function buildShooters(){
   if(!map.getSource('shooters'))return;
   const wdir=(selectedDay&&selectedDay.wind_from_deg!=null)?selectedDay.wind_from_deg:270;
   const down=(wdir+180)%360;   // shooter sits downwind of the caller
+  // HOW FAR DOWNWIND DEPENDS ON WHAT YOU ARE CARRYING (T10.2). This was a literal
+  // 0.07 km — a rifle setup — drawn identically for a bow hunter whose whole problem is
+  // that 70 m is twice his effective range. The engine picks it per window; the client
+  // only supplies the wind.
+  const _sg=(DOC.scent&&DOC.scent.geometry)||{};
+  const shooterKm=(_sg.shooter_m||70)/1000;
   const pts=[],lines=[];
   (window._sites||[]).filter(f=>f.properties.type==='rut_calling'&&!hideTypes.rut_calling).forEach(f=>{
-    const c=f.geometry.coordinates, s=destPoint(c[0],c[1],down,0.07);
+    const c=f.geometry.coordinates, s=destPoint(c[0],c[1],down,shooterKm);
     pts.push({type:'Feature',geometry:{type:'Point',coordinates:s},properties:{}});
     lines.push({type:'Feature',geometry:{type:'LineString',coordinates:[c,s]},properties:{}});});
   map.getSource('shooters').setData(fc(pts));
@@ -2536,6 +2542,7 @@ let draft={center: DOC.blank ? null : [DOC.meta.center.lon,DOC.meta.center.lat],
   radius:DOC.meta.radius_km||50,
   walkAccess:null, walkHunt:null, party:2, fixedCampMode:false, huntRadius:null,
   windows:[],                      // EXTRA date windows beyond draft.dates (T9.2)
+  method:'rifle',                  // method of take for the PRIMARY window (T10.2)
   siteMode:'find',                 // 'find' = model finds sites in a box · 'known' = hunter names up to 4 sites
   resM:null,                       // analysis-grid override (m); null = auto (sized to the area)
   sites:[],                        // known-site centres [[lon,lat],...] (max 4); sites[0] mirrors draft.center
@@ -2604,12 +2611,20 @@ function renderSetup(){
         <span>→</span>
         <input id="dateEnd" type="date" required value="${draft.dates[1]||''}" style="border:none;background:none"></div>
       <div class="s" style="margin-top:6px">${t('setup.datesnote','Drives rut timing, weather and behaviour. Peak breeding ≈ Oct 2 at this latitude — but bulls are most callable in the two weeks before it.')}</div>
+      <!-- METHOD OF TAKE (T10.2). It decides how close the animal has to come, so it
+           moves the shooter, the wicks and how much a glassing knob is worth. -->
+      <div class="numrow" style="margin-top:8px"><span class="t-micro">Method of take</span>
+        <select id="methodPrimary" class="btn btn--secondary btn--sm" style="margin-left:auto;padding:2px 6px">
+          ${['rifle','bow','muzzleloader'].map(m=>`<option value="${m}" ${draft.method===m?'selected':''}>${m}</option>`).join('')}
+        </select></div>
+      <div class="s" style="margin-top:4px">${t('setup.methodnote','A bow needs the bull inside ~35 m, so the shooter sits closer to the caller, the scent wicks come in with him, and a glassing knob is worth much less than a neck he already walks through.')}</div>
       <!-- EXTRA SEASONS (T9.2). Each one is a FULL analysis, so the cost is stated up
            front rather than discovered on the progress bar. -->
       ${draft.windows.map((w,i)=>`<div class="numrow" style="border:1px solid var(--line,#2a343a);border-radius:8px;padding:4px 8px;margin-top:8px">
         <input data-win="${i}" data-end="0" type="date" value="${w[0]||''}" style="border:none;background:none">
         <span>→</span>
         <input data-win="${i}" data-end="1" type="date" value="${w[1]||''}" style="border:none;background:none">
+        <select data-winm="${i}" class="btn btn--secondary btn--sm" style="padding:2px 6px">${['rifle','bow','muzzleloader'].map(m=>`<option value="${m}" ${(w[2]||'rifle')===m?'selected':''}>${m==='muzzleloader'?'muzzle':m}</option>`).join('')}</select>
         <button data-delwin="${i}" class="btn btn--secondary btn--sm" title="${t('setup.removeWindow','Remove this season')}">×</button></div>`).join('')}
       ${draft.windows.length<3?`<button id="winAdd" class="btn btn--secondary btn--block" style="margin-top:8px">${t('setup.winAdd','+ Compare another season (bow, muzzleloader…)')}</button>`:''}
       ${draft.windows.length?`<div class="s" style="margin-top:6px">${t('setup.winNote','Each season is analysed separately — the model weights habitat differently before, during and after the rut, so the same ground scores differently. Expect the run to take about this many times longer.')}</div>`:''}
@@ -2724,10 +2739,15 @@ function renderSetup(){
   document.getElementById('dateStart').onchange=e=>{if(e.target.value)draft.dates[0]=e.target.value;clearErr();};
   document.getElementById('dateEnd').onchange=e=>{if(e.target.value)draft.dates[1]=e.target.value;clearErr();};
   const _wa=document.getElementById('winAdd');
-  if(_wa) _wa.onclick=()=>{ draft.windows.push(['','']); renderSetup(); };
+  if(_wa) _wa.onclick=()=>{ draft.windows.push(['','','rifle']); renderSetup(); };
   el.querySelectorAll('input[data-win]').forEach(inp=>inp.onchange=e=>{
     const i=+e.target.dataset.win, j=+e.target.dataset.end;
     if(draft.windows[i]) draft.windows[i][j]=e.target.value; markDirtySoft(); });
+  document.querySelectorAll('[data-winm]').forEach(s=>s.onchange=e=>{
+    const i=+e.target.dataset.winm;
+    if(draft.windows[i]){ draft.windows[i][2]=e.target.value; markDirtySoft(); } });
+  const _mp=document.getElementById('methodPrimary');
+  if(_mp) _mp.onchange=e=>{ draft.method=e.target.value; markDirtySoft(); };
   el.querySelectorAll('button[data-delwin]').forEach(b=>b.onclick=e=>{
     e.preventDefault(); draft.windows.splice(+b.dataset.delwin,1); renderSetup(); });
 
@@ -3059,9 +3079,12 @@ function _runAnalysis(){
     // the same ground, not the same answer relabelled. Sent only when the hunter added
     // one, so an ordinary hunt is byte-for-byte the request it always was.
     windows:(draft.windows&&draft.windows.length)
-      ? [ (draft.dates&&draft.dates.length===2)?draft.dates:['2026-09-25','2026-10-05'] ]
-        .concat(draft.windows.filter(w=>w&&w.length===2))
+      ? [ ((draft.dates&&draft.dates.length===2)?draft.dates:['2026-09-25','2026-10-05'])
+            .slice(0,2).concat([draft.method||'rifle']) ]
+        .concat(draft.windows.filter(w=>w&&w[0]&&w[1])
+                  .map(w=>[w[0],w[1],w[2]||'rifle']))
       : null,
+    method:draft.method||'rifle',
     residency:'quebec_resident',
     // Setup constraints now shape the analysis (no-boat river barriers, walk range, rut-phase weighting)
     // A cabin hunt runs on spike semantics engine-side — you sleep out, just in a building.
@@ -3350,7 +3373,7 @@ function windowCompareBlock(){
     const win = w.window===best.window && W.filter(x=>x.ok).length>1;
     return `<div style="padding:8px 0;border-top:1px solid var(--line,rgba(255,255,255,.08))">
       <div class="row" style="justify-content:space-between">
-        <span class="mono t-micro">${escHtml(w.start)} → ${escHtml(w.end)}${w.phase?' · '+escHtml(w.phase):''}</span>
+        <span class="mono t-micro">${escHtml(w.start)} → ${escHtml(w.end)}${w.method?' · '+escHtml(w.method):''}${w.phase?' · '+escHtml(w.phase):''}</span>
         <span class="t-micro"${win?' style="color:var(--good)"':''}>${w.areas} area${w.areas===1?'':'s'} · ${w.total_km2} km² · habitat ${w.best_habitat}${win?' · best':''}</span></div>
       ${w.rut_read?`<div class="s" style="margin-top:4px">${w.rut_read}</div>`:''}
       ${!w.areas?`<div class="s" style="margin-top:4px;color:var(--text-3)">No ground cleared the bar in this window — the phase weighting moves the model off this cover.</div>`:''}
@@ -3435,7 +3458,8 @@ function wsec(a, key){
 function windowLabel(a){
   const W=DOC.windows||[]; if(W.length<2) return '';
   const w=windowOf(a); if(!w) return '';
-  return ` <span class="mono" style="color:var(--text-3);font-weight:400"> · ${escHtml(w.start)} → ${escHtml(w.end)}</span>`;
+  const m=w.method&&w.method!=='rifle'?` · ${escHtml(w.method)}`:'';
+  return ` <span class="mono" style="color:var(--text-3);font-weight:400"> · ${escHtml(w.start)} → ${escHtml(w.end)}${m}</span>`;
 }
 /* The dates a DOCUMENT covers, which on a multi-window run is not one range (T10.1).
    The exported PDF read `dates 2026-10-10 → 2026-10-25` on a two-window run — window 1
@@ -4694,7 +4718,7 @@ const IDENTIFY = [
                        sub:p=>p.walk_km!=null?`leave the truck here — ~${p.walk_km} km walk to the area`
                                              :'where you leave the truck'},
   {lyr:'shooters',     row:'shooters', title:()=>'Shooter position',
-                       sub:()=>'~70 m downwind of the caller'},
+                       sub:()=>`~${((DOC.scent&&DOC.scent.geometry)||{}).shooter_m||70} m downwind of the caller`},
   // A wick is useless without its refresh interval, and the interval depends on the
   // day you have scrubbed to — so the hover says both.
   {lyr:'scent',        row:'scent', title:p=>p.mid?t('scent.mid'):t('scent.flank'),

@@ -16,6 +16,7 @@ import numpy as np
 
 from .config import Context, cache_dir, outputs_dir
 from . import rasterio_utils as ru
+from . import scent as _scent
 
 
 def _to_lonlat(prof):
@@ -378,6 +379,17 @@ def _explain_area(sel, L, res, med, hunter=None):
                       "mean_slope_deg": None if slp is None else round(slp, 1)}}
 
 
+# How the weapon re-weights the site mix. Multiplies the rut-phase weighting rather
+# than replacing it — a bow hunt in the seeking phase is still a calling hunt.
+METHOD_SITE_W = {
+    "rifle": {"glassing": 1.0, "rut_calling": 1.0, "funnel": 1.0, "saline_blind": 1.0},
+    # Glassing is a rifle tactic — spotting a bull you cannot reach is not a plan.
+    # Everything that brings him inside 35 m matters more.
+    "bow": {"glassing": 0.4, "rut_calling": 1.25, "funnel": 1.3, "saline_blind": 1.15},
+    "muzzleloader": {"glassing": 0.8, "rut_calling": 1.1, "funnel": 1.1, "saline_blind": 1.05},
+}
+
+
 def _hunter_kit(hunter):
     """What the hunter actually brought. `transport` is the multi-select from Setup;
     `watercraft` is the older single field, kept in sync — either may carry the boat."""
@@ -727,12 +739,19 @@ def run(ctx: Context, manual_areas=None) -> None:
     # the crew, then the phase re-weights each type (min 1 so a type never vanishes —
     # it's de-emphasised, not deleted; the hunter still sees the option).
     pw = _rt.PHASE_SITE_W[_rt.dominant_phase(ctx)]
+    # ...AND BY WHAT YOU ARE CARRYING (T10.2). "shooting locations for a bow (max
+    # 30/40yds) are going to be different for those with a rifle (longer range, need
+    # visibility more than proximity)". A glassing knob is a rifle tactic: seeing a bull
+    # at 600 m is worth something only if you can reach him. With a bow the value is in
+    # being CLOSE to where he already walks — the neck, the calling setup — and in wind
+    # discipline, because you are inside his nose's working range the whole time.
+    mw = METHOD_SITE_W.get(_scent.method_of(ctx), METHOD_SITE_W["rifle"])
     def _n(base, key, cap):
         # Bias the rounding so the emphasis is visible even at party=2 (base 1): a
         # phase that FAVOURS a type rounds up, one that de-emphasises rounds down
         # (floor, min 1 — the option never disappears). Plain round() would collapse
         # every 0.7–1.4 multiplier on a base of 1 back to 1 and hide the whole point.
-        w = pw.get(key, 1.0)
+        w = pw.get(key, 1.0) * mw.get(key, 1.0)
         n = _m.ceil(base * w) if w > 1.0 else max(1, _m.floor(base * w))
         return max(1, min(cap, int(n)))
     n_call   = _n(max(2, min(8, party)), "rut_calling", 8)
@@ -983,7 +1002,9 @@ def run(ctx: Context, manual_areas=None) -> None:
         inside = [g for g in features
                   if g["properties"].get("focus_area") == rank
                   and g["geometry"]["type"] == "Point"]
-        f["properties"]["crew"] = _crew_plan(f["properties"], inside, party)
+        f["properties"]["crew"] = _crew_plan(
+            f["properties"], inside, party,
+            shooter_m=_scent.geometry_for(_scent.method_of(ctx))["shooter_m"])
 
     fc = {"type": "FeatureCollection", "features": features}
     (cache / "features.geojson").write_text(json.dumps(fc))
@@ -1449,8 +1470,12 @@ def _area_dest(features, rank, lonlat_to_rc):
 # a real constraint: a moose call carries roughly a kilometre, so two callers inside
 # that envelope are competing for the same bull rather than covering more ground.
 KM2_PER_SETUP = 1.8          # ~750 m working radius per calling setup
-def _crew_plan(area_props, sites, party):
-    """sites = the features already placed inside THIS area."""
+def _crew_plan(area_props, sites, party, shooter_m=70):
+    """sites = the features already placed inside THIS area.
+
+    `shooter_m` is passed in rather than read from a context this function does not
+    have — the same NameError the routing code was bitten by, and the reason it is a
+    parameter and not a lookup."""
     a = float(area_props.get("area_km2") or 0)
     by = {}
     for f in sites:
@@ -1487,9 +1512,9 @@ def _crew_plan(area_props, sites, party):
             "half-watching two basins, and it gives you a spotter for the shot.")
     if party >= 2:
         notes.append(
-            "Caller and shooter split up: shooter ~70 m downwind of the caller, on "
-            "the side the bull is most likely to circle to. The caller is bait, not "
-            "the gun.")
+            f"Caller and shooter split up: shooter ~{shooter_m} m downwind of the "
+            "caller, on the side the bull is most likely to circle to. The caller is "
+            "bait, not the gun.")
     if party == 1:
         notes.append(
             "Solo: work one calling stand per sit and stay put — 30 minutes minimum. "

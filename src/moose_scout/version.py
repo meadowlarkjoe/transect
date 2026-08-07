@@ -13,11 +13,18 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 27
+ENGINE_REVISION = 28
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    28: "You can now tell it what you are carrying, per season. A bow needs the bull "
+        "inside about 35 m, so the shooter now sets up 40 m downwind of the caller "
+        "instead of 70, the scent wicks come in with him, and glassing knobs — a rifle "
+        "tactic, since spotting a bull you cannot reach is not a plan — are weighted "
+        "down in favour of the necks and calling setups that bring him close. Rifle "
+        "plans are unchanged. Set it beside your dates, and separately for each extra "
+        "season you compare.",
     27: "Routes now say what each stretch is travelled BY, and the map draws them "
         "differently: ridden on a quad, on the water, walked along a trail, or "
         "bushwhacking. Before, a route was worked out as a WALK and the ridable parts "

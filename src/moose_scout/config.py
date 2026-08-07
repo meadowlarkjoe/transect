@@ -46,6 +46,11 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 # --- models ------------------------------------------------------------------
 Residency = Literal["quebec_resident", "non_resident_canada", "non_resident_foreign"]
 ExtractionMode = Literal["truck", "canoe", "atv", "backpack"]
+# METHOD OF TAKE (T10.2). Not a label — it changes how close the animal has to come
+# and therefore where the shooter sits, what the wicks are for, and whether a glassing
+# knob is any use at all. Effective ranges are the ethical-shot conventions hunters
+# actually work to, not equipment maxima.
+Method = Literal["rifle", "bow", "muzzleloader"]
 Watercraft = Literal["none", "canoe", "motor"]
 HuntStyle = Literal["spike", "vehicle"]
 
@@ -88,6 +93,9 @@ class HunterCfg(BaseModel):
     # Setup constraints that must actually shape the spatial analysis:
     watercraft: Watercraft = "none"      # none → rivers are foot barriers, no water access
     hunt_style: HuntStyle = "spike"      # spike = can camp out; vehicle = return to truck nightly
+    # What you are carrying. A window is usually a SEASON, and a season is usually a
+    # weapon, so this is set per window (see worker.methods_of) and defaults to rifle.
+    method: Method = "rifle"
     # Multi-select transportation from Setup ({"canoe","motor","atv"} -> bool). ATV/SxS is the
     # one that changes the model: tracks/trails become drivable, camp can sit further in, and
     # camp->hunt routes split into ride vs walk legs (see synth).
