@@ -22,47 +22,46 @@ underserved. Within a band, cheaper first.
 | # | Ticket | Why it is here |
 |---|--------|----------------|
 | 1 | **T10.19** Re-check browse calibration against honest leaf-on NDVI | T10.16 moved mean NDVI 0.272 → 0.467 on a real box. The browse curve's breakpoints are absolute and were living under the old distribution. |
-| 2 | **T10.1** Multi-window brief reports window 1 for everything | A bow hunter reads rifle-window advice with no way to tell. The engine already knows better — only the readout lies. |
-| 3 | **T10.15** Hunt leg bushwhacks past a mapped trail | Draws a line to a place it then refuses to walk to. Diagnosed: one file missing from the walk-cost surface. |
-| 4 | **T10.2** Method of take not modelled per window | Bow stands placed on rifle logic. Makes T10.1 half a fix — right labels, wrong stands. |
-| 5 | **T6.1** Null-model benchmark | The model is unfalsifiable, and rev 21 moved the huntability scale under constants that are still absolute. Load-bearing since 2026-08-06. |
-| 6 | **T0.4** Tests that contaminate each other | Three synth tests fail regardless of the code, so a real regression is indistinguishable from the contamination. |
+| 2 | **T10.15** Hunt leg bushwhacks past a mapped trail | Draws a line to a place it then refuses to walk to. Diagnosed: one file missing from the walk-cost surface. |
+| 3 | **T10.2** Method of take not modelled per window | Bow stands placed on rifle logic. Makes T10.1 half a fix — right labels, wrong stands. |
+| 4 | **T6.1** Null-model benchmark | The model is unfalsifiable, and rev 21 moved the huntability scale under constants that are still absolute. Load-bearing since 2026-08-06. |
+| 5 | **T0.4** Tests that contaminate each other | Three synth tests fail regardless of the code, so a real regression is indistinguishable from the contamination. |
 
 ### Band 2 — MISSING (a real gap you can see)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 7 | **T10.6** PDF brief renders no analysis | Shipped in T9.7 on the strength of the plates existing; nobody checked what was on them. Basemap only. |
-| 8 | **T10.5** Camp icon regressed to a numbered circle | Collateral from T9.3/T9.1. A camp is not a site index. |
-| 9 | **T10.11 + T10.10** Pitch does not enable terrain; the SAT/2D chip is a constant | Two halves of one complaint, both small, both confirmed in the source. |
-| 10 | **T9.10b** Decide the fine-grid neck detector | Built and gated off in rev 22. Needs a real A/B, not a permanent flag. |
-| 11 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
-| 12 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
-| 13 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
-| 14 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
-| 15 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
-| 16 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
+| 6 | **T10.6** PDF brief renders no analysis | Shipped in T9.7 on the strength of the plates existing; nobody checked what was on them. Basemap only. |
+| 7 | **T10.5** Camp icon regressed to a numbered circle | Collateral from T9.3/T9.1. A camp is not a site index. |
+| 8 | **T10.11 + T10.10** Pitch does not enable terrain; the SAT/2D chip is a constant | Two halves of one complaint, both small, both confirmed in the source. |
+| 9 | **T9.10b** Decide the fine-grid neck detector | Built and gated off in rev 22. Needs a real A/B, not a permanent flag. |
+| 10 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
+| 11 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
+| 12 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
+| 13 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
+| 14 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
+| 15 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
 
 ### Band 3 — UGLY (it works and reads badly)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 17 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
-| 18 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
+| 16 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
+| 17 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
 
 ### Band 4 — PLATFORM (nobody sees it; it decides how fast the rest goes)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 19 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
-| 20 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
-| 21 | **T4.1** Extract the Québec legal adapter | The most province-locked file. Blocks T4.2. |
-| 22 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
-| 23 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
-| 24 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
-| 25 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
-| 26 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
-| 27 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
+| 18 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
+| 19 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
+| 20 | **T4.1** Extract the Québec legal adapter | The most province-locked file. Blocks T4.2. |
+| 21 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
+| 22 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
+| 23 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
+| 24 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
+| 25 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
+| 26 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
 
 ---
 
@@ -393,18 +392,39 @@ the PDF header all still speak as if there were one window. So the engine knows 
 difference and the product does not, which is the worst possible split: it looks like
 one answer and is secretly two.
 
-### T10.1 — A multi-window brief reports the first window's analysis for everything · `ready`
+### T10.1 — A multi-window brief reported window 1's analysis for everything · `done` (2026-08-07)
 Reported: "It gave me two focus areas. They overlap... the brief for both areas provides
 its analysis based on the first date range. The only place where the different time
-windows are compared is at the top."
-Confirmed in the export: the header reads `dates 2026-10-10 → 2026-10-25` — one window —
-on a run that had two, and "Your dates & the rut" reasons from that one window only.
-This is SILENTLY WRONG, not merely thin: a bow hunter reads post-rut advice written for
-the rifle window and has no way to tell.
-**Done when:** each window gets its own complete briefing — its own focus areas,
-strategy, stands and rut read — and the comparison between windows is an ADDITIONAL
-section, not a substitute for either. The per-window verdict block from T9.2 stays as
-the lead.
+windows are compared is at the top." Confirmed in the exported PDF, whose header read
+`dates 2026-10-10 → 2026-10-25` on a run that had two windows.
+
+**Narrower than it looked, and worse.** T9.2 got the MODEL right — `_merge` really does
+run every (site × window) as its own analysis and tag every area, waypoint and route
+with its window. What it missed is that `base` is plan 1's whole document and only the
+LISTS were merged. Every non-list section — rut read, strategy, recommendations,
+weather, day plan, scent, wind, camp plan — stayed plan 1's. The engine computed the
+right answer twice and the product showed one of them under both.
+
+Verified on the exact run that was reported (windows Oct 10–25 and Sep 26–Oct 4): the
+first now reads "post-rut, ~15 days after the ~Oct 2 peak" and the second "lands squarely
+on the breeding peak". Before, both areas got the post-rut read.
+
+**Fixed:** `WINDOW_SECTIONS` names the nine dated sections and `_merge` carries each
+window's own copy into `windows[i].brief`. The app's brief and area-detail panel read
+the section belonging to THAT AREA's window via `wsec()`, falling back to the top level
+for single-window runs and for plans saved before this existed. Headings name the window
+when there is more than one. The PDF header states every window instead of the first.
+The top level still carries window 1's sections so older clients and saved plans keep
+rendering — labelled `meta.top_level_window`, because unlabelled is the bug.
+
+A parametrised test now asserts that EVERY name in `WINDOW_SECTIONS` is carried, and a
+static check refuses any top-level dated read inside `renderBrief`. Adding a dated
+section to the contract without adding it to that tuple is exactly how this returns.
+
+**Note for T10.2:** the strategy HEADLINE did not differ between the two windows on that
+run, because it is driven by zone density rather than rut phase. Carrying it per window
+is right regardless; making it phase-aware is a separate question.
+
 
 ### T10.2 — Method of take is not modelled per window · `ready`
 Reported: "shooting locations for a bow (max 30/40yds) are going to be different for

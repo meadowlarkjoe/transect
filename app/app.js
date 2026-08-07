@@ -1173,7 +1173,10 @@ function selectArea(rank){
   const d=document.getElementById('detail'); d.classList.remove('hidden');
   const wps=DOC.waypoints.filter(w=>w.properties.focus_area===rank && SITE_TYPES.includes(w.type));
   const st=a.stats||{};
-  const rutT=(DOC.rut&&DOC.rut.targets&&DOC.rut.targets[0])||null;
+  // Area-scoped, so the rut read must be THIS area's window (T10.1) — not the
+  // top-level one, which is window 1's on a multi-window run.
+  const RUT=wsec(a,'rut')||{};
+  const rutT=(RUT.targets&&RUT.targets[0])||null;
   const po=packout(a);
   const stat=(lbl,val)=>`<div class="stat"><span class="k">${lbl}</span><span class="v">${val}</span></div>`;
   const evRow=(k,t)=>`<div class="ev" data-kind="${k}"><span class="op">${k==='pro'?'+':'!'}</span><span class="txt">${t}</span></div>`;
@@ -1203,12 +1206,12 @@ function selectArea(rank){
     ${a.conf&&a.conf.drivers?`<div class="callout" data-kind="info" style="margin-top:10px"><span class="mark">i</span><div class="body">${a.conf.drivers.join(' · ')}</div></div>`:''}
   </div>
   ${rutT?`<div class="sec">
-    <div class="t-micro" style="margin-bottom:9px">Your dates &amp; the rut</div>
-    <div class="rutdates">${(DOC.rut.targets||[]).map(t=>
+    <div class="t-micro" style="margin-bottom:9px">Your dates &amp; the rut${windowLabel(a)}</div>
+    <div class="rutdates">${(RUT.targets||[]).map(t=>
       `<span class="pill">${t.date} · ${t.phase} · ${Math.round(t.responsiveness*100)}%</span>`).join('')}</div>
     <p class="s" style="margin-top:9px">${rutT.guidance||''}</p>
     ${rutT.weather_note?`<div class="callout" data-kind="warn"><span class="mark">!</span><div class="body">Weather: ${rutT.weather_note}</div></div>`:''}
-    ${DOC.rut.phase_note?`<div class="callout" data-kind="info"><span class="mark">i</span><div class="body">${DOC.rut.phase_note}</div></div>`:''}
+    ${RUT.phase_note?`<div class="callout" data-kind="info"><span class="mark">i</span><div class="body">${RUT.phase_note}</div></div>`:''}
   </div>`:''}
   <div class="sec">
     <div class="t-micro" style="margin-bottom:9px">Sites — ${wps.length}</div>
@@ -3320,7 +3323,9 @@ function windowCompareBlock(){
     <h2 style="margin:2px 0 8px">Which window is worth taking?</h2>
     <p class="s">Each of these was analysed on its own. The model weights habitat
     differently before, during and after the rut, so the same ground is not the same
-    hunt in September and October — the areas below are ranked across all of them.</p>
+    hunt in September and October — the areas below are ranked across all of them.
+    Pick an area and the whole brief under it — rut read, strategy, day plan, weather —
+    is written for <b>that area's window</b>, not for the first one.</p>
     ${rows}
   </div>`;
 }
@@ -3368,6 +3373,48 @@ function campPlanBlock(){
   </div>`;
 }
 
+/* THE BRIEF IS WRITTEN FOR ONE AREA, AND AN AREA BELONGS TO ONE WINDOW (T10.1).
+   Every dated section — the rut read, the strategy, the day plan, the weather — is a
+   function of the DATES, so on a two-window run there are two of each and reading them
+   off the top-level DOC gives you window 1's answer for every area. That is what
+   happened: a bow-season area briefed with rifle-season advice, with nothing saying so.
+
+   `wsec(area, key)` returns the section belonging to THAT area's window, falling back
+   to the top level for single-window runs and for plans saved before this existed.
+   Nothing else in the brief should reach for DOC.<dated section> directly. */
+function windowOf(a){
+  const W=DOC.windows||[];
+  if(!W.length || !a || a.window==null) return null;
+  return W.find(w=>w.window===a.window)||null;
+}
+function wsec(a, key){
+  const w=windowOf(a);
+  if(w && w.brief && w.brief[key]!=null) return w.brief[key];
+  return DOC[key];
+}
+/* Names the window a section belongs to, but only when there is more than one — on a
+   single-window run saying "window 1" everywhere would be noise pretending to be rigour. */
+function windowLabel(a){
+  const W=DOC.windows||[]; if(W.length<2) return '';
+  const w=windowOf(a); if(!w) return '';
+  return ` <span class="mono" style="color:var(--text-3);font-weight:400"> · ${escHtml(w.start)} → ${escHtml(w.end)}</span>`;
+}
+/* The dates a DOCUMENT covers, which on a multi-window run is not one range (T10.1).
+   The exported PDF read `dates 2026-10-10 → 2026-10-25` on a two-window run — window 1
+   only — which is how the whole problem was spotted. A document covering two windows
+   has to say two windows. */
+function headerDates(){
+  const W=DOC.windows||[];
+  if(W.length>1) return 'windows ' + W.map(w=>`${w.start} → ${w.end}`).join('  ·  ');
+  return 'dates ' + (((DOC.meta||{}).target_dates)||[]).join(' → ');
+}
+function windowDates(a){
+  const w=windowOf(a);
+  if(w && w.dates && w.dates.length) return w.dates;
+  if(w && w.start) return [w.start, w.end];
+  return (DOC.meta&&DOC.meta.target_dates)||(draft.dates||[]);
+}
+
 /* ---------------- brief — scoped to the CHOSEN area ---------------- */
 function renderBrief(){
   const a=(DOC.areas||[]).find(x=>x.rank===lastSel)||(DOC.areas||[])[0];
@@ -3377,10 +3424,13 @@ function renderBrief(){
       you've run an analysis. Set up a hunt and the brief fills itself in.</p>
       <button class="btn btn--primary btn--block" onclick="setTab('setup')">Set up a hunt →</button></div>`;
     return; }
-  const g=DOC.legal, st=a.stats||{}, rutT=(DOC.rut&&DOC.rut.targets)||[];
+  const g=DOC.legal, st=a.stats||{};
+  // every dated section below comes from THIS AREA'S window — see wsec()
+  const RUT=wsec(a,'rut')||{}, STRAT=wsec(a,'strategy'), FP=wsec(a,'field_plan'),
+        RECS=wsec(a,'recommendations')||[], rutT=(RUT.targets)||[];
   const camp=DOC.camps.find(c=>(c.member_areas||[]).includes(a.rank));
   const wps=DOC.waypoints.filter(w=>w.properties.focus_area===a.rank && SITE_TYPES.includes(w.type));
-  const dates=(DOC.meta&&DOC.meta.target_dates)||(draft.dates||[]);
+  const dates=windowDates(a);
   // THE BRIEF DESCRIBES THE PLAN, NOT THE PANEL. These used to read SETUP.huntStyle and
   // SETUP.watercraft — live setup state that has already moved on by the time a saved
   // plan is reopened, and that carries no notion of a cabin hunt at all. The result was
@@ -3414,18 +3464,18 @@ function renderBrief(){
       to ground-truth on foot — the model reads habitat, not animals.</div></div>
     <p class="planline">If you hunt <b>Area ${a.rank}</b> (${a.area_km2} km²)${dates.length?`, <b>${dates.join(' – ')}</b>`:''}, running a <b>${styleTxt}</b> with <b>${wcTxt}</b> — here's how to make the most of it.</p>`;
   // ---- where your dates land + how that shapes the hunt ----
-  if(DOC.rut&&(DOC.rut.hunt_read||rutT.length)){ h+=`<h3>${t('br.dates')}</h3>`;
-    if(DOC.rut.hunt_read) h+=`<p class="huntread">${DOC.rut.hunt_read}</p>`;
+  if(RUT&&(RUT.hunt_read||rutT.length)){ h+=`<h3>${t('br.dates')}${windowLabel(a)}</h3>`;
+    if(RUT.hunt_read) h+=`<p class="huntread">${RUT.hunt_read}</p>`;
     if(rutT.length) h+=`<div class="rutdates">`+rutT.map(t=>
       `<span class="pill" style="background:#2a2117;color:#f2b98a">${t.date} · ${t.phase} · ${Math.round(t.responsiveness*100)}%</span>`).join('')+`</div>`;
-    if(DOC.rut.trigger_note) h+=`<p class="s" style="color:#e0b985;margin-top:6px">${DOC.rut.trigger_note}</p>`; }
+    if(RUT.trigger_note) h+=`<p class="s" style="color:#e0b985;margin-top:6px">${RUT.trigger_note}</p>`; }
   // ---- how to hunt this ground ----
   h+=`<h3>${t('br.how')}</h3>`;
-  if(DOC.strategy){ h+=`<p><b>${DOC.strategy.headline}</b> ${DOC.strategy.approach||''} ${DOC.strategy.calling||''}`
-    +`${DOC.strategy.movement?` <span class="s">${DOC.strategy.movement}</span>`:''}</p>`;
-    if(DOC.strategy.scent_warning) h+=`<div class="warn">${DOC.strategy.scent_warning}</div>`; }
+  if(STRAT){ h+=`<p><b>${STRAT.headline}</b> ${STRAT.approach||''} ${STRAT.calling||''}`
+    +`${STRAT.movement?` <span class="s">${STRAT.movement}</span>`:''}</p>`;
+    if(STRAT.scent_warning) h+=`<div class="warn">${STRAT.scent_warning}</div>`; }
   // #67: the concrete phase-keyed calling script, right where you decide how to hunt.
-  if(DOC.field_plan) h+=briefSection(DOC.field_plan.calling_sequence, true);
+  if(FP) h+=briefSection(FP.calling_sequence, true);
   h+=`<p class="why">${a.why||''}</p>
     <p class="s"><b>Working for you:</b> ${(a.pros||[]).join('; ')||'—'}.</p>
     <p class="s"><b>Watch-outs:</b> ${(a.cons||[]).join('; ')||'—'}.</p>`;
@@ -3459,12 +3509,12 @@ function renderBrief(){
     });
   }
   // ---- how to do better (the leverage) ----
-  const recs=(DOC.recommendations||[]);
+  const recs=RECS;
   if(recs.length){ h+=`<h3>${t('br.better')}</h3><div class="recs">`+
     recs.map(r=>`<div class="rec rec-${r.impact||'low'}"><span class="recicon">${r.icon||'•'}</span><span>${r.text}</span></div>`).join('')+`</div>`; }
   // #67: the trip-level close — ordered day-by-day plan + boots-on-ground checklist.
-  if(DOC.field_plan){ h+=briefSection(DOC.field_plan.day_plan, false)
-    +briefSection(DOC.field_plan.ground_truth, false); }
+  if(FP){ h+=briefSection(FP.day_plan, false)
+    +briefSection(FP.ground_truth, false); }
   h+=`<p class="s" style="margin-top:12px">${DOC.disclaimer||''}</p>`;
   const el=document.getElementById('brief'); el.innerHTML=h;
   el.querySelectorAll('.briefpick').forEach(b=>b.onclick=()=>{lastSel=+b.dataset.rank; renderBrief();
@@ -4146,7 +4196,7 @@ async function exportBriefPDF(btn){
       <div class="meta">${escHtml(scale)}<br>
         Zone ${escHtml(String(g.zone||'?'))} · ${escHtml((g.huntable_tenures||['—'])[0])} ·
         ${g.diy_possible?'DIY':'restricted'} · engine rev ${escHtml(String(DOC.engine_revision||'?'))} ·
-        dates ${escHtml((m.target_dates||[]).join(' → '))}</div>
+        ${escHtml(headerDates())}</div>
       <div class="warn"><b>À valider sur le terrain.</b> Every mark in this document is a
         modelled hypothesis to ground-truth on foot — the model reads habitat, not animals.
         Hunting regulations, zone boundaries and access change: verify before you go.</div>

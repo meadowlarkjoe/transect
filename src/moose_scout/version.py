@@ -13,11 +13,20 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 25
+ENGINE_REVISION = 26
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    26: "If you gave the analysis more than one set of dates, each one now gets its own "
+        "brief. Before, the engine ran every window properly but the brief showed the "
+        "FIRST window's answer under all of them — so a bow-season area came with "
+        "rifle-season advice, the wrong rut read, the wrong day plan, and nothing "
+        "saying which dates it was written for. Pick an area and everything under it is "
+        "now written for that area's window, with the dates named at the top of each "
+        "section, and the exported PDF lists every window instead of just the first. "
+        "The comparison at the top is unchanged. Nothing about the analysis itself "
+        "moved — this was only ever the readout.",
     25: "The satellite greenness behind the browse layer is current again, and it is "
         "no longer looking at snow. Two faults in one line: the imagery window was "
         "frozen in 2023-24, so every analysis used the same two-year-old pictures no "

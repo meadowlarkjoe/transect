@@ -144,6 +144,14 @@ def build_ctx(name: str, req: dict):
     return Context(aoi=aoi, species=load_species(species), model=model), res
 
 
+# Sections of a contract that are a function of the DATES, and so differ between
+# windows. Everything not named here is either geography (legal, coverage, region,
+# methodology) or already merged as a list. Checked against a real contract's keys —
+# adding a dated section later without adding it here is how this bug comes back.
+WINDOW_SECTIONS = ("rut", "strategy", "recommendations", "field_plan", "weather",
+                   "behavior", "scent", "wind", "camp_plan")
+
+
 def _merge(docs, plans):
     """Fold per-PLAN contracts into ONE document the app can draw.
 
@@ -247,6 +255,19 @@ def _merge(docs, plans):
         # PER-WINDOW COMPARISON — the thing a hunter is asking when they enter bow season
         # AND rifle season: not "which dates are on the calendar" but "which of these
         # weeks is worth taking off work, and what changes between them".
+        #
+        # ...AND THE WHOLE BRIEF FOR EACH, WHICH IS THE HALF T9.2 MISSED (T10.1).
+        # Everything above merges the LISTS — areas, waypoints, routes — and tags each
+        # with its window. But `base` is plan 1's document, so every non-list section
+        # stayed plan 1's: the rut read, the strategy, the recommendations, the weather,
+        # the day plan. A two-window run therefore rendered rifle-window advice under a
+        # bow-window area, with nothing anywhere saying which dates it was written for.
+        # Reported from a real run: "the brief for both areas provides its analysis based
+        # on the first date range".
+        #
+        # The engine already computed all of it correctly, once per window. It was only
+        # ever a reporting failure — so carry the sections through rather than
+        # recomputing anything.
         seen, out_wins = set(), []
         for i, pl in enumerate(plans):
             if pl["window"] in seen:
@@ -256,12 +277,20 @@ def _merge(docs, plans):
             d = docs[i]
             rut = (d or {}).get("rut") or {}
             tg = rut.get("targets") or []
-            out_wins.append(dict(
+            entry = dict(
                 r, window=pl["window"], start=pl["dates"][0], end=pl["dates"][1],
+                dates=list(pl["dates"]),
                 phase=(tg[0].get("phase") if tg else None),
                 rut_read=rut.get("hunt_read"),
-                note=None if r["ok"] else "this window could not be analysed"))
+                note=None if r["ok"] else "this window could not be analysed")
+            if d:
+                entry["brief"] = {k: d[k] for k in WINDOW_SECTIONS if k in d}
+            out_wins.append(entry)
         base["windows"] = out_wins
+        # The top level still carries window 1's sections, so an older client and a
+        # saved plan keep rendering. Say so, loudly enough that nothing reads them as
+        # belonging to the whole run.
+        base["meta"] = dict(base.get("meta") or {}, top_level_window=plans[0]["window"])
 
     base["meta"] = dict(base.get("meta") or {},
                         multi_site=n_sites > 1, site_count=n_sites,
