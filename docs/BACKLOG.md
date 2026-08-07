@@ -33,37 +33,43 @@ The instruments are now written down rather than reconstructed (`focus_pool.tif`
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 1 | **T10.6** PDF brief renders no analysis | Shipped in T9.7 on the strength of the plates existing; nobody checked what was on them. Basemap only. |
-| 2 | **T10.5** Camp icon regressed to a numbered circle | Collateral from T9.3/T9.1. A camp is not a site index. |
-| 3 | **T10.11 + T10.10** Pitch does not enable terrain; the SAT/2D chip is a constant | Two halves of one complaint, both small, both confirmed in the source. |
-| 4 | **T9.10b** Decide the fine-grid neck detector | Built and gated off in rev 22. Needs a real A/B, not a permanent flag. |
-| 5 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
-| 6 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
-| 7 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
-| 8 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
-| 9 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
-| 10 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
+| 1 | **T10.5** Camp icon regressed to a numbered circle | Collateral from T9.3/T9.1. A camp is not a site index. |
+| 2 | **T10.11 + T10.10** Pitch does not enable terrain; the SAT/2D chip is a constant | Two halves of one complaint, both small, both confirmed in the source. |
+| 3 | **T9.10b** Decide the fine-grid neck detector | Built and gated off in rev 22. Needs a real A/B, not a permanent flag. |
+| 4 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
+| 5 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
+| 6 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
+| 7 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
+| 8 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
+| 9 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
+
+**T10.6 done 2026-08-07** — the plate map was built from `baseStyle()`, imagery and nothing
+else, and every `setLayoutProperty` that followed sat behind `if(m.getLayer(id))` and did
+nothing. Five plates, all basemap, since T9.7. Now built from `map.getStyle()` (which
+serialises the GeoJSON sources with their data inline — verified in the browser), icons
+and patterns re-registered because images are not part of a style, terrain dropped and
+the view framed on the areas. A plate with no plan layers on it now says so.
 
 ### Band 3 — UGLY (it works and reads badly)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 11 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
-| 12 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
+| 10 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
+| 11 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
 
 ### Band 4 — PLATFORM (nobody sees it; it decides how fast the rest goes)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 13 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
-| 14 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
-| 15 | **T4.1** Extract the Québec legal adapter | The most province-locked file. Blocks T4.2. |
-| 16 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
-| 17 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
-| 18 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
-| 19 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
-| 20 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
-| 21 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
+| 12 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
+| 13 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
+| 14 | **T4.1** Extract the Québec legal adapter | The most province-locked file. Blocks T4.2. |
+| 15 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
+| 16 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
+| 17 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
+| 18 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
+| 19 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
+| 20 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
 
 ---
 
@@ -701,7 +707,7 @@ a fixed camp started being rendered as a SITE index. Visible in the screenshot: 
 amber "1" where the tent/cabin pin used to be.
 **Done when:** a fixed camp draws its own icon, and site numbering never claims a camp.
 
-### T10.6 — The PDF brief renders no analysis · `ready`
+### T10.6 — The PDF brief renders no analysis · `done` (2026-08-07)
 Reported: "None of the analysis / polygons / waypoints / etc. render on the PDF."
 Confirmed: each of the five plate pages carries exactly one image — the basemap — so the
 offscreen map T9.7 drives is painting terrain and none of the plan layers. T9.7 was
@@ -709,6 +715,21 @@ declared done on the strength of the plates existing; nobody checked what was ON
 That is the exact failure mode the "verify the artifact" rule exists for, repeated.
 **Done when:** every plate shows the same features the app draws for that layer, and a
 test fails if a plate comes back with no plan geometry on it.
+
+**Cause.** `_plateMap()` built the offscreen map from `baseStyle()` — imagery and nothing
+else. `_plateShot()` then set visibility on the plan layer ids behind `if(m.getLayer(id))`,
+which was ALWAYS false, so every toggle silently did nothing. The guard that was there to
+be defensive is what made the failure invisible.
+
+**Fixed.** The plate map is built from `map.getStyle()`, which serialises the GeoJSON
+sources with their data inline (verified in-browser: `typeof data === 'object'`, a real
+FeatureCollection). Images are NOT part of a style, so `addIcons` and `registerPatterns`
+re-run against the plate map — both now take an optional target. Terrain is dropped and
+the view is fit to the areas, because a pitched hillshade is a picture and a plate framed
+on wherever the hunter last looked can miss the focus areas entirely. A plate whose own
+layers are all missing or hidden now logs `[pdf] plate has no plan layers on it`.
+`tests/test_pdf_plates.py` pins all of it, including that every row named by `PLATES`
+resolves to real layers.
 
 ### T10.7 — PDF layout is browser print chrome · `ready`
 Reported: "The design/layout of the PDF needs to be polished."

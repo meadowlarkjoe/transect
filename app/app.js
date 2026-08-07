@@ -143,11 +143,15 @@ function patternTile(kind,hex){
   const d=c.getImageData(0,0,S,S);
   return {width:S,height:S,data:new Uint8Array(d.data)};
 }
-function registerPatterns(){
+/* `tgt` so the PDF's offscreen map can register the SAME icons and patterns as the one
+   on screen (T10.6). A symbol or fill-pattern layer whose image is missing draws
+   nothing — silently — which is most of why the exported plates came out as basemap. */
+function registerPatterns(tgt){
+  const M=tgt||map;
   LAYERS.forEach(r=>{
     if(!['stipple','cross','hatch','exclude','soft'].includes(r.kind)) return;
     const id='pat-'+r.k;
-    if(!map.hasImage(id)) map.addImage(id, patternTile(r.kind,r.hex), {pixelRatio:2});
+    if(!M.hasImage(id)) M.addImage(id, patternTile(r.kind,r.hex), {pixelRatio:2});
   });
 }
 function stippleImage(){
@@ -407,14 +411,16 @@ function iconData(type,color,chip){
   }
   return {width:S,height:S,data:c.getImageData(0,0,S,S).data};
 }
-function addIcons(){
-  Object.keys(SHAPE).forEach(t=>{ if(!map.hasImage(t)) map.addImage(t,iconData(t,COLORS[t]||'#ccc'),{pixelRatio:2}); });
-  if(!map.hasImage('shooter')) map.addImage('shooter',iconData('shooter','#FFD400'),{pixelRatio:2});
+function addIcons(tgt){
+  const M=tgt||map;
+  Object.keys(SHAPE).forEach(t=>{ if(!M.hasImage(t)) M.addImage(t,iconData(t,COLORS[t]||'#ccc'),{pixelRatio:2}); });
+  if(!M.hasImage('shooter')) M.addImage('shooter',iconData('shooter','#FFD400'),{pixelRatio:2});
   // same glyph and same body for both crossings; only the corner chip differs
   ['bridge','ford','boat'].forEach(k=>{
     const id='crossing_'+k;
-    if(!map.hasImage(id)) map.addImage(id,iconData(id,CROSS_BODY,CROSS_CHIP[k]),{pixelRatio:2});
+    if(!M.hasImage(id)) M.addImage(id,iconData(id,CROSS_BODY,CROSS_CHIP[k]),{pixelRatio:2});
   });
+  if(!M.hasImage('thermal-arrow')) M.addImage('thermal-arrow',arrowIcon(),{pixelRatio:2});
 }
 
 /* ---------------- data → GeoJSON ---------------- */
@@ -4225,11 +4231,33 @@ async function _plateMap(){
   const host=document.createElement('div');
   host.style.cssText='position:fixed;left:-10000px;top:0;width:1400px;height:900px';
   document.body.appendChild(host);
-  const m=new maplibregl.Map({container:host,style:baseStyle(),
+  // THE LIVE STYLE, NOT A BARE BASEMAP (T10.6). This built the plate map from
+  // `baseStyle()` — imagery and nothing else — and then called setLayoutProperty on
+  // layer ids that did not exist on it. Every one of those calls was guarded by
+  // `if(m.getLayer(id))`, so every one silently did nothing, and all five plates came
+  // out as pictures of the ground with no plan on them. Reported: "None of the analysis
+  // / polygons / waypoints / etc. render on the PDF."
+  //
+  // map.getStyle() serialises the sources WITH their GeoJSON data, so the offscreen map
+  // gets the same features. Images are NOT part of a style, which is why they are
+  // re-registered below — a symbol layer whose icon is missing also draws nothing.
+  const m=new maplibregl.Map({container:host,style:map.getStyle(),
     center:map.getCenter(),zoom:map.getZoom(),
     preserveDrawingBuffer:true,   // the whole reason this second map exists
     attributionControl:false,interactive:false});
   await new Promise(r=>m.on('load',r));
+  try{ addIcons(m); registerPatterns(m); }catch(e){ console.warn('plate icons',e); }
+  // A plate is a PLAN VIEW OF THE PLAN. Flat, because a pitched hillshade is a picture
+  // rather than something you navigate from; and framed on the areas rather than on
+  // wherever the hunter happened to be looking when they pressed export — a plate that
+  // misses the focus areas is as useless as a blank one.
+  try{ m.setTerrain(null); }catch(e){}
+  try{
+    if(!DOC.blank && (DOC.areas||[]).length)
+      m.fitBounds(bbox(DOC.areas),{padding:70,duration:0});
+    else if(DOC.box)
+      m.fitBounds([[DOC.box.w,DOC.box.s],[DOC.box.e,DOC.box.n]],{padding:70,duration:0});
+  }catch(e){ console.warn('plate framing',e); }
   return {m,host};
 }
 
@@ -4241,12 +4269,20 @@ async function _plateShot(m,rows){
   // group would otherwise show no bands at all — a silently empty plate, which is the
   // failure this whole codebase keeps producing when a name is matched in one namespace
   // and defined in another.
+  const shown=[];
   LAYERS.forEach(r=>{
     const on = rows.includes(r.k) || rows.includes(r.lyr);
     (LYR_MAP[r.lyr||r.k]||[]).forEach(id=>{
-      if(m.getLayer(id)) m.setLayoutProperty(id,'visibility', on?'visible':'none');
+      if(!m.getLayer(id)) return;
+      m.setLayoutProperty(id,'visibility', on?'visible':'none');
+      if(on) shown.push(id);
     });
   });
+  // A PLATE WITH NOTHING ON IT MUST BE LOUD. T9.7 shipped on the strength of the plates
+  // existing; nobody checked what was on them, and all five were basemap for weeks —
+  // because `if(m.getLayer(id))` above turned every missing layer into a silent skip.
+  // Saying so beats printing a picture of the ground and calling it a brief.
+  if(!shown.length) console.warn('[pdf] plate has no plan layers on it:', rows);
   await new Promise(r=>{ const done=()=>{m.off('idle',done);r();}; m.on('idle',done);
                          setTimeout(done,2500); });   // never hang the export on a slow tile
   return m.getCanvas().toDataURL('image/png');
