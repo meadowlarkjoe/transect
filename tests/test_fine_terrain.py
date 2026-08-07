@@ -124,15 +124,14 @@ def test_open_ground_has_no_necks():
 # ------------------------------------------------------------------ the grid contract
 
 
-def test_the_fine_grid_is_off_until_a_real_ab_says_the_new_funnel_count_is_right():
-    """The measurement is proven; the population effect is not. See _fine_res."""
-    import os
-    prev = os.environ.pop("FINE_NECKS", None)
-    try:
-        assert terrain._fine_res(40.0, (452, 453)) == 40.0
-    finally:
-        if prev is not None:
-            os.environ["FINE_NECKS"] = prev
+def test_the_fine_grid_is_off_until_a_real_ab_says_the_new_funnel_count_is_right(monkeypatch):
+    """The measurement is proven; the population effect is not. See _fine_res.
+
+    monkeypatch rather than a hand-rolled save/restore: the restore only runs if the
+    assert passes, so a failure here would have leaked the flag into every later test.
+    That is the T0.4 bug in miniature."""
+    monkeypatch.delenv("FINE_NECKS", raising=False)
+    assert terrain._fine_res(40.0, (452, 453)) == 40.0
 
 
 def test_the_fine_grid_is_a_whole_number_of_analysis_cells():

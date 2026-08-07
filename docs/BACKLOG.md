@@ -91,18 +91,47 @@ The refactors in E1–E4 must not change output. Needs a cheap before/after diff
 **Done when:** one command runs synth+transect on cached Fire Lake rasters and diffs
 the resulting `transect.json` against a committed snapshot, reporting any field change.
 
-### T0.4 — Isolate the tests that contaminate each other · `ready`
-`test_synth_smoke` passes when its file runs alone (~95 s, a real pipeline) and fails in
-~5 s in a full-suite run with `RasterioIOError: .../fire_lake/huntability.tif`. An
-earlier test leaves a cache dir or env var behind. It currently HIDES real failures:
-those three report as failing whatever the code does, so nobody can tell a genuine synth
-regression from the contamination.
-**Done when:** the full-suite result for those three matches the per-file result, and a
-deliberately broken synth makes them fail for the right reason.
+### T0.4 — Isolate the tests that contaminate each other · `done` (2026-08-07)
+`test_synth_smoke` passed alone and failed in a full-suite run with `RasterioIOError:
+.../fire_lake/huntability.tif`. Three synth checks therefore failed whatever the engine
+did, so a genuine synth regression was indistinguishable from the noise.
 
----
+**The cause, found and reproduced.** `test_legal.py` set `MOOSE_SCOUT_CACHE` with a plain
+assignment at MODULE IMPORT, to get itself a hermetic empty cache — a reasonable thing to
+want and a ruinous way to get it. From the moment pytest merely COLLECTED that file, every
+later test resolved its cache to that temp directory. And `test_synth_smoke`'s skip guard
+checked a HARDCODED path (`/app/cache/fire_lake`) while the test itself resolved through
+the environment, so the two disagreed: the guard saw the container cache and let the test
+run, the test looked somewhere empty and died.
 
-## E1 — Contract-driven legend *(unblocks the whole ladder)*
+**Reproduced and proved,** in the container with the cache mounted: old code → 3 failures
+in 1.55 s; fixed → clean. With the cache resolvable, they now RUN (23.8 s, a real
+pipeline) and the per-file result matches the full-suite result.
+
+**Both fixes generalised.** `test_legal` uses an autouse fixture with `monkeypatch` so the
+isolation undoes itself; the smoke guard resolves the cache the same way the test does, so
+a leak from anywhere makes it SKIP honestly rather than fail and blame the code.
+`test_no_global_leaks.py` parses every test module and fails if any of them writes a
+path-shaping env var at import — it immediately caught a second, milder instance in
+`test_fine_terrain`, whose hand-rolled save/restore would have leaked `FINE_NECKS` on any
+failing assert.
+
+**What it uncovered.** With the noise gone, one assertion still fails and it is real:
+`[synth] capability gate: 37 of 37 focus areas excluded; 0 viable areas promoted` — the
+fire_lake fixture produces no viable areas at all, so no routes. Verified against the
+commit before T10.20, so it is not a routing regression. Filed as T0.5.
+
+### T0.5 — fire_lake's capability gate excludes every focus area · `ready`
+Surfaced by T0.4 the moment the contamination stopped masking it: on the fire_lake
+fixture cache, synth logs `37 of 37 focus areas excluded; 0 viable areas promoted to
+ranks 1..0`, so the AOI yields no areas and no routes. Reproduced identically at the
+commit before T10.20, so nothing in the recent routing work caused it.
+Two candidates, and they need separating before anything is changed: the fixture cache is
+old, so its `huntability.tif` was written by a much earlier revision and may simply
+disagree with today's gate; or the gate's thresholds are genuinely wrong for this ground.
+The second would be the same class of problem as T6.3 and the rev-21 absolute constants.
+**Done when:** the cache is rebuilt at the current revision and the gate re-measured, and
+either the areas come back or the gate's exclusion is justified with the numbers.
 
 ### T1.1 — Emit `legend[]` in the contract · `done` (2026-08-04, 7ca39c5)
 `config/output_legend.yaml` exists but is used only for GPX/KML export; it never

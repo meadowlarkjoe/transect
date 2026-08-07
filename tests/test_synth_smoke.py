@@ -15,7 +15,31 @@ import pytest
 CACHE = "/app/cache/fire_lake"   # present only inside the engine container
 
 
-@pytest.mark.skipif(not os.path.isdir(CACHE), reason="needs the engine cache (runs in-container)")
+def _cache_ready():
+    """Is fire_lake's cache there IN THE PLACE THIS TEST WILL ACTUALLY LOOK?
+
+    The skip used to test the hardcoded path above while the test itself resolved the
+    cache through MOOSE_SCOUT_CACHE. When another module leaked that env var (T0.4 —
+    test_legal set it at import time), the two disagreed: the guard saw the container
+    cache and let the test run, the test looked somewhere empty and died on a missing
+    raster in five seconds. It failed whatever the engine did, so it could not report a
+    real synth regression.
+
+    Resolving the same way the test does means a leak from anywhere makes this SKIP —
+    honestly — instead of failing and blaming the code.
+    """
+    try:
+        from moose_scout.config import cache_dir
+        return (cache_dir("fire_lake") / "huntability.tif").exists()
+    except Exception:
+        return os.path.isdir(CACHE)
+
+
+_SKIP = pytest.mark.skipif(not _cache_ready(),
+                           reason="needs fire_lake's cache where this run resolves it")
+
+
+@_SKIP
 @pytest.mark.parametrize("style", ["spike", "vehicle"])
 def test_synth_runs_for_hunt_style(style):
     from moose_scout.config import Context
@@ -38,7 +62,7 @@ def _routes(ctx):
     return out
 
 
-@pytest.mark.skipif(not os.path.isdir(CACHE), reason="needs the engine cache (runs in-container)")
+@_SKIP
 def test_a_camp_hunt_still_gets_routes():
     """A HUNT FROM A FIXED CAMP MUST STILL DRAW HUNT LINES.
 
@@ -86,7 +110,7 @@ def test_a_camp_hunt_still_gets_routes():
         f"placed, and nothing joins them (baseline without a fixed camp: {baseline})")
 
 
-@pytest.mark.skipif(not os.path.isdir(CACHE), reason="needs the engine cache (runs in-container)")
+@_SKIP
 def test_routing_anchors_are_passed_in_not_rediscovered():
     """Guard the shape of the fix, not just this one symptom.
 

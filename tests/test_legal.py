@@ -1,16 +1,34 @@
 """The legal gate is the load-bearing filter — lock its behaviour.
 
-Uses an isolated temp cache so results don't depend on whatever has been
-acquired locally.
+Uses an isolated temp cache so results don't depend on whatever has been acquired
+locally.
+
+THAT ISOLATION USED TO LEAK, AND IT BROKE OTHER TESTS (T0.4). The env var was set with a
+plain assignment at MODULE IMPORT — so from the moment pytest merely COLLECTED this file,
+every later test in the session resolved its cache to this temp directory. `test_synth_
+smoke` then looked for fire_lake's rasters somewhere they had never been written and died
+with `RasterioIOError: .../fire_lake/huntability.tif` in about five seconds, instead of
+running the real ~95 s pipeline it is there to exercise. Alone it passed; in the suite it
+failed whatever the engine code did — so it could not report a genuine synth regression,
+which is worse than not having the test.
+
+An autouse fixture undoes itself. Import time does not.
 """
 import json
 import os
 import tempfile
 
+import pytest
+
 os.environ.setdefault("MOOSE_SCOUT_CONFIG", "config")
-# Hermetic cache: never see a real acquired tenure file.
 _TMP = tempfile.mkdtemp(prefix="moose-scout-test-")
-os.environ["MOOSE_SCOUT_CACHE"] = _TMP
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_cache(monkeypatch):
+    """Point the cache at an empty directory FOR THESE TESTS ONLY."""
+    monkeypatch.setenv("MOOSE_SCOUT_CACHE", _TMP)
+
 
 from moose_scout.config import Context, cache_dir
 from moose_scout.legal import ACCESS_RULES, PARALLEL_52, Tenure, assess
