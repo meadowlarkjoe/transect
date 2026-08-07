@@ -463,13 +463,21 @@ function windState(w){
 let hideTypes = {};           // per-type show/hide
 
 function buildSources(){
+  // WHICH WINDOW EVERY FEATURE BELONGS TO (T10.3). The merge already stamps `window` on
+  // every list item, but nothing carried it onto the map, so two overlapping areas from a
+  // rifle window and a bow window drew as one indistinguishable pile — reported as "They
+  // overlap. Im guessing these are different for each season, but thats not clear."
+  // -1 rather than null: MapLibre filters cannot compare against null, and an old plan
+  // with no windows must stay visible under every filter state.
+  const win=o=>(o&&o.window!=null)?o.window:-1;
   const areas=fc(DOC.areas.map(a=>({type:'Feature',geometry:a.geometry,
     properties:{rank:a.rank,camp:a.camp,hunt:a.huntability,dr:(a.stats||{}).dist_road_m||0,
+      win:win(a),
       // EXCLUDED areas (capability gate) draw red — good ground this hunter's kit
       // can't reach. Shown, not hidden, with the reason on hover/click.
       excl:(a.status==='excluded')?1:0, why_out:a.excluded_reason||''}})));
   const areaLabels=fc(DOC.areas.map(a=>({type:'Feature',geometry:{type:'Point',coordinates:a.centroid},
-    properties:{rank:a.rank,top:a.rank<=2}})));
+    properties:{rank:a.rank,top:a.rank<=2,win:win(a)}})));
   // camps from contract (grouped, sited at access) → drawn as base camps
   // A fixed camp is the hunter's own, so it is labelled as theirs rather than offered
   // as "Camp A" — and the Setup draft pin for it is suppressed once a result exists
@@ -477,14 +485,14 @@ function buildSources(){
   // to show. The doc is the one drawn, not the draft, because a reopened plan always
   // has DOC.camps while the Setup draft state may not have survived the round trip.
   const camps=fc(DOC.camps.map(c=>({type:'Feature',geometry:{type:'Point',coordinates:[c.site.lon,c.site.lat]},
-    properties:{id:c.id,fixed:!!c.fixed,label:c.fixed?'Camp':('Camp '+c.id)}})));
+    properties:{id:c.id,fixed:!!c.fixed,win:win(c),label:c.fixed?'Camp':('Camp '+c.id)}})));
   // vehicle staging = parking waypoints
   const staging=fc(DOC.waypoints.filter(w=>w.type==='parking').map(w=>({type:'Feature',
-    geometry:{type:'Point',coordinates:[w.lon,w.lat]},properties:{}})));
+    geometry:{type:'Point',coordinates:[w.lon,w.lat]},properties:{win:win(w)}})));
   // sites = the hunt-site waypoints (distinct icons)
   window._sites=DOC.waypoints.filter(w=>SITE_TYPES.includes(w.type)).map(w=>({type:'Feature',
     geometry:{type:'Point',coordinates:[w.lon,w.lat]},
-    properties:{type:w.type,area:w.properties.focus_area,
+    properties:{type:w.type,area:w.properties.focus_area,win:win(w),
       windnote:(w.properties.optimal_wind||{}).note||'', opt:(w.properties.optimal_wind||{}).from_deg??null,
       when:w.properties.when||'', elev:w.properties.elev_m||null, windok:0}}));
   // REAL engine routes (terrain/water cost-following). Typed so the map can style
@@ -496,7 +504,7 @@ function buildSources(){
   // pack-out — and fall back to the whole line when they aren't.
   const routes=fc((DOC.routes||[]).filter(r=>Array.isArray(r.coords)&&r.coords.length>1)
     .flatMap(r=>{
-      const base={t:RT[r.type]||'access',kind:r.type,
+      const base={t:RT[r.type]||'access',kind:r.type,win:win(r),
         ride_km:r.ride_km!=null?r.ride_km:null, walk_km:r.walk_km!=null?r.walk_km:null};
       if(Array.isArray(r.legs)&&r.legs.length)
         return r.legs.filter(lg=>Array.isArray(lg.coords)&&lg.coords.length>1)
@@ -1184,10 +1192,16 @@ function buildPanel(){
        ${(m.caveats||[]).map(c=>`<div class="callout" data-kind="info"><span class="mark">i</span><div class="body">${c}</div></div>`).join('')}
      </details>`;
   let html='';
-  DOC.camps.forEach(c=>{
+  // The season filter is a MAP control that the list has to honour too (T10.3) — a
+  // sidebar still listing eight areas while the map shows four is the same "which of
+  // these am I looking at" confusion the filter exists to end. A camp with nothing left
+  // in it drops its heading rather than standing empty.
+  DOC.camps.filter(inWindow).forEach(c=>{
+    const mine=DOC.areas.filter(a=>a.camp===c.id&&inWindow(a)).sort((x,y)=>x.rank-y.rank);
+    if(!mine.length) return;
     html+=`<div class="grouphead"><span class="g">Camp ${c.id}</span>
-      <span class="g">${(c.member_areas||[]).length} areas · pack-in ≤ ${km(c.max_packin_km)}</span></div>`;
-    DOC.areas.filter(a=>a.camp===c.id).sort((x,y)=>x.rank-y.rank).forEach(a=>{html+=areaCard(a);});
+      <span class="g">${mine.length} areas · pack-in ≤ ${km(c.max_packin_km)}</span></div>`;
+    mine.forEach(a=>{html+=areaCard(a);});
   });
   const list=document.getElementById('list'); list.innerHTML=html;
   list.querySelectorAll('.card').forEach(el=>el.onclick=()=>selectArea(+el.dataset.rank));
@@ -1205,7 +1219,7 @@ function areaCard(a){
   if(excl) return `<div class="card excluded" data-rank="${a.rank}"
       style="border-color:#5a2b26;background:linear-gradient(0deg,rgba(201,86,74,.05),rgba(201,86,74,.05))">
     <div class="top"><div class="badge" style="background:#3a1c19;color:#e29a92;border-color:#5a2b26">${a.rank}</div>
-      <div class="ttl">Area ${a.rank}</div><div class="val">${a.area_km2} km²</div></div>
+      <div class="ttl">Area ${a.rank}${windowTag(a)?` <span class="t-micro" style="opacity:.8">· ${escHtml(windowTag(a))}</span>`:''}</div><div class="val">${a.area_km2} km²</div></div>
     <div class="metaline"><span style="color:#e29a92;letter-spacing:.04em;font-size:11px">${t('ov.excluded','EXCLUDED')}</span>
       <span>${km(dr/1000)} to road</span>${a.conf?`<span>conf ${Math.round(a.conf.score*100)}%</span>`:''}</div>
     <div class="callout" data-kind="danger"><span class="mark">✕</span><div class="body">${a.excluded_reason||t('ov.exclDefault','Out of reach with the equipment you listed.')}</div></div>
@@ -1221,7 +1235,8 @@ function areaCard(a){
     .map(e=>`<div class="ev" data-kind="${e.k}"><span class="op">${e.k==='pro'?'+':'!'}</span><span class="txt">${e.t}</span></div>`).join('');
   return `<div class="card ${far?'dim':''}" data-rank="${a.rank}">
     <div class="top"><div class="badge ${a.rank<=2?'top':''}">${a.rank}</div>
-      <div class="ttl">Area ${a.rank}${a.site&&(DOC.sites||[]).length>1?` <span class="t-micro" style="opacity:.8">· site ${a.site}</span>`:''}</div>
+      <div class="ttl">Area ${a.rank}${a.site&&(DOC.sites||[]).length>1?` <span class="t-micro" style="opacity:.8">· site ${a.site}</span>`:''}${
+        windowTag(a)?` <span class="t-micro" style="opacity:.8">· ${escHtml(windowTag(a))}</span>`:''}</div>
       <div class="val">${a.area_km2} km²</div></div>
     <div class="metaline">${a.conf?confGauge(a.conf.score)+`<span>conf ${Math.round(a.conf.score*100)}%</span>`:''}
       <span>${km(dr/1000)} to road</span></div>
@@ -2557,7 +2572,8 @@ function buildShooters(){
   const _sg=(DOC.scent&&DOC.scent.geometry)||{};
   const shooterKm=(_sg.shooter_m||70)/1000;
   const pts=[],lines=[];
-  (window._sites||[]).filter(f=>f.properties.type==='rut_calling'&&!hideTypes.rut_calling).forEach(f=>{
+  (window._sites||[]).filter(f=>f.properties.type==='rut_calling'&&!hideTypes.rut_calling
+      && (winSel==null||f.properties.win===winSel||f.properties.win===-1)).forEach(f=>{
     const c=f.geometry.coordinates, s=destPoint(c[0],c[1],down,shooterKm);
     pts.push({type:'Feature',geometry:{type:'Point',coordinates:s},properties:{}});
     lines.push({type:'Feature',geometry:{type:'LineString',coordinates:[c,s]},properties:{}});});
@@ -3068,6 +3084,7 @@ function applyDoc(newDoc){        // re-bind the whole map + panels to fresh eng
   setD('areas',S.areas); setD('areaLabels',S.areaLabels); setD('camps',S.camps);
   setD('staging',S.staging); setD('packin',fc(S.packin)); setD('sites',fc(window._sites));
   setD('routes',S.routes);
+  buildWindowPill(); applyWindowFilter();      // T10.3 — reassert the filter on new data
   setVis(LYR_MAP.roads,true); setVis(LYR_MAP.boundaries,true);   // keep roads + borders visible after a recompute too
   window._aoi={huntZones:S.huntZones,browseZones:S.browseZones,rivers:S.rivers,lakes:S.lakes,
     refugeZones:S.refugeZones,funnelZones:S.funnelZones};
@@ -3551,6 +3568,74 @@ function campPlanBlock(){
    `wsec(area, key)` returns the section belonging to THAT area's window, falling back
    to the top level for single-window runs and for plans saved before this existed.
    Nothing else in the brief should reach for DOC.<dated section> directly. */
+/* WINDOW FILTER (T10.3) — all windows, or one.
+   Reported: "They overlap. Im guessing these are different for each season, but thats
+   not clear on the map." Two windows share their geography, so a rifle-season area and a
+   bow-season area land on top of each other and read as one contradictory pile. The
+   engine has always known which is which (`window` on every merged feature); the map
+   just never asked.
+
+   This is a DISPLAY control. It filters — it never recomputes, never reorders and never
+   changes a score, so what you see under "All windows" is exactly what the brief says. */
+let winSel=null;                 // null = all windows
+const WIN_SOURCES=['areas','areaLabels','sites','camps','staging','routes'];
+let _winBaseFilter=null;         // each layer's own filter, captured once
+function applyWindowFilter(){
+  if(!map||!map.getStyle) return;
+  if(!_winBaseFilter){
+    _winBaseFilter={};
+    (map.getStyle().layers||[]).forEach(l=>{
+      if(WIN_SOURCES.includes(l.source)) _winBaseFilter[l.id]=map.getFilter(l.id)||null;
+    });
+  }
+  Object.keys(_winBaseFilter).forEach(id=>{
+    if(!map.getLayer(id)) return;
+    const base=_winBaseFilter[id];
+    if(winSel==null){ map.setFilter(id, base); return; }
+    // -1 is "this feature predates windows" — a single-window or legacy plan. It stays
+    // visible under every selection, because hiding it would be claiming it belongs to
+    // some OTHER window, which is a stronger claim than the data supports.
+    const cond=['any',['==',['get','win'],winSel],['==',['get','win'],-1]];
+    map.setFilter(id, base?['all',base,cond]:cond);
+  });
+  buildShooters();               // derived from window._sites, so it filters separately
+  if(document.getElementById('list')&&!DOC.blank) buildPanel();
+}
+function inWindow(o){ return winSel==null || o==null || o.window==null || o.window===winSel; }
+function buildWindowPill(){
+  const el=document.getElementById('winPill');
+  if(!el) return;
+  const W=DOC.windows||[];
+  // One window is not a choice. Offering the control anyway would be a filter that
+  // filters nothing, which reads as a broken control rather than an absent one.
+  if(W.length<2){ el.classList.add('hidden'); el.innerHTML=''; winSel=null; return; }
+  el.classList.remove('hidden');
+  const chip=(sel,label,sub)=>`<button class="wchip${winSel===sel?' on':''}" data-win="${sel==null?'':sel}">
+    <span class="wname">${escHtml(label)}</span>${sub?`<span class="wsub">${escHtml(sub)}</span>`:''}</button>`;
+  el.innerHTML=`<span class="pcap">${t('win.cap','SEASON')}</span>`
+    + chip(null,t('win.all','All'),W.length+' windows')
+    + W.map(w=>chip(w.window, `${w.start} → ${w.end}`,
+        w.method&&w.method!=='rifle'?w.method:'')).join('');
+  el.querySelectorAll('.wchip').forEach(b=>b.onclick=()=>{
+    const v=b.dataset.win;
+    winSel=(v==='')?null:+v;
+    buildWindowPill(); applyWindowFilter();
+  });
+}
+/* A SHORT identifier for the window a thing belongs to (T10.3) — for card titles and
+   badges, where `windowLabel`'s full date range does not fit. Empty on a single-window
+   run, because there "season 1" is noise pretending to be rigour.
+
+   Prefers the METHOD, because that is what the hunter asked to see and what actually
+   changes the advice ("shooting locations for a bow are going to be different"). Falls
+   back to the start date when both windows use the same weapon. */
+function windowTag(a){
+  const W=DOC.windows||[]; if(W.length<2) return '';
+  const w=windowOf(a); if(!w) return '';
+  const methods=new Set(W.map(x=>x.method||'rifle'));
+  if(methods.size>1 && w.method) return w.method;
+  return String(w.start||'').slice(5);      // MM-DD — the year is the same for all of them
+}
 function windowOf(a){
   const W=DOC.windows||[];
   if(!W.length || !a || a.window==null) return null;
