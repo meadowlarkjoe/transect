@@ -484,7 +484,7 @@ function buildSources(){
       if(Array.isArray(r.legs)&&r.legs.length)
         return r.legs.filter(lg=>Array.isArray(lg.coords)&&lg.coords.length>1)
           .map(lg=>({type:'Feature',geometry:{type:'LineString',coordinates:lg.coords},
-            properties:Object.assign({},base,{mode:lg.mode})}));
+            properties:Object.assign({},base,{mode:lg.mode,leg_km:lg.km!=null?lg.km:null})}));
       return [{type:'Feature',geometry:{type:'LineString',coordinates:r.coords},
         properties:Object.assign({},base,{mode:'foot'})}];
     }));
@@ -759,11 +759,28 @@ function init(){
     paint:{'line-color':COLORS.route_midday_hot,'line-width':2,'line-opacity':0.9,'line-dasharray':[4,2]}});
   map.addLayer({id:'route-best',type:'line',source:'routes',filter:['==',['get','t'],'best'],
     paint:{'line-color':COLORS.route_best,'line-width':2.4,'line-opacity':0.95}});
-  // RIDE legs (ATV/SxS on road or sentier) — a heavier casing under the route colour so
-  // you can see at a glance where you're riding and where the walking actually starts.
-  map.addLayer({id:'route-ride',type:'line',source:'routes',filter:['==',['get','mode'],'atv'],
-    layout:{'line-cap':'round'},
-    paint:{'line-color':'#e2c044','line-width':6,'line-opacity':0.30}},'route-access');
+  // HOW EACH STRETCH IS TRAVELLED (T10.20). This used to be one 30%-opacity casing on
+  // 'atv' legs, which is why "I can't see any difference between routes to be travelled
+  // on ATV vs things to be walked" — it was technically drawn and practically invisible.
+  // Each mode now gets its own casing, and they read differently at a glance:
+  //   ridden  → solid amber, heavy (you are on a machine)
+  //   boat    → solid blue, heavy (you are on water)
+  //   trail   → thin dashed (walking, but on a cut line)
+  //   bushwhack → dotted (walking, and paying for it)
+  map.addLayer({id:'route-ride-atv',type:'line',source:'routes',
+    filter:['==',['get','mode'],'atv'],layout:{'line-cap':'round'},
+    paint:{'line-color':'#E2A03F','line-width':7,'line-opacity':0.75}},'route-access');
+  map.addLayer({id:'route-ride-boat',type:'line',source:'routes',
+    filter:['in',['get','mode'],['literal',['canoe','motor']]],layout:{'line-cap':'round'},
+    paint:{'line-color':'#2F86C4','line-width':7,'line-opacity':0.75}},'route-access');
+  map.addLayer({id:'route-foot-trail',type:'line',source:'routes',
+    filter:['in',['get','mode'],['literal',['foot_trail','foot']]],layout:{'line-cap':'round'},
+    paint:{'line-color':'#CFE0A8','line-width':4,'line-opacity':0.55,
+      'line-dasharray':[2,1.4]}},'route-access');
+  map.addLayer({id:'route-foot-bush',type:'line',source:'routes',
+    filter:['==',['get','mode'],'foot_bush'],layout:{'line-cap':'round'},
+    paint:{'line-color':'#C98F6A','line-width':4,'line-opacity':0.6,
+      'line-dasharray':[0.6,1.6]}},'route-access');
   // thermal-drift arrow field (off by default; toggle in tools)
   if(!map.hasImage('thermal-arrow')) map.addImage('thermal-arrow',arrowIcon(),{pixelRatio:2});
   map.addSource('thermal',{type:'geojson',data:fc([])});
@@ -1328,7 +1345,9 @@ const LYR_MAP={feedEdge:['feedEdgeZones','feedEdgeZones-line'],areas:['areas-fil
   cuts:['cutZones','cutZones-line'],
   wetland:['wetlandZones','wetlandZones-line'],beaver:['beaverPonds'],
   tenure:['tenureBlocked','tenureZones-line'],tenureOk:['tenureZones-line-ok'],
-  leases:['leases']};
+  leases:['leases'],
+  modeRide:['route-ride-atv'],modeBoat:['route-ride-boat'],
+  modeTrail:['route-foot-trail'],modeBush:['route-foot-bush']};
 
 /* ============================================================================
    ONE ARRAY drives the panel row, the map paint and the legend meaning, so they
@@ -1461,6 +1480,25 @@ const LAYERS=[
   note:'Abris sommaires, chalets de villégiature and outfitter camps leased on crown land. Somebody hunts this ground every season — and thought it worth building on. Does NOT restrict where you may hunt.',
   hex:'#B8734A', icon:'home', on:false, lyr:'leases',
   count:()=>((DOC.leases||{}).points||[]).length},
+ // TRAVEL MODE (T10.20). Reported: "I indicated on setup i had an ATV/SXS. On the
+ // analysis, i can't see any difference between routes to be travelled on ATV vs things
+ // to be walked." The engine now routes mode-aware and these name what it drew.
+ {k:'mode-ride', group:'ACCESS & HYDRO', kind:'line', edge:'solid', name:'Ridden (ATV/SxS)',
+  note:'Road and motorised sentier you ride. The machine starts where you do and stays where you step off it — you come back to it.',
+  hex:'#E2A03F', on:true, lyr:'modeRide',
+  count:()=>(DOC.routes||[]).filter(r=>(r.km_by_mode||{}).atv).length},
+ {k:'mode-boat', group:'ACCESS & HYDRO', kind:'line', edge:'solid', name:'On the water',
+  note:'Paddled or run under power. A motorboat launches only where a drivable road meets water; a canoe can be portaged in.',
+  hex:'#2F86C4', on:true, lyr:'modeBoat',
+  count:()=>(DOC.routes||[]).filter(r=>{const m=r.km_by_mode||{};return m.canoe||m.motor;}).length},
+ {k:'mode-trail', group:'ACCESS & HYDRO', kind:'line', edge:'dashed', name:'Walked — trail',
+  note:'On foot along a road or cut line. Quiet, fast, and where moose travel too.',
+  hex:'#CFE0A8', on:true, lyr:'modeTrail',
+  count:()=>(DOC.routes||[]).filter(r=>(r.km_by_mode||{}).foot_trail).length},
+ {k:'mode-bush', group:'ACCESS & HYDRO', kind:'line', edge:'dashed', name:'Walked — bushwhack',
+  note:'On foot off any line. This is the part you repeat carrying meat, so it is the number that matters on a pack-out.',
+  hex:'#C98F6A', on:true, lyr:'modeBush',
+  count:()=>(DOC.routes||[]).filter(r=>(r.km_by_mode||{}).foot_bush).length},
  {k:'boundaries', group:'ACCESS & HYDRO', kind:'outline', edge:'dashed', name:'Borders & places',
   note:'Reference geography', hex:'#CBD5DA', on:true, lyr:'boundaries', count:()=>'—'},
  {k:'water', group:'ACCESS & HYDRO', kind:'line', edge:'solid', name:'Rivers & lakes',

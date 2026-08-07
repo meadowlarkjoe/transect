@@ -1146,6 +1146,268 @@ def _water_cost(ctx, cache):
     return cost
 
 
+# ---------------------------------------------------------------------------------
+# MODE-AWARE ROUTING (T10.20). What a leg is TRAVELLED BY, not just where it goes.
+#
+# THE BUG THIS REPLACES, and it was physically impossible rather than merely coarse.
+# Routes were computed on the WALKING cost surface and then, if the hunter had an ATV,
+# each cell that happened to sit on ridable ground was labelled "atv" after the fact.
+# Measured on a real ATV run, every single hunt route came back
+#     foot -> atv -> foot
+# which says: walk away from camp, board an ATV parked in the middle of the bush, ride,
+# get off, walk on. You can only ride from where the machine IS.
+#
+# THE RULE THAT MAKES IT CORRECT, and it is also what collapses the search: the vehicle
+# starts wherever you do, and the moment you step off it, it stays there. So an outbound
+# leg has AT MOST ONE ride segment and that segment must BEGIN AT THE ORIGIN. There is no
+# remounting — walking from one trail to another leaves the quad behind on the first.
+#
+# That reduces a state-space search to one argmin over the transfer point P:
+#     ride origin -> P  (restricted to that vehicle's network)
+#     walk P -> destination
+# and picking whichever P minimises the total. Foot-only is always a candidate, so a
+# vehicle is used only when it actually helps.
+#
+# Cost is in walk-equivalent effort per cell, so ride and walk legs are directly
+# comparable and the argmin needs no fudge factor. Riding is cheap but not free: fuel,
+# noise and the fact that the machine has to be left somewhere are all real.
+# THESE ARE RELATIVE TO `_walk_cost`, NOT TO REAL EFFORT, and that distinction is the
+# whole reason the first version of this did the wrong thing. `_walk_cost` is a routing
+# ATTRACTOR: it prices a road at 0.05 and open bush at ~1.14 so that paths FOLLOW roads,
+# not because walking a road costs a twentieth of walking bush. Setting ride costs from
+# honest effort (0.15/cell) therefore made riding three times DEARER than walking the
+# same road, and the router dismounted the instant it reached the trail — measured, it
+# rode 0.6 km and then walked 4.2 km along ridable trail.
+#
+# Priced against that surface instead: riding a trail is ~5x cheaper than walking it,
+# which is about the speed ratio. A boat is a little slower to get moving than a quad.
+RIDE_COST = {"atv": 0.010, "canoe": 0.030, "motor": 0.012}
+IMPASSABLE = 1e7
+
+# WHERE EACH MACHINE ACTUALLY IS AT THE START OF THE DAY. These are Joe's rules, and
+# they are product decisions rather than anything the data can tell us — recorded here
+# because every one of them changes what the router is allowed to do:
+#
+#   ATV/SxS   co-located with staging, and a vehicle or quad can reach ANY hunt camp.
+#             So the machine is at the origin even where the mapped trail network stops
+#             short of it — measured on a real run, camp sat 715 m off the nearest
+#             mapped trail and the router refused to ride at all. A bounded rough spur
+#             out to the network encodes "it got here somehow" without turning into
+#             "quads go anywhere".
+#   MOTORBOAT on the vehicle's trailer, so it launches only where a DRIVABLE ROAD meets
+#             water. Not a trail: you cannot back a trailer down a quad track.
+#   CANOE     portaged. It can reach water over trails, forest roads and a short
+#             bushwhack, and between waterbodies — but a portage route is not
+#             necessarily a route you want to drag a quartered bull along, which the
+#             brief says out loud rather than pretending otherwise.
+ATV_SPUR_M = 1500.0      # how far a quad will bulldoze off-network to reach its camp
+ATV_SPUR_COST = 0.50     # bulldozing off-network: ~2x cheaper than walking the same bush
+PORTAGE_M = 400.0        # a canoe carry — short, and over anything
+LAUNCH_TOUCH_M = 60.0    # how close a road has to be to the water to be a put-in
+
+
+def _mode_networks(ctx, cache, shape, kit):
+    """{mode: boolean mask of ground that mode can travel} for the kit in hand.
+
+    Empty when the hunter brought nothing — which is the common case, and then routing
+    is exactly the foot-only routing it always was.
+    """
+    nets = {}
+    if kit.get("atv"):
+        m = np.zeros(shape, bool)
+        rd = _opt(cache / "roads.tif")
+        if rd is not None:
+            m |= np.nan_to_num(rd) > 0
+        lin = _linear_cost_layer(cache, shape)        # quad/snowmobile sentiers + rail
+        if lin is not None:
+            m |= lin
+        if m.any():
+            nets["atv"] = m
+    if kit.get("boat"):
+        w = np.zeros(shape, bool)
+        a = _opt(cache / "water.tif")
+        if a is not None:
+            w |= np.nan_to_num(a) > 0
+        lake = _lake_barrier(cache, shape)            # the lakes the map actually draws
+        if lake is not None:
+            w |= lake
+        if w.any():
+            nets["motor" if kit.get("motor") else "canoe"] = w
+    return nets
+
+
+def _launch_mask(mode, net, cache, shape, res):
+    """Cells where this boat can be PUT IN — the constraint that decides whether a boat
+    is usable at all, and it is different for the two of them.
+
+    A motorboat rides on the vehicle's trailer, so it needs a drivable road at the
+    water's edge. A canoe is carried, so any water within a portage of a trail, a road
+    or the bank will do.
+    """
+    from scipy import ndimage as ndi
+
+    if mode == "motor":
+        rd = _opt(cache / "roads.tif")
+        if rd is None:
+            return None                    # no drivable road mapped → nowhere to launch
+        near_road = ndi.binary_dilation(
+            np.nan_to_num(rd) > 0, iterations=max(1, int(round(LAUNCH_TOUCH_M / res))))
+        m = net & near_road
+        return m if m.any() else None
+    # canoe: water within a carry of anything you can walk a boat down
+    carry = np.zeros(shape, bool)
+    rd = _opt(cache / "roads.tif")
+    if rd is not None:
+        carry |= np.nan_to_num(rd) > 0
+    lin = _linear_cost_layer(cache, shape)
+    if lin is not None:
+        carry |= lin
+    if not carry.any():
+        return net                          # nothing mapped to carry along — allow it
+    reach = ndi.binary_dilation(carry, iterations=max(1, int(round(PORTAGE_M / res))))
+    m = net & reach
+    return m if m.any() else None
+
+
+def _mcp_field(cost, seeds):
+    """Cumulative least-cost from `seeds` over `cost`, plus the object to traceback with."""
+    from skimage.graph import MCP_Geometric
+
+    mcp = MCP_Geometric(cost)
+    field, _ = mcp.find_costs([tuple(s) for s in seeds])
+    return field, mcp
+
+
+def _route_with_modes(walk_cost, nets, start, end, cache=None, res=40.0,
+                      dest_vehicle_ok=False):
+    """(path, legs) from `start` to `end`, riding only where riding is actually possible.
+
+    `legs` is [(mode, [rc, ...]), ...] in travel order. At most ONE vehicle segment, and
+    nothing may be ridden after it — because the machine does not follow you once you
+    are off it. That is the rule the old post-hoc labelling broke (it produced
+    foot -> atv -> foot on every route of a real run), and it is enforced structurally
+    here rather than checked afterwards.
+    """
+    from skimage.graph import route_through_array
+
+    def _walk(a, b):
+        try:
+            pth, _ = route_through_array(walk_cost, a, b, fully_connected=True,
+                                         geometric=True)
+            return [tuple(x) for x in pth]
+        except Exception:
+            return []
+
+    walk_path = _walk(start, end)
+    if len(walk_path) < 2:
+        return [], []
+    best = (float(np.sum([walk_cost[r, c] for r, c in walk_path[1:]])),
+            walk_path, [("foot", walk_path)])
+
+    for mode, net in (nets or {}).items():
+        on_net = bool(net[start[0], start[1]])
+        ride_cost = np.where(net, RIDE_COST.get(mode, 0.2), IMPASSABLE).astype("float64")
+        seeds = [tuple(start)]
+
+        if mode == "atv":
+            # The machine is AT the origin — staging, or a camp a vehicle reached — so
+            # it may work out to the mapped network over a BOUNDED rough spur. Bounded
+            # is the point: without a limit this becomes "quads go anywhere".
+            #
+            # `dest_vehicle_ok` says the far end is ALSO vehicle-accessible, which is
+            # true for the staging -> camp access leg by Joe's rule that a vehicle or
+            # quad reaches any hunt camp. Without it that leg came back as 620 m of
+            # bushwhacking on a run where the hunter had a quad and both ends were
+            # places you drive to.
+            anchors = [start] + ([end] if dest_vehicle_ok else [])
+            off = [a for a in anchors if not net[a[0], a[1]]]
+            if off:
+                from scipy import ndimage as ndi
+                seed = np.ones(net.shape, bool)
+                for a in off:
+                    seed[a[0], a[1]] = False
+                near = (ndi.distance_transform_edt(seed) * res) <= ATV_SPUR_M
+                ride_cost = np.where(net, RIDE_COST["atv"],
+                                     np.where(near, ATV_SPUR_COST, IMPASSABLE))
+            if dest_vehicle_ok and np.isfinite(ride_cost[end[0], end[1]]) \
+                    and ride_cost[end[0], end[1]] < IMPASSABLE:
+                # Both ends drivable: the whole leg is a ride, so score it as one rather
+                # than hunting for a dismount point that does not exist.
+                try:
+                    full, _fm = _mcp_field(ride_cost, [start])
+                    if np.isfinite(full[end[0], end[1]]):
+                        leg = [tuple(x) for x in _fm.traceback(tuple(end))]
+                        if len(leg) >= 2 and full[end[0], end[1]] < best[0]:
+                            best = (float(full[end[0], end[1]]), leg, [("atv", leg)])
+                            continue
+                except Exception:
+                    pass
+        elif not on_net:
+            # A boat has to be PUT IN somewhere legitimate, and getting to the put-in is
+            # a walk (carrying, or towing to a ramp) rather than part of the ride.
+            launch = _launch_mask(mode, net, cache, net.shape, res) if cache is not None else net
+            if launch is None or not launch.any():
+                continue
+            seeds = [tuple(x) for x in np.argwhere(launch)[:4000]]
+
+        try:
+            ride_field, ride_mcp = _mcp_field(ride_cost, seeds)
+            walk_field, walk_mcp = _mcp_field(walk_cost, end if isinstance(end, list) else [end])
+        except Exception:
+            continue
+        total = np.where(np.isfinite(ride_field + walk_field) & net,
+                         ride_field + walk_field, np.inf)
+        if not np.isfinite(total).any():
+            continue
+        pt = tuple(int(v) for v in np.unravel_index(int(np.argmin(total)), total.shape))
+        cost_here = float(total[pt])
+        if not np.isfinite(cost_here) or cost_here >= best[0]:
+            continue                      # the machine does not help; stay on foot
+        try:
+            ride_leg = [tuple(x) for x in ride_mcp.traceback(pt)]
+            walk_leg = [tuple(x) for x in walk_mcp.traceback(pt)][::-1]
+        except Exception:
+            continue
+        if len(ride_leg) < 2:
+            continue                      # the transfer point IS the origin — just walk
+
+        legs = []
+        if ride_leg[0] != tuple(start):
+            approach = _walk(start, ride_leg[0])       # walking to where the boat is
+            if len(approach) >= 2:
+                legs.append(("foot", approach))
+        legs.append((mode, ride_leg))
+        if len(walk_leg) >= 2:
+            legs.append(("foot", walk_leg))
+        best = (cost_here, [rc for _m, seg in legs for rc in seg], legs)
+    return best[1], best[2]
+
+
+def _split_foot(leg_rc, trail_mask):
+    """Break a foot leg into TRAIL and BUSHWHACK runs.
+
+    Walking a cut trail and bushwhacking are different hunts — different speed, different
+    noise, different odds of being seen first — and the map should not draw them with one
+    line. Purely descriptive: the path is already chosen, this only names what it crosses.
+    """
+    if trail_mask is None or len(leg_rc) < 2:
+        return [("foot", leg_rc)]
+    on = [bool(trail_mask[r, c]) for r, c in leg_rc]
+    for i in range(1, len(on) - 1):       # smooth 1-cell flicker into real segments
+        if on[i - 1] == on[i + 1] != on[i]:
+            on[i] = on[i - 1]
+    out, cur, cur_on = [], [], None
+    for rc, o in zip(leg_rc, on):
+        if cur_on is None or o != cur_on:
+            if len(cur) >= 2:
+                out.append(("foot_trail" if cur_on else "foot_bush", cur))
+            cur, cur_on = ([cur[-1]] if cur else []), o
+        cur.append(rc)
+    if len(cur) >= 2:
+        out.append(("foot_trail" if cur_on else "foot_bush", cur))
+    return out or [("foot", leg_rc)]
+
+
 def _area_dest(features, rank, lonlat_to_rc):
     """Where an access leg should END for a focus area: a point guaranteed inside
     it. representative_point() is already computed upstream and is inside even for
@@ -1299,60 +1561,81 @@ def _add_routes(ctx, features, cache, prof, access, toll, camp_of_area=None):
             out.append((rank, f))
         return out
 
-    # RIDE vs WALK (#69). With an ATV/SxS the hunter rides the road AND the motorised
-    # sentiers, then walks where the network stops. The route already prefers those
-    # surfaces (they're cheap in _walk_cost), so the honest thing is to say which parts
-    # of the line you ride and which you're on foot for — the pack-out reality is the
-    # WALK length, not the total. Split the path on the ridable mask and report both.
+    # WHAT EACH LEG IS TRAVELLED BY (T10.20). This used to compute a WALKING path and
+    # then label the cells that happened to lie on ridable ground as "atv", which
+    # produced foot -> atv -> foot on every route of a real ATV run: board a machine
+    # parked in the middle of the bush. Routing is now mode-aware, and the vehicle stays
+    # where you step off it. See _route_with_modes.
     _kit_r = _hunter_kit(ctx.aoi.hunter)
-    _ride_mask = None
-    if _kit_r["atv"]:
-        try:
-            rd = _opt(cache / "roads.tif")
-            _ride_mask = np.zeros(cost.shape, dtype=bool)
-            if rd is not None:
-                _ride_mask |= np.nan_to_num(rd) > 0
-            _lin_r = _linear_cost_layer(cache, cost.shape)   # quad/snowmobile sentiers + rail
-            if _lin_r is not None:
-                _ride_mask |= _lin_r
-            if not _ride_mask.any():
-                _ride_mask = None
-        except Exception:
-            _ride_mask = None
+    _nets = _mode_networks(ctx, cache, cost.shape, _kit_r)
+    # Descriptive only: which foot ground is a cut line and which is bushwhacking.
+    _trail_mask = None
+    try:
+        _trail_mask = np.zeros(cost.shape, bool)
+        _rd = _opt(cache / "roads.tif")
+        if _rd is not None:
+            _trail_mask |= np.nan_to_num(_rd) > 0
+        _lin = _linear_cost_layer(cache, cost.shape)
+        if _lin is not None:
+            _trail_mask |= _lin
+        if not _trail_mask.any():
+            _trail_mask = None
+    except Exception:
+        _trail_mask = None
+
+    _RES_KM = float(ctx.model.raster_resolution_m) / 1000.0
+
+    def _emit(rank, legend, start_rc, end_rc, dest_vehicle_ok=False):
+        """Route start->end, mode-aware, and append it with its legs."""
+        path, legs = _route_with_modes(cost, _nets, start_rc, end_rc,
+                                      cache=cache, res=_RES_KM * 1000.0,
+                                      dest_vehicle_ok=dest_vehicle_ok)
+        if len(path) < 2:
+            return None
+        detailed = []
+        for mode, rc in legs:
+            detailed.extend(_split_foot(rc, _trail_mask) if mode == "foot" else [(mode, rc)])
+        props = {"legend": legend, "focus_area": rank}
+        by_mode = {}
+        out_legs = []
+        for mode, rc in detailed:
+            if len(rc) < 2:
+                continue
+            km = round((len(rc) - 1) * _RES_KM, 2)
+            by_mode[mode] = round(by_mode.get(mode, 0.0) + km, 2)
+            out_legs.append({"mode": mode, "km": km,
+                             "coords": [list(toll(x)) for x in rc]})
+        if out_legs:
+            props["legs"] = out_legs
+            props["km_by_mode"] = by_mode
+            # The pack-out reality is the WALK, not the total — and with a vehicle the
+            # walk is also the part you repeat carrying meat.
+            props["walk_km"] = round(sum(v for k, v in by_mode.items()
+                                         if k.startswith("foot")), 2)
+            ride = {k: v for k, v in by_mode.items() if not k.startswith("foot")}
+            if ride:
+                props["ride_km"] = round(sum(ride.values()), 2)
+                props["ride_mode"] = max(ride, key=ride.get)
+                # WHERE THE MACHINE SPENDS THE DAY. It is not at camp and it is not at
+                # the stand; it is at the transfer point, and on the way out you come
+                # back to it. That is a place on the map, so put it on the map.
+                for i, lg in enumerate(out_legs):
+                    if lg["mode"] == props["ride_mode"] and i + 1 < len(out_legs):
+                        props["vehicle_left_at"] = lg["coords"][-1]
+                        break
+        features.append({"type": "Feature",
+                         "geometry": {"type": "LineString",
+                                      "coordinates": [list(toll(x)) for x in path]},
+                         "properties": props})
+        return props
 
     def add_route(rank, dest_feat, legend):
         lon, lat = dest_feat["geometry"]["coordinates"]
-        end = lonlat_to_rc(lon, lat)
-        start = camp_by_area.get(rank)
-        if start is None or start == end:
+        end_rc = lonlat_to_rc(lon, lat)
+        start_rc = camp_by_area.get(rank)
+        if start_rc is None or start_rc == end_rc:
             return
-        path, _ = route_through_array(cost, start, end, fully_connected=True, geometric=True)
-        coords = [list(toll((r, c))) for r, c in path]
-        props = {"legend": legend, "focus_area": rank}
-        if _ride_mask is not None and len(path) > 1:
-            # NB: `res` lives in run(), not here — reading it threw a NameError that the
-            # best-effort routing try/except swallowed, dropping EVERY route on an ATV run.
-            step_km = float(ctx.model.raster_resolution_m) / 1000.0
-            ride = [bool(_ride_mask[r, c]) for (r, c) in path]
-            # smooth 1-cell flickers so the legs read as real segments, not confetti
-            for i in range(1, len(ride) - 1):
-                if ride[i - 1] == ride[i + 1] != ride[i]:
-                    ride[i] = ride[i - 1]
-            ride_km = sum(step_km for i in range(1, len(path)) if ride[i])
-            walk_km = sum(step_km for i in range(1, len(path)) if not ride[i])
-            legs, cur = [], None
-            for i, (rc, on) in enumerate(zip(path, ride)):
-                if cur is None or on != cur["ride"]:
-                    cur = {"ride": on, "coords": []}
-                    legs.append(cur)
-                cur["coords"].append(list(toll(rc)))
-            props["legs"] = [{"mode": "atv" if lg["ride"] else "foot",
-                              "coords": lg["coords"]} for lg in legs if len(lg["coords"]) >= 2]
-            props["ride_km"] = round(ride_km, 2)
-            props["walk_km"] = round(walk_km, 2)
-        features.append({"type": "Feature",
-                         "geometry": {"type": "LineString", "coordinates": coords},
-                         "properties": props})
+        _emit(rank, legend, start_rc, end_rc)
 
     for rank, f in sites_of("rut_calling", 2):
         add_route(rank, f, "route_best")
@@ -1398,18 +1681,25 @@ def _add_routes(ctx, features, cache, prof, access, toll, camp_of_area=None):
             if start == dest:
                 continue
             if no_road:
+                # No drivable road anywhere near: this is a paddle-in, so it follows the
+                # hydrography rather than cutting overland. One mode the whole way.
                 path, _ = route_through_array(wcost, start, dest,
                                               fully_connected=True, geometric=True)
-                legend = "route_paddle"
+                coords = [list(toll((r, c))) for r, c in path]
+                if len(coords) >= 2:
+                    _m = "motor" if _kit_r.get("motor") else "canoe"
+                    features.append({"type": "Feature",
+                                     "geometry": {"type": "LineString", "coordinates": coords},
+                                     "properties": {
+                                         "legend": "route_paddle", "focus_area": rank,
+                                         "legs": [{"mode": _m, "km": round((len(coords)-1)*_RES_KM, 2),
+                                                   "coords": coords}],
+                                         "km_by_mode": {_m: round((len(coords)-1)*_RES_KM, 2)}}})
             else:
-                path, _ = route_through_array(cost, start, dest,
-                                              fully_connected=True, geometric=True)
-                legend = "route_access"
-            coords = [list(toll((r, c))) for r, c in path]
-            if len(coords) >= 2:
-                features.append({"type": "Feature",
-                                 "geometry": {"type": "LineString", "coordinates": coords},
-                                 "properties": {"legend": legend, "focus_area": rank}})
+                # THE LEG YOU WOULD MOST OBVIOUSLY RIDE, and it used to be the one with
+                # no modes at all — a single undifferentiated line from the truck in.
+                # Staging -> camp: both ends are places a vehicle got to.
+                _emit(rank, "route_access", start, dest, dest_vehicle_ok=True)
     except Exception:
         pass
 

@@ -31,37 +31,38 @@ underserved. Within a band, cheaper first.
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 6 | **T10.6** PDF brief renders no analysis | Shipped in T9.7 on the strength of the plates existing; nobody checked what was on them. Basemap only. |
-| 7 | **T10.5** Camp icon regressed to a numbered circle | Collateral from T9.3/T9.1. A camp is not a site index. |
-| 8 | **T10.11 + T10.10** Pitch does not enable terrain; the SAT/2D chip is a constant | Two halves of one complaint, both small, both confirmed in the source. |
-| 9 | **T9.10b** Decide the fine-grid neck detector | Built and gated off in rev 22. Needs a real A/B, not a permanent flag. |
-| 10 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
-| 11 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
-| 12 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
-| 13 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
-| 14 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
-| 15 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
+| 6 | **T10.21** A portage route is not an extraction route | T10.20 lets a canoe portage in. Coming out with a quartered bull is a different problem, and one walk_km covers both. |
+| 7 | **T10.6** PDF brief renders no analysis | Shipped in T9.7 on the strength of the plates existing; nobody checked what was on them. Basemap only. |
+| 8 | **T10.5** Camp icon regressed to a numbered circle | Collateral from T9.3/T9.1. A camp is not a site index. |
+| 9 | **T10.11 + T10.10** Pitch does not enable terrain; the SAT/2D chip is a constant | Two halves of one complaint, both small, both confirmed in the source. |
+| 10 | **T9.10b** Decide the fine-grid neck detector | Built and gated off in rev 22. Needs a real A/B, not a permanent flag. |
+| 11 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
+| 12 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
+| 13 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
+| 14 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
+| 15 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
+| 16 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
 
 ### Band 3 — UGLY (it works and reads badly)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 16 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
-| 17 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
+| 17 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
+| 18 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
 
 ### Band 4 — PLATFORM (nobody sees it; it decides how fast the rest goes)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 18 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
-| 19 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
-| 20 | **T4.1** Extract the Québec legal adapter | The most province-locked file. Blocks T4.2. |
-| 21 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
-| 22 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
-| 23 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
-| 24 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
-| 25 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
-| 26 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
+| 19 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
+| 20 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
+| 21 | **T4.1** Extract the Québec legal adapter | The most province-locked file. Blocks T4.2. |
+| 22 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
+| 23 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
+| 24 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
+| 25 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
+| 26 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
+| 27 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
 
 ---
 
@@ -691,6 +692,59 @@ sides are much the same rather than dressing up noise as a finding.
 **Deliberately floors rather than zeroes** (`DEST_FLOOR = 0.35`): a neck that survived
 the linkage test IS a bottleneck whatever grows on it, and zeroing on habitat would
 delete the layer over burnt or rocky country where the geometry is still true.
+
+### T10.20 — Routes now say what they are TRAVELLED BY · `done` (2026-08-07)
+Reported: "I indicated on setup i had an ATV/SXS. On the analysis, i can't see any
+difference between routes to be travelled on ATV vs things to be walked... and it should
+be able to chain sections of those together - and understand if you go from boat/atv to
+walk, the boat/atv is going to stay where it is and not be available for future legs."
+
+**It was worse than invisible.** Routes were computed on the WALKING cost surface and
+then, if the hunter had an ATV, every cell that happened to sit on ridable ground was
+labelled "atv" after the fact. Measured on his own run, every hunt route came back
+`foot → atv → foot` — walk away from camp, board a machine parked in the middle of the
+bush, ride, step off, walk on. And `route_access`, the leg you would most obviously ride,
+had no modes at all.
+
+**The rule, which is also what makes the search cheap:** the vehicle starts wherever you
+do and stays where you step off it, so a leg has at most ONE vehicle segment and nothing
+may be ridden after it. Enforced structurally by the router, not checked afterwards.
+
+**Two things measurement corrected, both mine:**
+* **Nothing rode at all** at first, because camp sat 715 m off the mapped trail network
+  and the strict rule refused to start a ride there. Joe's rules settled it: a quad is
+  co-located with staging and a vehicle reaches ANY hunt camp — so a bounded rough spur
+  (1.5 km) encodes "it got here somehow" without becoming "quads go anywhere".
+* **Then it rode 0.6 km and walked 4.2 km of ridable trail.** `_walk_cost` prices a road
+  at 0.05 as a routing ATTRACTOR, not as effort, so ride costs set from honest effort
+  (0.15/cell) were three times dearer than walking the same road. Ride costs are now
+  priced against that surface (~5x cheaper than walking it, about the speed ratio).
+
+**Result on his run:** hunt legs went from ~5 km walked to `atv 5.3–7.0 km → bushwhack
+0.06–0.8 km`, the access leg is a single ride end to end, and each route carries
+`km_by_mode` plus `vehicle_left_at` — where the machine actually spends the day, which
+is neither camp nor the stand.
+
+**Joe's rules, recorded because no data settles them:** ATV co-located with staging and
+reaches any camp; a motorboat rides on the trailer so it launches only where a DRIVABLE
+road meets water, not a quad track; a canoe is portaged and can reach water over trails,
+roads and a short bushwhack.
+
+**Display:** four modes now draw differently — ridden (solid amber, heavy), on the water
+(solid blue, heavy), walked-trail (thin dashed), walked-bushwhack (dotted) — each with
+its own legend row and count. The old rendering was a single 30%-opacity casing, which
+is exactly why it read as "no difference".
+
+### T10.21 — A portage route is not an extraction route · `ready`
+Joe, setting the canoe rule: "canoe... can be portaged betwene locations (but routes
+like that might not be reasonable for extraction)."
+T10.20 lets a canoe reach water over a portage, which is right for getting IN. Coming
+out with a quartered bull is a different problem, and the model currently reports one
+`walk_km` for both directions. The bushwhack figure is already the honest pack-out
+number; a portaged canoe leg is not.
+**Done when:** a route whose inbound path depends on a portage says so, and the pack-out
+estimate is computed on what you can actually carry a load along — not on the way in.
+
 
 ### T10.15 — The hunt leg bushwhacks past a mapped trail · `ready`
 Reported twice in one session, with screenshots: "It goes along one road and then

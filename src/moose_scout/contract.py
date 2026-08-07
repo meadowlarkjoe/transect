@@ -874,7 +874,12 @@ def build(ctx: Context) -> dict:
         # the brief can quote the WALK distance (the pack-out reality) not the total.
         "routes": [dict({"type": r["properties"]["legend"],
                          "coords": r["geometry"]["coordinates"]},
-                        **{k: r["properties"][k] for k in ("legs", "ride_km", "walk_km")
+                        # T10.20: legs carry the MODE each stretch is travelled by, and
+                        # vehicle_left_at is where the machine actually spends the day —
+                        # not at camp, not at the stand, and you come back to it.
+                        **{k: r["properties"][k] for k in
+                           ("legs", "ride_km", "walk_km", "km_by_mode", "ride_mode",
+                            "vehicle_left_at")
                            if k in r["properties"]})
                    for r in routes],
         "weather": wthr,

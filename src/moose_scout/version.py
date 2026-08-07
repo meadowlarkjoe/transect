@@ -13,11 +13,21 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 26
+ENGINE_REVISION = 27
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    27: "Routes now say what each stretch is travelled BY, and the map draws them "
+        "differently: ridden on a quad, on the water, walked along a trail, or "
+        "bushwhacking. Before, a route was worked out as a WALK and the ridable parts "
+        "were coloured in afterwards — which produced walk-then-ride-then-walk on every "
+        "route, i.e. boarding a machine parked in the middle of the bush. The machine "
+        "now starts where you do and STAYS where you step off it, so you get one ride "
+        "and then you are on foot, and the map marks where you left it. On a real quad "
+        "hunt this took the walking from about 5 km down to a few hundred metres. The "
+        "bushwhack figure is the one that matters for a pack-out, and it is now "
+        "reported on its own.",
     26: "If you gave the analysis more than one set of dates, each one now gets its own "
         "brief. Before, the engine ran every window properly but the brief showed the "
         "FIRST window's answer under all of them — so a bow-season area came with "
