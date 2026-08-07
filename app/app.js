@@ -1827,6 +1827,15 @@ const TERRAIN_PITCH=12;
 let _terrExagApplied=null;                 // what setTerrain was last given, or null
 function applyTerrain(){
   const want=map.getPitch()>TERRAIN_PITCH;
+  // setTerrain THROWS before the style is loaded ("Style is not done loading"), and a
+  // pitch event can absolutely arrive first — a restored camera, an easeTo on open. An
+  // exception thrown inside a map listener is not a contained failure, so the state is
+  // recorded and the mesh is applied on load instead. Caught live, not in a unit test.
+  if(!map.isStyleLoaded()){
+    terrOn=want; syncBaseChip();
+    map.once('load',applyTerrain);
+    return;
+  }
   // Only touch the mesh when something actually changed: `pitch` fires every frame of
   // an easeTo, and setTerrain per frame is a rebuild per frame.
   if(want && _terrExagApplied!==terrExag){

@@ -111,3 +111,14 @@ def test_the_dem_source_terrain_asks_for_actually_exists():
     src = APP.read_text()
     assert re.search(r"dem:\{type:'raster-dem'", src), \
         "setTerrain({source:'dem'}) has no dem source to bind to"
+
+
+def test_terrain_is_not_applied_before_the_style_is_loaded():
+    """Caught in a live browser, not by any of the tests above: `setTerrain` throws
+    "Style is not done loading" if it runs first, and a pitch event can arrive before
+    load (a restored camera, an easeTo on open). An exception thrown inside a map
+    listener is not a contained failure."""
+    body = _fn("applyTerrain")
+    assert "map.isStyleLoaded()" in body
+    assert "map.once('load',applyTerrain)" in body.replace(" ", ""), \
+        "the deferred state is dropped rather than applied once the style arrives"
