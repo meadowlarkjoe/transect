@@ -1172,6 +1172,26 @@ def build(ctx: Context) -> dict:
             bn = cache / "funnel_barrier.json"
             if bn.exists():
                 doc["funnel_meta"] = _json.loads(bn.read_text())
+                # WHY THERE ARE NO FUNNELS, when there are none. Most candidates fail
+                # the linkage test because they are dead ends — peninsula necks, spits,
+                # the closed end of a bay — and on ground that is ~95% continuous almost
+                # every candidate is one. An empty layer with no explanation reads as a
+                # broken model; "nothing here is forced anywhere" is a real answer about
+                # the ground, and the hunter should get it in those words.
+                _fm = doc["funnel_meta"]
+                _cand, _kept = _fm.get("neck_candidates"), _fm.get("necks_kept")
+                _pf = _fm.get("passable_frac")
+                if _cand and not _kept:
+                    _fm["note_en"] = (
+                        f"No funnels here. {_cand} narrow places were found and none of "
+                        f"them connects two real pieces of ground — on land that is "
+                        f"{100 * (_pf or 0):.0f}% continuous a moose simply walks around "
+                        f"them. Narrow is not the same as pinched.")
+                elif _cand and _kept and _kept < _cand:
+                    _fm["note_en"] = (
+                        f"{_kept} of {_cand} narrow places are real bottlenecks. The rest "
+                        f"are dead ends — a peninsula neck is narrow but leads nowhere, "
+                        f"so nothing is forced through it.")
         except Exception:
             pass
     except Exception:

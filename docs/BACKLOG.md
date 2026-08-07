@@ -25,8 +25,9 @@ underserved. Within a band, cheaper first.
 | 2 | **T10.1** Multi-window brief reports window 1 for everything | A bow hunter reads rifle-window advice with no way to tell. The engine already knows better — only the readout lies. |
 | 3 | **T10.15** Hunt leg bushwhacks past a mapped trail | Draws a line to a place it then refuses to walk to. Diagnosed: one file missing from the walk-cost surface. |
 | 4 | **T10.2** Method of take not modelled per window | Bow stands placed on rifle logic. Makes T10.1 half a fix — right labels, wrong stands. |
-| 5 | **T6.1** Null-model benchmark | The model is unfalsifiable, and rev 21 moved the huntability scale under constants that are still absolute. Load-bearing since 2026-08-06. |
-| 6 | **T0.4** Tests that contaminate each other | Three synth tests fail regardless of the code, so a real regression is indistinguishable from the contamination. |
+| 5 | **T10.18** A funnel should connect two places a moose wants | T10.17 made necks prove they are bottlenecks. A bottleneck between two barren outcrops is still a bad place to sit. |
+| 6 | **T6.1** Null-model benchmark | The model is unfalsifiable, and rev 21 moved the huntability scale under constants that are still absolute. Load-bearing since 2026-08-06. |
+| 7 | **T0.4** Tests that contaminate each other | Three synth tests fail regardless of the code, so a real regression is indistinguishable from the contamination. |
 
 ### Band 2 — MISSING (a real gap you can see)
 
@@ -606,6 +607,53 @@ standing in for hillshade, a green-brown ramp for satellite. They convey nothing
 what the basemap will look like over YOUR ground.
 **Done when:** each row shows a real tile from the current view centre, so the choice is
 made on the actual ground rather than on a generic swatch.
+
+### T10.17 — Peninsulas were being called funnels · `done` (2026-08-07)
+Reported from the map: "peninsulas are being identified as funnels. These are probably
+the opposite of funnels. they are dead ends."
+Correct, and it was not a near-miss. The constriction detector asked exactly one
+question — is this ground narrow, pinched between barriers? — and that question is
+purely LOCAL. A peninsula neck answers yes. So does a spit, an island tie-bar and the
+closed end of a bay.
+**Measured before the fix, across every cached AOI:** on his own box 25 of 25 candidates
+were dead ends. On another, 10 of 36. The layer was mostly wrong, and wrong in the
+specific way that sends someone to sit on ground no travelling bull has a reason to
+cross.
+**The fix** is the standard connectivity test — Circuitscape's pinch points, where
+losing a little ground SEVERS A LINKAGE. Cut the neck; look at what it separated. Two
+substantial regions is a funnel; one region and a stub is a dead end; one region means
+you can walk around it and nothing is funnelled at all.
+**Two things that looked right and were not,** both caught by measurement rather than by
+reading the code, and both now pinned by tests:
+* **Cut ACROSS the neck, not along it.** The medial axis runs ALONG the corridor centre,
+  so deleting those cells leaves the flanks joined around the gap and severs nothing.
+  The cut radius has to come from the distance transform, which IS the local half-width.
+* **The sides are the pieces the neck TOUCHES,** not the two biggest pieces nearby.
+  Taking the largest components in the window paired a peninsula stub with an unrelated
+  region across a lake. Symptom that caught it: widening the search halo 6 km → 25 km
+  moved survivors 9 → 25 on one box and 47 → 66 on another. The verdict was being
+  decided by how far we happened to look.
+**Result across the cached set:** water-poor boxes (91–96% passable) keep 0–14 of their
+candidates; genuinely lake-riddled ones keep hundreds with sides up to 73 km². The test
+discriminates on the geography rather than on a threshold.
+**Left for later:** whether the two sides are worth MOVING between — feed on one, cover
+on the other — is the other half of what makes a funnel, and it is a habitat question.
+`terrain.py` runs before `habitat.py`, so that weighting belongs in a later stage. See
+T10.18.
+
+### T10.18 — A funnel should connect two places a moose WANTS · `ready`
+The other half of T10.17, and his own framing of it: "some sort of terrain featue that
+concentrates movement between two areas that would be interesting to them."
+T10.17 makes a funnel prove it is a BOTTLENECK. It does not ask what is on either side.
+A perfect neck between two barren rock outcrops is a perfect bottleneck and a worthless
+place to sit; a moose moves between food and security cover, so the necks that matter
+are the ones joining feeding ground to bedding/thermal cover.
+The constraint that shapes the work: `terrain.py` runs before `habitat.py`, so terrain
+can only supply the geometry. The destination weighting has to happen in a later stage
+that can see `browse.tif`, `cover.tif` and the refuge surfaces.
+**Done when:** a neck's score is weighted by what its two sides actually hold — full
+credit for feed one side and cover the other, little for two sides of the same barren
+ground — and the hover card says which two things it joins.
 
 ### T10.15 — The hunt leg bushwhacks past a mapped trail · `ready`
 Reported twice in one session, with screenshots: "It goes along one road and then

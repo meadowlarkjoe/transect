@@ -167,6 +167,93 @@ def _barrier(cache, crs, transform, shape, res: float, working_shape=None):
     return out
 
 
+# A neck only counts if cutting it separates two REAL pieces of ground. Below
+# MIN_SIDE_KM2 the smaller side is a stub — a peninsula tip, a spit, the closed end of a
+# bay — and full credit needs FULL_SIDE_KM2 on the smaller side, which is about the
+# scale of ground a moose actually shuttles between.
+MIN_SIDE_KM2 = 0.5
+FULL_SIDE_KM2 = 5.0
+LINK_HALO_M = 6000.0        # how far around a neck to look before judging its two sides
+
+
+def _linkage(core, passable, res: float, db):
+    """How much of a LINKAGE each neck is, 0..1 — the test that tells a funnel from a
+    dead end.
+
+    THE BUG THIS EXISTS FOR. The constriction detector asks one question — "is this
+    ground narrow, pinched between barriers?" — and that question is purely LOCAL. A
+    peninsula neck answers yes. So does a spit, an island's tie-bar, and the closed end
+    of a bay. Measured on two real boxes before this was written: 8 of 10 funnels on one
+    and 10 of 36 on the other were dead ends or cut nothing at all. A dead end is not a
+    weak funnel, it is the OPPOSITE of one — nothing is forced through a place that
+    leads nowhere, and a hunter sitting on one watches ground no travelling bull has a
+    reason to cross.
+
+    The test is the standard connectivity one (Circuitscape calls these pinch points):
+    a real bottleneck is where losing a little ground SEVERS A LINKAGE. Cut the neck and
+    look at what it separated — two substantial regions means travel between them really
+    is squeezed through here; one region and a stub is a dead end; one region means you
+    can walk around it and nothing is funnelled at all.
+
+    TWO THINGS THAT LOOK RIGHT AND ARE NOT, both found by measurement:
+
+    1. CUT ACROSS THE NECK, NOT ALONG IT. The medial axis runs ALONG the corridor
+       centre, so deleting those cells leaves the corridor's flanks connected around the
+       gap and severs nothing. The cut has to span the full corridor, so its radius
+       comes from `db` — the distance transform IS the local half-width.
+    2. THE SIDES ARE THE PIECES THE NECK TOUCHES, not the biggest pieces nearby. Taking
+       the two largest components in the window paired a peninsula stub with an
+       unrelated region across a lake, so every neck passed once the window was wide
+       enough to reach one. Symptom: widening the halo 6 km -> 25 km moved survivors
+       from 9 to 25 and 47 to 66. The verdict was being decided by how far we happened
+       to look, which is not a property of the ground.
+
+    Deliberately geometric and nothing else. Whether the two sides are worth MOVING
+    between — feed on one, cover on the other — is a habitat question, and habitat.py
+    has not run when this does.
+    """
+    import numpy as np
+    from scipy import ndimage as ndi
+
+    out = np.zeros(core.shape, "float32")
+    lab, n = ndi.label(core > 0)
+    if n == 0:
+        return out
+
+    cell_km2 = res * res / 1e6
+    halo = max(4, int(round(LINK_HALO_M / res)))
+    objs = ndi.find_objects(lab)
+    for i, sl in enumerate(objs, start=1):
+        if sl is None:
+            continue
+        blob_full = lab == i
+        # Radius that actually spans the corridor here, plus a margin so the cut closes.
+        rad = int(np.ceil(float(db[blob_full].max()) / res)) + 2
+        pad = halo + rad
+        y0 = max(0, sl[0].start - pad); y1 = min(core.shape[0], sl[0].stop + pad)
+        x0 = max(0, sl[1].start - pad); x1 = min(core.shape[1], sl[1].stop + pad)
+        win = passable[y0:y1, x0:x1]
+        seed = blob_full[y0:y1, x0:x1]
+
+        cut = ndi.binary_dilation(seed, iterations=rad)
+        open_ground = win & ~cut
+        sublab, sn = ndi.label(open_ground)
+        if sn < 2:
+            continue                     # removing it separates nothing — walk around it
+
+        # The two sides are whatever the cut is in contact with.
+        ring = ndi.binary_dilation(cut, iterations=2) & ~cut & win
+        touching = set(np.unique(sublab[ring])) - {0}
+        if len(touching) < 2:
+            continue                     # only one side — a dead end
+        sizes = sorted((float((sublab == t).sum() * cell_km2) for t in touching), reverse=True)
+        second = sizes[1]                # the SMALLER of the two sides it joins
+        if second < MIN_SIDE_KM2:
+            continue                     # a stub — this is a dead end, not a funnel
+        out[blob_full] = min(1.0, second / FULL_SIDE_KM2)
+    return out
+
+
 def _constriction(barrier, res: float, grid_res: float | None = None):
     """(strength 0..1, neck width in metres) for every pinch in the passable ground.
 
@@ -220,6 +307,19 @@ def _constriction(barrier, res: float, grid_res: float | None = None):
     pinch = np.clip((db_local - db) / (db_local + 1e-6), 0.0, 1.0)
     strength = narrow * (0.35 + 0.65 * pinch)
     constriction = np.where(ridge & (full_w < NECK_M), strength, 0.0).astype("float32")
+
+    # IS IT A LINKAGE, OR A DEAD END? Everything above measures SHAPE — narrow, pinched,
+    # a local minimum of corridor width — and a peninsula neck satisfies all of it. This
+    # is the test that asks what the neck actually connects, and it runs BEFORE the halo
+    # below so the cut measures the real neck rather than its 280 m zone of influence.
+    link = _linkage(constriction, passable, res, db)
+    n_before = int((constriction > 0).sum())
+    constriction = (constriction * link).astype("float32")
+    _constriction.last_audit = {
+        "candidates": n_before,
+        "kept": int((constriction > 0).sum()),
+        "passable_frac": round(float(passable.mean()), 4),
+    }
 
     # THICKEN ENOUGH TO SURVIVE THE POLYGONIZER. The medial axis is a 1-px line; 120 m
     # made it ~3 px at 40 m, and _polygonize opens with 3 iterations — which erodes 3 px
@@ -397,10 +497,17 @@ def run(ctx: Context) -> None:
                         _wet |= np.nan_to_num(w) > 0
                 except Exception:
                     pass
+            # Carry the LINKAGE audit too, so "no funnels" can explain itself. An empty
+            # layer with no reason reads as broken; "the ground here is 91% continuous,
+            # so nothing is forced anywhere" is a finding a hunter can use.
+            _audit = getattr(_constriction, "last_audit", {}) or {}
             (cache_dir(aoi) / "funnel_barrier.json").write_text(json.dumps({
                 "barrier_frac": round(float(barrier.mean()), 4),
                 "wetland_frac": round(float(_wet.mean()), 4),
-                "grhq_present": (cache_dir(aoi) / "wetland_grhq.tif").exists()}))
+                "grhq_present": (cache_dir(aoi) / "wetland_grhq.tif").exists(),
+                "neck_candidates": _audit.get("candidates"),
+                "necks_kept": _audit.get("kept"),
+                "passable_frac": _audit.get("passable_frac")}))
         except Exception as _e:
             print(f"[terrain] funnel barrier note not written: {_e}")
 
