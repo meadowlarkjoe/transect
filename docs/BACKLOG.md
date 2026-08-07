@@ -21,7 +21,7 @@ underserved. Within a band, cheaper first.
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 1 | **T6.3** Extraction grows areas into below-average ground | Benchmark corrected twice; on a box with real headroom the model captures 2% of what a contiguous area could achieve. The extent bar (0.216) sits below the landscape mean (0.235). |
+| 1 | **T6.4** One box captures 2% of achievable, and the extent bar is not why | Residue of T6.3: areas score at random on ground where a contiguous area reaches 0.322. Not extent — siting. |
 
 ### Band 2 — MISSING (a real gap you can see)
 
@@ -297,49 +297,63 @@ for a literally random model.
 **What it must never be quoted as:** beating both nulls does not mean the answer is
 right. Ground truth is T6.2, which stays open.
 
-### T6.3 — The benchmark was measuring it wrong; the extraction is still leaving score on the table · `in-progress` (2026-08-07)
-Opened by T6.1's finding. Investigating it corrected the BENCHMARK twice before it said
-anything trustworthy about the extraction — both corrections were mine, and both changed
-the conclusion.
+### T6.3 — Extent is gated on the raw value, and the earlier numbers were wrong · `done` (2026-08-07)
+Opened by T6.1. Chasing it corrected the benchmark twice and then corrected the FINDING
+itself — all three corrections were mine.
 
-**Correction 1 — the null was given choices the model never had.** `validate` drew its
-random null from every finite cell of `huntability.tif`. But synth crops a 2 km border
-before extracting anything (focal and Hessian filters produce edge artefacts), so that
-ground is never a candidate: 399.5 km² finite against 256.5 km² the model can reach. A
-null model has to be offered the same choices as the thing it is a null for.
+**Benchmark correction 1 — the null was given choices the model never had.** `validate`
+drew from every finite cell of huntability.tif, but synth crops a 2 km border first:
+399.5 km² against 256.5 km² reachable.
 
-**Correction 2 — the ceiling was unreachable by construction.** Capture was measured
-against the best n CELLS, which is maximally fragmented; no walkable area could ever
-reach it, so every result looked like failure and the number carried no information. The
-fair target is the best CONTIGUOUS area of the same size, at the best available place.
+**Benchmark correction 2 — the ceiling was unreachable by construction.** Capture was
+measured against the best n CELLS, maximally fragmented; no walkable area could reach it.
+The fair target is the best CONTIGUOUS area of the same size.
 
-**What it says now, and it differs by box:**
+**Correction 3, and the one that mattered most: my sweep's "baseline" was not what
+ships.** It forced `smoothing_m` to 350 while the shipped value is 200. Re-run against
+the real configuration — and after T0.5's gate fix — the numbers are very different from
+the 6/16/20% this ticket was opened on:
 
-| | random | model | fair oracle | cherry-picked | headroom |
-|---|---|---|---|---|---|
-| job_0e92b5ca580d | 0.244 | **0.248** | **0.322** | 0.435 | 0.078 |
-| job_8892f779ddc9 | 0.248 | 0.249 | 0.253 | 0.396 | 0.005 |
+| box | shipped | + extent_raw_frac 0.70 |
+|---|---|---|
+| job_0e92b5ca580d | 0.018 | **0.030** |
+| job_8892f779ddc9 | no headroom | no headroom |
+| job_20e209ca08d0 | **0.408** | **0.460** |
 
-On the first box a same-size contiguous area **can** score 0.322 and the model delivers
-0.248 — it is picking the wrong ground, capturing 2% of what is achievable. On the second
-the oracle itself barely beats random, so there is no structure at that scale to exploit
-and the model's near-random result is honest. `capture` now returns None below a
-headroom of 0.02 rather than reporting the meaningless −26% it produced there.
+So the extraction was already doing far better than reported. The premise "discards
+80–94%" was an artefact of measuring a mis-configured run.
 
-**Where the loss most likely comes from,** identified but NOT yet changed: the extent bar
-is `min_huntability × grow_frac_of_floor` = 0.30 × 0.72 = **0.216**, and random ground on
-these boxes averages 0.235–0.248. An admitted area is therefore allowed to grow out into
-ground *below the landscape mean*, which is exactly how a 19 km² single patch ends up
-scoring like a random draw. `grow_frac_of_floor` was introduced to stop lobes collapsing
-after the rev-21 browse rebuild — a constant tuned to restore a COUNT, which is precisely
-what a capture metric is for catching.
+**What shipped, and it is a modest change.** A cell must now clear
+`min_huntability × extent_raw_frac` on its OWN raw value, not only on the smoothed
+surface. The mechanism is sound — thresholding a 200 m Gaussian is right for deciding
+SHAPE and wrong for deciding QUALITY, because a blur lifts poor ground over the bar
+wherever it sits beside good ground, and measured, that let an area grow until 64–73% of
+it was below the landscape mean. Coherence survives because closing + fill-holes absorb
+isolated rejects, so only poor REGIONS are excluded.
 
-**Deliberately not changed yet.** Moving that constant is a model change of exactly the
-kind rev 21 warns about, and a sweep showed the obvious tightening (grow_frac 1.3) takes
-both boxes to ZERO areas. It needs its own pass, with the corrected benchmark in hand and
-before/after capture on several boxes — not a threshold nudged at the end of a long day.
-**Done when:** capture rises materially on boxes with real headroom, area counts and
-sizes are reported alongside it, and no box loses its areas.
+0.70 is where the evidence stopped, not where capture looked best: 0.85 scored higher on
+one box but halved the area count on two of three, and 1.0 produced ZERO areas on all
+three. fire_lake still returns 37 areas. Better ground is worth nothing if it is not
+enough ground to hunt.
+
+**A trap caught on the way:** with zero focus areas the benchmark falls back to
+top-scoring cells, which trivially beat the oracle — so the settings that produced NO
+areas reported capture 2.3–3.2, the most flattering possible number for the worst
+possible outcome. `capture` is now None when the extraction produced nothing.
+
+### T6.4 — One box captures 2% of achievable and the extent bar is not why · `ready`
+The residue of T6.3, isolated rather than guessed at. On `job_0e92b5ca580d` the focus
+areas score 0.245 against 0.244 for a random draw, on ground where a contiguous area of
+the same size reaches 0.322 — headroom of 0.078 and essentially none of it captured. The
+extent fix moved it 0.018 → 0.030, which is nothing, and tightening further costs the box
+its second area. Two other boxes are fine (0.46 capture, and one with no headroom at all).
+So this is not the extent bar: the areas are in the wrong PLACE on that box. The peaks
+come from `peak_local_max` on the smoothed surface at `threshold_abs = min_huntability`,
+and the next thing to measure is whether those peaks actually sit on the best
+neighbourhoods there, or whether separation/`max_area_km2` is forcing the choice
+elsewhere.
+**Done when:** capture on that box is either raised materially or explained — with the
+peak locations compared against the oracle's centre, not inferred.
 
 ### T6.2 — Backtest against harvest density · `blocked` *(by T6.1)*
 **Done when:** modelled huntability correlates (or demonstrably does not) with published

@@ -160,3 +160,44 @@ def test_the_benchmark_never_claims_the_model_is_right():
     """The one sentence this file must always carry."""
     import inspect
     assert "does not say the answer is right" in inspect.getsource(validate.report)
+
+
+# ------------------------------------------------ the extent bar T6.3 actually shipped
+
+
+def test_extent_is_gated_on_the_raw_value_not_only_the_smoothed_one():
+    """T6.3. Everything in extract_focus_areas thresholds a ~200 m Gaussian, which is
+    right for deciding SHAPE and wrong for deciding QUALITY — a blur lifts poor ground
+    over the bar wherever it sits beside good ground. Measured, that let an area grow
+    until 64-73% of it was below the landscape mean."""
+    import inspect
+    from moose_scout import synth
+    src = inspect.getsource(synth.extract_focus_areas)
+    assert "EXTENT_RAW_FRAC" in src
+    assert "FLOOR * EXTENT_RAW_FRAC" in src, (
+        "the raw bar is tied to `grow` again — that was the first attempt and it did "
+        "nothing, because grow can be as low as 0.216 while these landscapes average 0.248")
+
+
+def test_the_shipped_extent_bar_is_the_one_the_evidence_supported():
+    """0.7 is where the sweep stopped, not where capture looked best. 0.85 scored higher
+    on one box and halved the area count on two of three; 1.0 produced ZERO areas
+    everywhere. Better ground is worth nothing if it is not enough ground to hunt."""
+    import pathlib
+    import yaml
+    cfg = yaml.safe_load(pathlib.Path("config/model.yaml").read_text())
+    frac = cfg["focus_areas"]["extent_raw_frac"]
+    assert 0.6 <= frac <= 0.8, (
+        f"extent_raw_frac is {frac}; above ~0.85 real boxes start losing areas entirely, "
+        f"which the sweep measured rather than guessed")
+
+
+def test_an_extraction_that_produced_nothing_scores_no_capture():
+    """The trap this nearly fell into: with zero focus areas the benchmark falls back to
+    top-scoring cells, which trivially beat the oracle — a sweep reported capture 2.3-3.2
+    for settings whose real result was ZERO areas. The most flattering possible number
+    for the worst possible outcome."""
+    import inspect
+    src = inspect.getsource(validate.benchmark)
+    assert "no_areas" in src and "not no_areas" in src, \
+        "capture is reported again for a cache with no focus areas"

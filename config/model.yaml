@@ -87,6 +87,21 @@ focus_areas:
   # plans with zero areas.
   grow_frac_of_floor: 0.72       # extend over ground >= this share of the admission bar
   grow_rel: 0.80                 # ...and still related to this peak (multiplies gate_f)
+  # A cell must also clear this share of the admission bar ON ITS OWN RAW VALUE, not
+  # just on the smoothed surface (T6.3). Everything above thresholds the ~200 m Gaussian,
+  # which is right for deciding SHAPE and wrong for deciding QUALITY: a blur lifts poor
+  # ground over the bar whenever it sits beside good ground. Measured, that let an area
+  # grow until 64-73% of it was BELOW the landscape mean, and trimming each area to its
+  # own best half doubled how much of the achievable score it captured (0.14 -> 0.47).
+  # Coherence survives because binary_closing + binary_fill_holes absorb isolated
+  # rejects, so speckle is still smoothed over — only poor REGIONS are kept out.
+  #
+  # 0.7 is where the evidence stopped, not where it looked best. Sweeping three real
+  # boxes: 0.7 raised capture on both boxes that had headroom (0.14->0.17, 0.07->0.20)
+  # while every box kept areas; 0.85 raised it further (0.26, 0.21) but halved the area
+  # count on two of three; 1.0 produced ZERO areas everywhere. Handing back better ground
+  # is worth nothing if it is not enough ground to hunt.
+  extent_raw_frac: 0.70
   min_area_km2: 3
   # A focus area is a chunk a party can actually WORK in the field (a drainage), not a
   # secteur — capped near ~18 km²; party size adds MORE areas, it doesn't inflate one.

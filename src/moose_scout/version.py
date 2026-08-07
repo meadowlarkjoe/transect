@@ -13,11 +13,19 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 29
+ENGINE_REVISION = 30
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    30: "Focus areas stop growing into ground that is only good by association. The "
+        "engine works out where an area reaches using a smoothed version of the map, "
+        "which is right for getting a sensible SHAPE and wrong for judging quality — a "
+        "blur lifts poor ground over the bar wherever it sits next to good ground, and "
+        "on one area two thirds of it was below the average for the whole box. Each "
+        "cell now has to be decent on its own account as well. Expect areas to be a "
+        "little smaller and tighter around the ground that earned them; the number of "
+        "areas is unchanged.",
     29: "Fixed a case where an area could be thrown out — and told you it was cut off "
         "from every road by water — when the truth was that we never managed to fetch "
         "a road network for that box at all. Not knowing how you get somewhere is not "

@@ -104,6 +104,23 @@ def extract_focus_areas(ctx, hunt, prof):
     # area stops. Capped so an area can still never exceed max_area_km2.
     GROW_FRAC_OF_FLOOR = float(fcfg.get("grow_frac_of_floor", 0.72))
     GROW_REL = float(fcfg.get("grow_rel", 0.80))
+    # QUALITY IS TESTED ON THE RAW SURFACE, EXTENT ON THE SMOOTHED ONE (T6.3).
+    #
+    # Everything below thresholds `hs`, the surface after a ~350 m Gaussian. That is
+    # right for deciding SHAPE — the raw 40 m surface is speckly and a bare threshold
+    # gives swiss-cheese — but it is wrong for deciding QUALITY, because a blur pulls
+    # genuinely poor ground up over the bar whenever it sits next to good ground.
+    #
+    # Measured: the extent bar is FLOOR x GROW_FRAC_OF_FLOOR = 0.216, while random ground
+    # on these boxes averages 0.235-0.248. An admitted area could therefore grow out into
+    # ground BELOW the landscape mean, and did — one 19 km2 patch scoring 0.248 against
+    # 0.244 for a random draw, on a box where a contiguous area of that size could reach
+    # 0.322.
+    #
+    # So a cell must now clear a bar on its OWN value as well. Coherence is not lost:
+    # binary_closing + binary_fill_holes below absorb isolated rejects, so speckle is
+    # still smoothed over — only genuinely poor REGIONS are kept out.
+    EXTENT_RAW_FRAC = float(fcfg.get("extent_raw_frac", 0.0))
     tr = Transformer.from_crs(prof["crs"], "EPSG:4326", always_xy=True)
     to_wgs = lambda geom: shp_transform(lambda xs, ys: tr.transform(xs, ys), geom)
 
@@ -159,6 +176,12 @@ def extract_focus_areas(ctx, hunt, prof):
             # nothing is admitted that was not admitted before.
             grow = max(FLOOR * GROW_FRAC_OF_FLOOR, float(hs[pr, pc]) * gate_f * GROW_REL)
             raw = near & np.isfinite(hunt) & (hs >= grow)
+            if EXTENT_RAW_FRAC > 0:
+                # Relative to the ADMISSION FLOOR, not to `grow`. Tying it to `grow` was
+                # the first attempt and it did nothing: grow is already as low as 0.216,
+                # so a fraction of it lands near 0.17 — far under the ~0.248 these
+                # landscapes average, which is the very ground being excluded.
+                raw = raw & (np.nan_to_num(hunt) >= FLOOR * EXTENT_RAW_FRAC)
             # Keep ONLY the connected component containing the peak, then close gaps &
             # fill holes so the ring, its centroid, and its placed sites all agree.
             lbl, _ = ndlabel(raw)

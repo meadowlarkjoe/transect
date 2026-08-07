@@ -114,8 +114,14 @@ def benchmark(cache: Path, sample: int = 200_000) -> dict:
             picked = _rasterize_areas(fa, cache)
         except Exception:
             picked = None
-    if picked is None or not picked.any():
-        source = "top-scoring cells (no focus areas in this cache)"
+    no_areas = picked is None or not picked.any()
+    if no_areas:
+        # An extraction that produced NOTHING cannot be scored on how well it selected.
+        # The fallback below exists so the road null is still measurable on such a cache,
+        # but `capture` must come back None — top-scoring cells trivially beat the oracle
+        # and a sweep reported 2.3-3.2 for settings whose real result was ZERO areas,
+        # which is the most flattering possible number for the worst possible outcome.
+        source = "top-scoring cells (NO focus areas — capture is not meaningful)"
         picked = _top_mask(hunt, huntable, max(1, int(0.05 * huntable.sum())))
 
     n = int(picked.sum())
@@ -194,7 +200,7 @@ def benchmark(cache: Path, sample: int = 200_000) -> dict:
         # scale the denominator is noise, and it produced a meaningless -26% on a real
         # box whose oracle beat random by 0.005.
         "capture": round((hunt_sel - hunt_rand) / (hunt_oracle - hunt_rand), 4)
-        if (hunt_oracle - hunt_rand) >= MIN_HEADROOM else None,
+        if (not no_areas and (hunt_oracle - hunt_rand) >= MIN_HEADROOM) else None,
         # When the oracle barely beats random there is no structure to exploit at this
         # scale, and a low capture says nothing about the extraction.
         "oracle_headroom": round(hunt_oracle - hunt_rand, 4),
