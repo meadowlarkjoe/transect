@@ -13,11 +13,18 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 28
+ENGINE_REVISION = 29
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    29: "Fixed a case where an area could be thrown out — and told you it was cut off "
+        "from every road by water — when the truth was that we never managed to fetch "
+        "a road network for that box at all. Not knowing how you get somewhere is not "
+        "the same as knowing you cannot. On one test area this had excluded all 37 "
+        "focus areas and left no routes; it now returns all 37. If access could not be "
+        "modelled the brief already says so, and areas are no longer refused on the "
+        "strength of a placeholder.",
     28: "You can now tell it what you are carrying, per season. A bow needs the bull "
         "inside about 35 m, so the shooter now sets up 40 m downwind of the caller "
         "instead of 70, the scent wicks come in with him, and glassing knobs — a rifle "

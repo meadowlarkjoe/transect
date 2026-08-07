@@ -418,7 +418,7 @@ def _reach_km(hunter, kit):
     return reach
 
 
-def _capability_gate(dr, hunter, kit, camp_km=None):
+def _capability_gate(dr, hunter, kit, camp_km=None, access_unknown=False):
     """Can this hunter actually GET here and get an animal OUT, given what they told
     us they have? Returns (ok, reason). A "no" is not a judgement about the ground —
     the area still ships, flagged, so the hunter can decide whether the kit is worth
@@ -443,6 +443,25 @@ def _capability_gate(dr, hunter, kit, camp_km=None):
                            + (" (even by ATV)." if kit["atv"] else "."))
         return True, None
     if dr is None:
+        return True, None
+    # ACCESS UNKNOWN IS NOT ACCESS IMPOSSIBLE (T0.5). access.py already learned this and
+    # says so at length — when no road network was acquired it refuses to zero the
+    # extraction surface and falls back to a neutral 0.85 with a flag. This gate was
+    # never taught the same lesson, and it collapsed two very different conditions into
+    # one sentinel range:
+    #
+    #   * WATER-LOCKED — roads exist, and the cost-distance found no walkable path to
+    #     any of them. That is a real finding about the ground.
+    #   * NO ROAD DATA — acquire never landed a road network (a big box can blow the
+    #     Overpass budget), so access.py fills dist_road with 1e6 as a placeholder.
+    #
+    # Both land above 5e5, so the second was being reported as the first. Measured on
+    # the fire_lake cache, whose roads.tif is missing: dist_road is 1e6 across 100% of
+    # cells, every one of 37 focus areas was excluded, and each carried the sentence
+    # "No boat — this ground is cut off from every road by water." That is a confident,
+    # specific claim built on having no data at all, which is the worst shape a wrong
+    # answer can take.
+    if access_unknown:
         return True, None
     reach = _reach_km(hunter, kit)
     # 5e5 is the barrier sentinel: no walkable path to a road at all (water-locked).
@@ -590,6 +609,14 @@ def run(ctx: Context, manual_areas=None) -> None:
                 f["properties"]["conf"] = _conf.area_confidence(sel, Lyr)
 
     # ---- CAPABILITY GATE ------------------------------------------------------
+    # Did access get modelled at all? access.py raises this flag when no road network
+    # was acquired, and without reading it the gate cannot tell "cut off by water" from
+    # "we never found out" — see _capability_gate.
+    _access_unknown = False
+    try:
+        _access_unknown = (cache / "access_unknown.flag").read_text().strip() == "1"
+    except Exception:
+        _access_unknown = False
     # Ground the hunter cannot reach with the kit they told us about is not a
     # recommendation — it's a note. Gate every area, then RE-RANK so the areas they
     # can actually hunt take ranks 1..n (this is the "search down the ranking for
@@ -611,7 +638,7 @@ def run(ctx: Context, manual_areas=None) -> None:
                 _d = np.hypot(_rc[:, 0] - fixed_camp_rc[0], _rc[:, 1] - fixed_camp_rc[1])
                 _camp_km = float(_d.min()) * res / 1000.0
         ok, why_not = _capability_gate(st.get("dist_road_m"), ctx.aoi.hunter, _kit,
-                                       camp_km=_camp_km)
+                                       camp_km=_camp_km, access_unknown=_access_unknown)
         f["properties"]["status"] = "ok" if ok else "excluded"
         f["properties"]["excluded_reason"] = why_not
     _ok = [f for f in _areas if f["properties"]["status"] == "ok"]

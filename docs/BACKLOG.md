@@ -22,44 +22,43 @@ underserved. Within a band, cheaper first.
 | # | Ticket | Why it is here |
 |---|--------|----------------|
 | 1 | **T6.3** Focus-area extraction discards most of the model's discrimination | Found by T6.1: the surface separates ground nearly 2:1, the areas handed over capture 6-20% of it. |
-| 2 | **T0.5** fire_lake's capability gate excludes every focus area | Surfaced by T0.4 once the contamination stopped masking it: 37 of 37 areas excluded, so no areas and no routes. Stale fixture or a wrong gate — not yet separated. |
 
 ### Band 2 — MISSING (a real gap you can see)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 3 | **T10.21** A portage route is not an extraction route | T10.20 lets a canoe portage in. Coming out with a quartered bull is a different problem, and one walk_km covers both. |
-| 4 | **T10.6** PDF brief renders no analysis | Shipped in T9.7 on the strength of the plates existing; nobody checked what was on them. Basemap only. |
-| 5 | **T10.5** Camp icon regressed to a numbered circle | Collateral from T9.3/T9.1. A camp is not a site index. |
-| 6 | **T10.11 + T10.10** Pitch does not enable terrain; the SAT/2D chip is a constant | Two halves of one complaint, both small, both confirmed in the source. |
-| 7 | **T9.10b** Decide the fine-grid neck detector | Built and gated off in rev 22. Needs a real A/B, not a permanent flag. |
-| 8 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
-| 9 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
-| 10 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
-| 11 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
-| 12 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
-| 13 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
+| 2 | **T10.21** A portage route is not an extraction route | T10.20 lets a canoe portage in. Coming out with a quartered bull is a different problem, and one walk_km covers both. |
+| 3 | **T10.6** PDF brief renders no analysis | Shipped in T9.7 on the strength of the plates existing; nobody checked what was on them. Basemap only. |
+| 4 | **T10.5** Camp icon regressed to a numbered circle | Collateral from T9.3/T9.1. A camp is not a site index. |
+| 5 | **T10.11 + T10.10** Pitch does not enable terrain; the SAT/2D chip is a constant | Two halves of one complaint, both small, both confirmed in the source. |
+| 6 | **T9.10b** Decide the fine-grid neck detector | Built and gated off in rev 22. Needs a real A/B, not a permanent flag. |
+| 7 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
+| 8 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
+| 9 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
+| 10 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
+| 11 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
+| 12 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
 
 ### Band 3 — UGLY (it works and reads badly)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 14 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
-| 15 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
+| 13 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
+| 14 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
 
 ### Band 4 — PLATFORM (nobody sees it; it decides how fast the rest goes)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 16 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
-| 17 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
-| 18 | **T4.1** Extract the Québec legal adapter | The most province-locked file. Blocks T4.2. |
-| 19 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
-| 20 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
-| 21 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
-| 22 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
-| 23 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
-| 24 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
+| 15 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
+| 16 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
+| 17 | **T4.1** Extract the Québec legal adapter | The most province-locked file. Blocks T4.2. |
+| 18 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
+| 19 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
+| 20 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
+| 21 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
+| 22 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
+| 23 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
 
 ---
 
@@ -121,17 +120,37 @@ failing assert.
 fire_lake fixture produces no viable areas at all, so no routes. Verified against the
 commit before T10.20, so it is not a routing regression. Filed as T0.5.
 
-### T0.5 — fire_lake's capability gate excludes every focus area · `ready`
-Surfaced by T0.4 the moment the contamination stopped masking it: on the fire_lake
-fixture cache, synth logs `37 of 37 focus areas excluded; 0 viable areas promoted to
-ranks 1..0`, so the AOI yields no areas and no routes. Reproduced identically at the
-commit before T10.20, so nothing in the recent routing work caused it.
-Two candidates, and they need separating before anything is changed: the fixture cache is
-old, so its `huntability.tif` was written by a much earlier revision and may simply
-disagree with today's gate; or the gate's thresholds are genuinely wrong for this ground.
-The second would be the same class of problem as T6.3 and the rev-21 absolute constants.
-**Done when:** the cache is rebuilt at the current revision and the gate re-measured, and
-either the areas come back or the gate's exclusion is justified with the numbers.
+### T0.5 — "Access unknown" was being reported as "cut off by water" · `done` (2026-08-07)
+Surfaced by T0.4 the moment the test contamination stopped masking it: on the fire_lake
+cache, synth logged `capability gate: 37 of 37 focus areas excluded; 0 viable areas
+promoted to ranks 1..0`. No areas, no routes, nothing to hunt.
+
+**Not a stale fixture — a real bug, and a confidently wrong one.** `roads.tif` is missing
+from that cache, so `access.py` fills `dist_road` with its 1e6 placeholder and raises
+`access_unknown.flag`. The gate read `dr >= 5e5` and told the hunter, of every area:
+*"No boat — this ground is cut off from every road by water. A canoe or boat would open
+it."* Specific, checkable, actionable — and built on having no data at all.
+
+Two conditions had been collapsed into one sentinel range: WATER-LOCKED (roads exist and
+the cost-distance found no walkable path — a real finding) and NO ROAD DATA (acquire never
+landed a network — a placeholder).
+
+**The lesson had already been learned one file away.** `access.py` refuses to zero the
+extraction surface when the network is missing, falls back to a neutral 0.85, and raises
+the flag *precisely so the rest of the engine can tell the difference* — its comment says
+"ACCESS UNKNOWN ≠ ACCESS IMPOSSIBLE ... that is the model asserting 'nothing here is
+reachable' on the basis of having no data at all, which is exactly backwards." The fix
+was applied in one place and not the other, and the gate went on making the mistake it
+had been warned about, for long enough that the test which should have caught it was
+itself broken.
+
+**Measured after, same cache:** 37 areas, **0 excluded**, 111 routes, and all four synth
+smoke tests pass in a real 74 s pipeline run.
+
+The gate's real job is untouched: out-of-range ground is still excluded when access WAS
+modelled, water-locked is still water-locked, and a fixed camp still gates on distance
+from camp. A missing flag reads as access-known, because defaulting to "unknown" would
+disable the gate everywhere — the opposite failure.
 
 ### T1.1 — Emit `legend[]` in the contract · `done` (2026-08-04, 7ca39c5)
 `config/output_legend.yaml` exists but is used only for GPX/KML export; it never
