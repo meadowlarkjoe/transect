@@ -142,6 +142,41 @@ def run(ctx: Context) -> None:
         browse_lc = cover_lc = None
 
     if ndvi is not None:
+        # THESE BREAKPOINTS WERE RE-CHECKED AGAINST THE SURVEYED STAND MAP (T10.19),
+        # because T10.16 moved mean NDVI from 0.272 to 0.467 by fixing a frozen,
+        # snow-contaminated window — and rev 21's lesson is that an absolute constant
+        # left pointing at a shifted distribution is how the model goes quietly wrong.
+        #
+        # WHAT THE MEASUREMENT FOUND, on two boxes with écoforestière coverage, using
+        # the stand map as ground truth (it is surveyed, and independent of NDVI):
+        #
+        #   class        NDVI p50   browse_n
+        #   conifer        0.41       0.53
+        #   recent cut     0.43       0.58
+        #   mixed          0.49       0.68
+        #   deciduous      0.56       0.78
+        #
+        # Two things are wrong with that on its own terms. Closed conifer scores 0.53 —
+        # "moderate browse" — for ground the surveyors walked and recorded as having
+        # nothing to eat. And mature DECIDUOUS outranks a recent CUT (0.78 vs 0.58),
+        # which is backwards: a closed hardwood canopy is not food at browse height.
+        # NDVI simply cannot separate them here; a fresh cut is bare ground and slash,
+        # a mature stand is a wall of leaves, and the cut reads LOWER.
+        #
+        # WHY THEY STAY ANYWAY, which is the part that needed evidence rather than
+        # assertion. Rev 21 put this term in the LANDCOVER tier — the least precise —
+        # and the measurement shows that containment holding:
+        #   * where the stand map covers, it overrides outright: conifer 0.000 against
+        #     0.430 for a recent cut, a +0.43 separation that NDVI (+0.05) and land
+        #     cover (+0.03) could not produce between them;
+        #   * where it does not (north of ~52°N), NDVI is 40% of that tier, and swapping
+        #     the contaminated input for honest leaf-on moved browse on closed tree
+        #     cover only 0.269 -> 0.325, with the fraction above 0.5 unchanged at 6.1%.
+        #
+        # So: not a good browse discriminator, correctly ranked as such, and re-deriving
+        # the curve would be tuning a term that is outvoted wherever it matters. What
+        # would make this dangerous is a future change that PROMOTES the landcover tier
+        # or drops the surveyed sources — test_browse_precision.py fails if that happens.
         n = np.clip(ndvi, -0.2, 0.9)
         browse_n = np.clip((n - 0.15) / 0.5, 0, 1) * np.clip(1 - (n - 0.8) / 0.15, 0, 1)
         cover_n = np.clip((n - 0.5) / 0.4, 0, 1)

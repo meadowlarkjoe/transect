@@ -21,48 +21,47 @@ underserved. Within a band, cheaper first.
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 1 | **T10.19** Re-check browse calibration against honest leaf-on NDVI | T10.16 moved mean NDVI 0.272 → 0.467 on a real box. The browse curve's breakpoints are absolute and were living under the old distribution. |
-| 2 | **T10.15** Hunt leg bushwhacks past a mapped trail | Draws a line to a place it then refuses to walk to. Diagnosed: one file missing from the walk-cost surface. |
-| 3 | **T10.2** Method of take not modelled per window | Bow stands placed on rifle logic. Makes T10.1 half a fix — right labels, wrong stands. |
-| 4 | **T6.1** Null-model benchmark | The model is unfalsifiable, and rev 21 moved the huntability scale under constants that are still absolute. Load-bearing since 2026-08-06. |
-| 5 | **T0.4** Tests that contaminate each other | Three synth tests fail regardless of the code, so a real regression is indistinguishable from the contamination. |
+| 1 | **T10.15** Hunt leg bushwhacks past a mapped trail | Draws a line to a place it then refuses to walk to. Diagnosed: one file missing from the walk-cost surface. |
+| 2 | **T10.2** Method of take not modelled per window | Bow stands placed on rifle logic. Makes T10.1 half a fix — right labels, wrong stands. |
+| 3 | **T6.1** Null-model benchmark | The model is unfalsifiable, and rev 21 moved the huntability scale under constants that are still absolute. Load-bearing since 2026-08-06. |
+| 4 | **T0.4** Tests that contaminate each other | Three synth tests fail regardless of the code, so a real regression is indistinguishable from the contamination. |
 
 ### Band 2 — MISSING (a real gap you can see)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 6 | **T10.21** A portage route is not an extraction route | T10.20 lets a canoe portage in. Coming out with a quartered bull is a different problem, and one walk_km covers both. |
-| 7 | **T10.6** PDF brief renders no analysis | Shipped in T9.7 on the strength of the plates existing; nobody checked what was on them. Basemap only. |
-| 8 | **T10.5** Camp icon regressed to a numbered circle | Collateral from T9.3/T9.1. A camp is not a site index. |
-| 9 | **T10.11 + T10.10** Pitch does not enable terrain; the SAT/2D chip is a constant | Two halves of one complaint, both small, both confirmed in the source. |
-| 10 | **T9.10b** Decide the fine-grid neck detector | Built and gated off in rev 22. Needs a real A/B, not a permanent flag. |
-| 11 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
-| 12 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
-| 13 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
-| 14 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
-| 15 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
-| 16 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
+| 5 | **T10.21** A portage route is not an extraction route | T10.20 lets a canoe portage in. Coming out with a quartered bull is a different problem, and one walk_km covers both. |
+| 6 | **T10.6** PDF brief renders no analysis | Shipped in T9.7 on the strength of the plates existing; nobody checked what was on them. Basemap only. |
+| 7 | **T10.5** Camp icon regressed to a numbered circle | Collateral from T9.3/T9.1. A camp is not a site index. |
+| 8 | **T10.11 + T10.10** Pitch does not enable terrain; the SAT/2D chip is a constant | Two halves of one complaint, both small, both confirmed in the source. |
+| 9 | **T9.10b** Decide the fine-grid neck detector | Built and gated off in rev 22. Needs a real A/B, not a permanent flag. |
+| 10 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
+| 11 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
+| 12 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
+| 13 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
+| 14 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
+| 15 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
 
 ### Band 3 — UGLY (it works and reads badly)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 17 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
-| 18 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
+| 16 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
+| 17 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
 
 ### Band 4 — PLATFORM (nobody sees it; it decides how fast the rest goes)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 19 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
-| 20 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
-| 21 | **T4.1** Extract the Québec legal adapter | The most province-locked file. Blocks T4.2. |
-| 22 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
-| 23 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
-| 24 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
-| 25 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
-| 26 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
-| 27 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
+| 18 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
+| 19 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
+| 20 | **T4.1** Extract the Québec legal adapter | The most province-locked file. Blocks T4.2. |
+| 21 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
+| 22 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
+| 23 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
+| 24 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
+| 25 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
+| 26 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
 
 ---
 
@@ -798,18 +797,52 @@ and lands at 0.325.
 input moves it into that calibration rather than out of it. That is the argument, not a
 measurement; see T10.19.
 
-### T10.19 — Re-check the browse calibration against honest leaf-on NDVI · `ready`
-T10.16 moved mean NDVI on a real box from 0.272 (autumn scenes plus snow) to 0.467
-(leaf-on summer). The browse and cover curves it feeds use ABSOLUTE breakpoints, and
-this is exactly the situation rev 21 warned about: a constant left pointing at a
-distribution that has shifted underneath it.
-The argument that they are fine is that 0.15/0.65/0.8 for shrub-versus-conifer are
-standard leaf-on NDVI values, so the old input was wrong for them and the new one is
-right. That argument is plausible and is not evidence.
-**Done when:** browse output is compared before and after on several boxes, and either
-the breakpoints are confirmed against leaf-on NDVI or they are re-derived — with the
-comparison recorded, not asserted. Overlaps T6.1, which is the general form of this.
+### T10.19 — Browse calibration re-checked against leaf-on NDVI · `done` (2026-08-07)
+Opened as my own debt from T10.16, which moved mean NDVI on a real box from 0.272 to
+0.467 by fixing a frozen, snow-contaminated window. The browse and cover curves it feeds
+use ABSOLUTE breakpoints, so rev 21's lesson applied directly. My argument at the time —
+that 0.15/0.65/0.8 "look like textbook leaf-on values" — was plausible and was not
+evidence, which is why this ticket existed.
 
+**Ground truth used:** the écoforestière stand map. It is surveyed, carries real species
+and canopy closure, and is independent of NDVI, so it can say whether the curve ranks
+ground the way people who walked it did.
+
+**What it showed, on two boxes:**
+
+| class | NDVI p50 | browse_n | browse FINAL |
+|---|---|---|---|
+| conifer | 0.41 | 0.53 | **0.000** |
+| recent cut | 0.43 | 0.58 | **0.430** |
+| mixed | 0.49 | 0.68 | 0.250 |
+| deciduous | 0.56 | 0.78 | 0.200 |
+
+The NDVI term is a **bad browse discriminator**, and two things about it are wrong on
+their own terms: it scores closed conifer at 0.53 — moderate browse, for ground the
+surveyors recorded as having nothing to eat — and it ranks mature DECIDUOUS above a
+recent CUT, which is backwards for anything eaten at browse height. A fresh cut is bare
+ground and slash; a mature stand is a wall of leaves; the cut reads lower. Land cover is
+no better: +0.03 between cut and conifer against NDVI's +0.05.
+
+**The breakpoints stay anyway, and now that is a measurement rather than an argument.**
+Rev 21 put both terms in the LANDCOVER tier and the containment holds:
+* where the stand map covers, it overrides outright — **+0.43** separation between cut
+  and conifer, which NDVI and land cover together could not reach (+0.09);
+* where it does not (north of ~52°N), NDVI carries 40% of that tier, and swapping the
+  contaminated input for honest leaf-on moved browse on closed tree cover only
+  **0.269 → 0.325**, with the fraction above 0.5 **unchanged at 6.1%**.
+
+Re-deriving the curve would be tuning a term that is outvoted wherever it matters — and
+no monotone NDVI→browse mapping can fix it, because cut sits BELOW deciduous in NDVI and
+ABOVE it in browse.
+
+**What now guards it:** `test_browse_precision.py` fails if the landcover tier is ever
+promoted, if a surveyed source is dropped, or if the tiers tie. The curve's two known
+weaknesses are pinned as tests too, so nobody re-opens the tiering believing this term
+is sound. The measurements are recorded in `habitat.py` beside the constants.
+
+**Left open:** the real fix for northern boxes is not a better NDVI curve, it is a
+surveyed source north of the écoforestière limit. That is T5.1's territory.
 
 ### T9.10b — Decide the fine-grid neck detector · `ready`
 Built, tested and committed in rev 22, switched OFF behind `FINE_NECKS=1`.
