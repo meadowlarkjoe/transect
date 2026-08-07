@@ -33,15 +33,22 @@ The instruments are now written down rather than reconstructed (`focus_pool.tif`
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 1 | **T10.5** Camp icon regressed to a numbered circle | Collateral from T9.3/T9.1. A camp is not a site index. |
-| 2 | **T10.11 + T10.10** Pitch does not enable terrain; the SAT/2D chip is a constant | Two halves of one complaint, both small, both confirmed in the source. |
-| 3 | **T9.10b** Decide the fine-grid neck detector | Built and gated off in rev 22. Needs a real A/B, not a permanent flag. |
-| 4 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
-| 5 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
-| 6 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
-| 7 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
-| 8 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
-| 9 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
+| 1 | **T10.11 + T10.10** Pitch does not enable terrain; the SAT/2D chip is a constant | Two halves of one complaint, both small, both confirmed in the source. |
+| 2 | **T9.10b** Decide the fine-grid neck detector | Built and gated off in rev 22. Needs a real A/B, not a permanent flag. |
+| 3 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
+| 4 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
+| 5 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
+| 6 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
+| 7 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
+| 8 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
+
+**T10.5 done 2026-08-07** — three faults stacked. In fixed-camp mode the camp is also
+`draft.sites[0]`, so a numbered site dot was drawn at the identical coordinate; `setTab`
+never hid those dots off Setup; and — the one that made the cabin vanish — a MapLibre
+symbol carrying both an icon and a label is placed as a UNIT, so the camp's "A" losing a
+collision to the dot's `text-allow-overlap` label deleted the icon with it. All symbol
+layers with both are now `text-optional`, checked over the whole file rather than the two
+that were broken.
 
 **T10.6 done 2026-08-07** — the plate map was built from `baseStyle()`, imagery and nothing
 else, and every `setLayoutProperty` that followed sat behind `if(m.getLayer(id))` and did
@@ -54,22 +61,22 @@ the view framed on the areas. A plate with no plan layers on it now says so.
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 10 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
-| 11 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
+| 9 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
+| 10 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
 
 ### Band 4 — PLATFORM (nobody sees it; it decides how fast the rest goes)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 12 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
-| 13 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
-| 14 | **T4.1** Extract the Québec legal adapter | The most province-locked file. Blocks T4.2. |
-| 15 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
-| 16 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
-| 17 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
-| 18 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
-| 19 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
-| 20 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
+| 11 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
+| 12 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
+| 13 | **T4.1** Extract the Québec legal adapter | The most province-locked file. Blocks T4.2. |
+| 14 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
+| 15 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
+| 16 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
+| 17 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
+| 18 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
+| 19 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
 
 ---
 
@@ -699,13 +706,29 @@ over the waterbody that already covers it.
 * The same test is applied to every remaining group: does this row name something a
   hunter cares about, or something the engine cares about?
 
-### T10.5 — The camp icon regressed to a numbered circle · `ready`
+### T10.5 — The camp icon regressed to a numbered circle · `done` (2026-08-07)
 Reported: "For a camp style hunt we use to show a CAMP icon with a cabin at the camp
 location. Now it just shows a number 1 in a circle."
 Almost certainly collateral from T9.3 (`camp_plan`) or T9.1 (per-site numbering), where
 a fixed camp started being rendered as a SITE index. Visible in the screenshot: a plain
 amber "1" where the tent/cabin pin used to be.
 **Done when:** a fixed camp draws its own icon, and site numbering never claims a camp.
+
+**Cause — three faults, and the guess in this ticket was wrong about all three.** It was
+not `camp_plan` or per-site numbering emitting a site index. (a) In fixed-camp mode the
+camp is also `draft.sites[0]`, so `drawDraft` emitted a numbered dot at the identical
+coordinate. (b) `setTab` hides `draft-fill`/`draft-line` off Setup and `draft-camp` once a
+result exists, but never hid `draft-site`/`draft-site-n` — the Setup preview survived onto
+every tab. (c) THE DISAPPEARANCE: a MapLibre symbol carrying an icon AND a label is placed
+as a unit, and with neither part optional a label that cannot be placed takes the icon
+with it. `icon-allow-overlap` exempts the icon from collision testing, not the pair. The
+dot sets `text-allow-overlap` so it always wins; the camp's "A" lost, and the cabin went
+with it.
+
+**Fixed.** No numbered dot in fixed-camp mode, the preview dots hide off Setup, and every
+symbol layer carrying both an icon and a label is `text-optional`. `tests/test_camp_marker.py`
+checks that last one over ALL symbol layers, not the two that were broken — (a) and (b)
+are specific mistakes, (c) is a trap any new labelled layer can fall into.
 
 ### T10.6 — The PDF brief renders no analysis · `done` (2026-08-07)
 Reported: "None of the analysis / polygons / waypoints / etc. render on the PDF."

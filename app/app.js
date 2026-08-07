@@ -858,8 +858,15 @@ function init(){
   ['scentArc','scent','scent-label'].forEach(id=>{ if(map.getLayer(id)) map.moveLayer(id); });
   map.addLayer({id:'staging',type:'symbol',source:'staging',
     layout:{'icon-image':'parking','icon-size':['interpolate',['linear'],['zoom'],8,0.8,11,1.15,15,2],'icon-allow-overlap':true}});
+  // `text-optional` IS THE WHOLE TICKET. A MapLibre symbol carrying both an icon and a
+  // label is placed as a UNIT: with neither part optional, a label that cannot be placed
+  // takes the icon down with it. `icon-allow-overlap` exempts the icon from collision
+  // testing but not the pair. So the camp's own "A" losing a collision — to the numbered
+  // draft dot above, which sets text-allow-overlap and therefore always wins — deleted
+  // the cabin. The hunter saw a number in a circle where their camp should be.
   map.addLayer({id:'camps',type:'symbol',source:'camps',
     layout:{'icon-image':'base_camp','icon-size':['interpolate',['linear'],['zoom'],8,0.9,11,1.25,15,2],'icon-allow-overlap':true,
+      'text-optional':true,
       'text-field':['get','id'],'text-offset':[0,1.4],'text-size':12,'text-font':['Open Sans Semibold']},
     paint:{'text-color':'#e6c98a','text-halo-color':'#0b0f0d','text-halo-width':1.5}});
   map.addLayer({id:'area-badges',type:'symbol',source:'areaLabels',
@@ -3251,8 +3258,13 @@ function drawDraft(fit){
   const feats=[];
   if(draft.siteMode==='known' && draft.sites.length){
     // KNOWN SITES: a dot per site + a live radius circle that tracks the slider.
+    // NOT in fixed-camp mode. There is exactly one entry there and it is the CAMP —
+    // numbering it "1" says nothing, and the numbered dot is drawn at the identical
+    // coordinate as the camp badge, where its label suppressed the camp icon outright
+    // (T10.5). A camp is not a site index.
     draft.sites.forEach((s,i)=>{
-      feats.push({type:'Feature',geometry:{type:'Point',coordinates:s.ll.slice()},properties:{site:1,n:String(i+1)}});
+      if(!draft.fixedCampMode)
+        feats.push({type:'Feature',geometry:{type:'Point',coordinates:s.ll.slice()},properties:{site:1,n:String(i+1)}});
       feats.push({type:'Feature',geometry:{type:'Polygon',coordinates:[_radiusRing(s.ll,draft.radius)]},properties:{}});
     });
     if(draft.fixedCampMode)
@@ -3277,6 +3289,7 @@ function drawDraft(fit){
       paint:{'text-color':'#0b0f0d'}});
     map.addLayer({id:'draft-camp',type:'symbol',source:'draft',filter:['==',['get','camp'],1],
       layout:{'icon-image':'base_camp','icon-size':['interpolate',['linear'],['zoom'],8,0.9,11,1.25,15,2],'icon-allow-overlap':true,
+        'text-optional':true,
         'text-field':'CAMP','text-offset':[0,1.4],'text-size':11,'text-font':['Open Sans Semibold']},
       paint:{'text-color':'#e6c98a','text-halo-color':'#0b0f0d','text-halo-width':1.5}}); }
   // Refit so every added site (plus its radius) is on screen.
@@ -3691,8 +3704,11 @@ function setTab(name){
   document.querySelectorAll('#tabbar button').forEach(b=>b.classList.toggle('on',b.dataset.tab===name));
   // the draft AOI box is a Setup-only preview — hide it elsewhere so it doesn't
   // cover the map or intercept zone clicks.
+  // ...and so are the numbered site dots, which used to survive onto Overview/Field/
+  // Brief and sit on top of the analysis's own markers (T10.5).
   const dv=(name==='setup')?'visible':'none';
-  ['draft-fill','draft-line'].forEach(id=>map.getLayer&&map.getLayer(id)&&map.setLayoutProperty(id,'visibility',dv));
+  ['draft-fill','draft-line','draft-site','draft-site-n']
+    .forEach(id=>map.getLayer&&map.getLayer(id)&&map.setLayoutProperty(id,'visibility',dv));
   // The draft CAMP pin is the same camp the analysis already draws. Showing both put
   // two camp icons on the map — and when the engine was inventing its own camp site,
   // two icons in two DIFFERENT places, which reads as "here is your camp, and here is
