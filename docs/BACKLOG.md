@@ -21,7 +21,7 @@ underserved. Within a band, cheaper first.
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 1 | **T6.1** Null-model benchmark | The model is unfalsifiable, and rev 21 moved the huntability scale under constants that are still absolute. Load-bearing since 2026-08-06. |
+| 1 | **T6.3** Focus-area extraction discards most of the model's discrimination | Found by T6.1: the surface separates ground nearly 2:1, the areas handed over capture 6-20% of it. |
 | 2 | **T0.4** Tests that contaminate each other | Three synth tests fail regardless of the code, so a real regression is indistinguishable from the contamination. |
 
 ### Band 2 — MISSING (a real gap you can see)
@@ -206,11 +206,63 @@ one of them by hand achieved nothing, which is exactly the guesswork this epic r
 It is what decides whether "1 focus area on 28 km2 of reachable ground" is the right
 answer or an artefact.
 
-### T6.1 — Null-model benchmark · `ready`
-The model is currently unfalsifiable. This is the highest-value ticket in the backlog
-and the one most easily deferred forever.
-**Done when:** a harness scores the model against (a) distance-to-road and (b) random
-points in huntable ground, and reports whether it beats them at Fire Lake.
+### T6.1 — Null-model benchmark · `done` (2026-08-07)
+The ticket's own words: "the model is currently unfalsifiable. This is the highest-value
+ticket in the backlog and the one most easily deferred forever."
+
+**Why it kept being deferred, and how it stopped being blocked.** There is no ground
+truth for where moose are — no collars, no harvest points at this resolution. A benchmark
+that waits for that waits forever. But a different question needs none of it: *does the
+model tell you anything a five-line heuristic would not?* `moose_scout.validate` answers
+that against two nulls at MATCHED AREA — a road-proximity buffer, and random huntable
+ground.
+
+**Measured on three real boxes:**
+
+| | overlap with a road buffer | rank corr. with road proximity | capture |
+|---|---|---|---|
+| job_0e92b5ca580d | 4.7% | +0.056 | **16%** |
+| job_20e209ca08d0 | 0.4% | +0.078 | **20%** |
+| job_8892f779ddc9 | 11.3% | +0.202 | **6%** |
+
+**It is not a road buffer** — that much is now established rather than assumed.
+
+**But CAPTURE is the finding, and it is uncomfortable.** Capture is the share of the
+discrimination the model's own huntability surface contains that survives into the ground
+it hands you: 0 = no better than a random draw, 1 = as good as the surface allows. The
+surface separates well — a matched-area top-N of it averages 0.43–0.45 against 0.22–0.24
+for random ground, nearly double. The focus areas average 0.25–0.27. **The extraction is
+throwing away 80–94% of the discrimination the model computed.** Some loss is inherent
+(a focus area must be contiguous, so it swallows mediocre interior), but 6% is not
+inherent. That is T6.3.
+
+**The threshold was left where it fails.** `beats_random` requires capture ≥ 0.25, so the
+benchmark reports FALSE on two of three real boxes. Moving it until it went green is the
+rev-21 mistake, and a test now pins the measured values so nobody does.
+
+**A mistake this nearly shipped with, recorded because it passed every reading until it
+was run.** The random null was first an OVERLAP test. That number is a tautology — two
+independent same-sized selections from the same pool overlap at the area fraction by
+construction — and it measured 4.0% against an expected 4.0%. A check built on it passes
+for a literally random model.
+
+**What it must never be quoted as:** beating both nulls does not mean the answer is
+right. Ground truth is T6.2, which stays open.
+
+### T6.3 — Focus-area extraction discards most of the model's discrimination · `ready`
+Found by T6.1, and it is the most actionable thing that benchmark produced. The
+huntability surface separates ground well — a matched-area top-N averages 0.43–0.45
+against 0.22–0.24 for random — but the focus areas the hunter is actually handed average
+0.25–0.27. Capture: **16%, 20%, 6%** on three real boxes.
+Some loss is structural: an area has to be contiguous and clear `min_area_km2`, so it
+necessarily includes mediocre interior ground. That does not explain 6%. Candidates worth
+measuring before changing anything: the polygonize smoothing and opening (which rev 19
+already showed can delete an entire ribbon), the admission bar being absolute while the
+scale moved under it in rev 21, and whether ranking by `area x habitat` is quietly
+preferring big mediocre blobs over small excellent ones.
+**Done when:** capture is measured before and after on the same boxes and the benchmark's
+`beats_random` goes true on ground where the surface genuinely supports it — without the
+threshold moving.
 
 ### T6.2 — Backtest against harvest density · `blocked` *(by T6.1)*
 **Done when:** modelled huntability correlates (or demonstrably does not) with published
