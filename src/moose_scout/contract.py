@@ -882,8 +882,10 @@ def build(ctx: Context) -> dict:
                         # vehicle_left_at is where the machine actually spends the day —
                         # not at camp, not at the stand, and you come back to it.
                         **{k: r["properties"][k] for k in
+                           # focus_area is what lets the pack-out read be per-AREA
+                           # rather than per-box (T10.21).
                            ("legs", "ride_km", "walk_km", "km_by_mode", "ride_mode",
-                            "vehicle_left_at")
+                            "vehicle_left_at", "carry_km", "portage_km", "focus_area")
                            if k in r["properties"]})
                    for r in routes],
         "weather": wthr,

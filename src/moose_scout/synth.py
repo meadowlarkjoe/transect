@@ -1327,6 +1327,10 @@ def _water_cost(ctx, cache):
 #
 # Priced against that surface instead: riding a trail is ~5x cheaper than walking it,
 # which is about the speed ratio. A boat is a little slower to get moving than a quad.
+# A quartered bull is roughly 200 kg over ~30 kg a trip. Used to turn a route's foot
+# legs into the distance actually WALKED UNDER LOAD (T10.21).
+LOADS = 7
+
 RIDE_COST = {"atv": 0.010, "canoe": 0.030, "motor": 0.012}
 IMPASSABLE = 1e7
 
@@ -1750,9 +1754,19 @@ def _add_routes(ctx, features, cache, prof, access, toll, camp_of_area=None):
         props = {"legend": legend, "focus_area": rank}
         by_mode = {}
         out_legs = []
-        for mode, rc in detailed:
+        # A FOOT LEG NEXT TO A BOAT LEG IS A PORTAGE (T10.21), and a portage is not an
+        # ordinary walk. Joe, setting the canoe rule: "can be portaged betwene locations
+        # (but routes like that might not be reasonable for extraction)". Going IN you
+        # carry a canoe. Coming OUT you carry the canoe AND a quartered bull, which is
+        # several trips over the same ground — so it has to be named, not folded into
+        # one `walk_km` that covers both directions.
+        _modes = [mm for mm, _ in detailed]
+        _boat_at = {i for i, mm in enumerate(_modes) if mm in ("canoe", "motor")}
+        for i, (mode, rc) in enumerate(detailed):
             if len(rc) < 2:
                 continue
+            if mode.startswith("foot") and ({i - 1, i + 1} & _boat_at):
+                mode = "portage"
             km = round((len(rc) - 1) * _RES_KM, 2)
             by_mode[mode] = round(by_mode.get(mode, 0.0) + km, 2)
             out_legs.append({"mode": mode, "km": km,
@@ -1763,7 +1777,20 @@ def _add_routes(ctx, features, cache, prof, access, toll, camp_of_area=None):
             # The pack-out reality is the WALK, not the total — and with a vehicle the
             # walk is also the part you repeat carrying meat.
             props["walk_km"] = round(sum(v for k, v in by_mode.items()
-                                         if k.startswith("foot")), 2)
+                                         if k.startswith("foot") or k == "portage"), 2)
+            # WHAT YOU CARRY A LOAD OVER, which is not the same as what you walk. A
+            # quartered bull is ~7 loads; on the water or on a machine it moves in one
+            # trip, on foot you walk it repeatedly, and over a portage you walk the boat
+            # too. This is the number that decides whether a kill comes out whole.
+            carry = 0.0
+            for k, v in by_mode.items():
+                if k == "portage":
+                    carry += v * (LOADS + 1)          # ...and the canoe
+                elif k.startswith("foot"):
+                    carry += v * LOADS
+            props["carry_km"] = round(carry, 1)
+            if by_mode.get("portage"):
+                props["portage_km"] = by_mode["portage"]
             ride = {k: v for k, v in by_mode.items() if not k.startswith("foot")}
             if ride:
                 props["ride_km"] = round(sum(ride.values()), 2)

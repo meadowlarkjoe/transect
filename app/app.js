@@ -781,6 +781,13 @@ function init(){
     filter:['==',['get','mode'],'foot_bush'],layout:{'line-cap':'round'},
     paint:{'line-color':'#C98F6A','line-width':4,'line-opacity':0.6,
       'line-dasharray':[0.6,1.6]}},'route-access');
+  // PORTAGE (T10.21) — a foot leg between you and the water. Drawn heavier than a
+  // bushwhack because it is the worst ground on the route: going in you carry a canoe,
+  // coming out you carry the canoe and the meat, several trips over the same yards.
+  map.addLayer({id:'route-portage',type:'line',source:'routes',
+    filter:['==',['get','mode'],'portage'],layout:{'line-cap':'round'},
+    paint:{'line-color':'#D2691E','line-width':5,'line-opacity':0.8,
+      'line-dasharray':[1,1]}},'route-access');
   // thermal-drift arrow field (off by default; toggle in tools)
   if(!map.hasImage('thermal-arrow')) map.addImage('thermal-arrow',arrowIcon(),{pixelRatio:2});
   map.addSource('thermal',{type:'geojson',data:fc([])});
@@ -1003,10 +1010,36 @@ function confGauge(score){
 /* PACK-OUT REALITY — the decision that should veto an area for a foot hunter. A bull
    is ~200 kg of usable meat; a hard boned-out load is ~30 kg, so it is trips, not one
    carry. Walking loaded over boreal ground is ~2 km/h. */
+/* WHAT COMING OUT ACTUALLY COSTS (T10.21).
+   This used straight-line distance to the nearest road, which was the only number
+   available before routes knew their modes. It is the wrong number in both directions:
+   it charges you for ground a boat or a quad carries the load over for free, and it
+   says nothing about a PORTAGE — where you carry a canoe in and the canoe plus a
+   quartered bull out, several trips over the same yards.
+   The route now reports `carry_km`: the distance walked UNDER LOAD, with water and
+   ridden legs costed at one trip and portages at the loads plus the boat. Prefer it,
+   and fall back to the old estimate for routes computed before this existed. */
 function packout(a){
+  const rts=(DOC.routes||[]).filter(r=>r.focus_area===a.rank&&r.carry_km!=null);
+  const loads=Math.max(3,Math.ceil(200/30));               // ≈7 loads for one bull
+  if(rts.length){
+    const r=rts.reduce((x,y)=>((y.carry_km||0)<(x.carry_km||0)?y:x));
+    const m=r.km_by_mode||{};
+    const hrs=(r.carry_km||0)/2.0;                          // km walked under load, at 2 km/h
+    const days=hrs/8;
+    const floated=(m.canoe||0)+(m.motor||0), ridden=m.atv||0;
+    const bits=[];
+    if(r.walk_km!=null) bits.push(`~${km(r.walk_km)} on foot each way`);
+    if(floated) bits.push(`${km(floated)} floated`);
+    if(ridden) bits.push(`${km(ridden)} ridden`);
+    return {drKm:r.walk_km,loads,hrs,days,carry:r.carry_km,portage:m.portage||0,
+      text:`Coming out: ${bits.join(' · ')} ⇒ ~${loads} loads ≈ `+
+        (days>=1?`${days.toFixed(days<2?1:0)} hard day${days>=2?'s':''}`:`${Math.round(hrs)} h`)+
+        ` of walking under load (${km(r.carry_km)} total).`+
+        (m.portage?` Includes a ${km(m.portage)} PORTAGE — in with a canoe, out with the canoe and the meat. A route you can portage in on is not necessarily one you can pack a bull out on.`:'')};
+  }
   const drKm=((a.stats||{}).dist_road_m||0)/1000;
   if(!drKm) return null;
-  const loads=Math.max(3,Math.ceil(200/30));               // ≈7 loads for one bull
   const oneWay=drKm/2.0;                                   // hours, loaded
   const hrs=loads*oneWay*1.6;                              // out loaded + back empty
   const days=hrs/8;
@@ -1347,7 +1380,8 @@ const LYR_MAP={feedEdge:['feedEdgeZones','feedEdgeZones-line'],areas:['areas-fil
   tenure:['tenureBlocked','tenureZones-line'],tenureOk:['tenureZones-line-ok'],
   leases:['leases'],
   modeRide:['route-ride-atv'],modeBoat:['route-ride-boat'],
-  modeTrail:['route-foot-trail'],modeBush:['route-foot-bush']};
+  modeTrail:['route-foot-trail'],modeBush:['route-foot-bush'],
+  modePortage:['route-portage']};
 
 /* ============================================================================
    ONE ARRAY drives the panel row, the map paint and the legend meaning, so they
@@ -1499,6 +1533,10 @@ const LAYERS=[
   note:'On foot off any line. This is the part you repeat carrying meat, so it is the number that matters on a pack-out.',
   hex:'#C98F6A', on:true, lyr:'modeBush',
   count:()=>(DOC.routes||[]).filter(r=>(r.km_by_mode||{}).foot_bush).length},
+ {k:'mode-portage', group:'ACCESS & HYDRO', kind:'line', edge:'dashed', name:'Portage',
+  note:'Carrying between road and water. The worst ground on any route — in with a canoe, out with the canoe AND the meat, several trips over the same yards. A route you can portage in on is not necessarily one you can pack a bull out on.',
+  hex:'#D2691E', on:true, lyr:'modePortage',
+  count:()=>(DOC.routes||[]).filter(r=>(r.km_by_mode||{}).portage).length},
  {k:'boundaries', group:'ACCESS & HYDRO', kind:'outline', edge:'dashed', name:'Borders & places',
   note:'Reference geography', hex:'#CBD5DA', on:true, lyr:'boundaries', count:()=>'—'},
  {k:'water', group:'ACCESS & HYDRO', kind:'line', edge:'solid', name:'Rivers & lakes',
