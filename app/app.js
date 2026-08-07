@@ -327,9 +327,20 @@ function baseStyle(){
 }
 const BASEMAPS=['satellite','topo','relief','hybrid'];
 const BASE_LABEL={satellite:'Satellite',topo:'Topo',relief:'Relief',hybrid:'Hybrid'};
+// What the map-control chip says. It is a STATUS READOUT, so it has to be derived from
+// the live state every time — it used to be the literal string `<b>SAT</b><i>2D</i>`,
+// written once and wired to nothing, so it claimed satellite while you were on Relief
+// and 2D while you were pitched to 60 degrees (T10.10).
+const BASE_CHIP={satellite:'SAT',topo:'TOPO',relief:'RELIEF',hybrid:'HYB'};
+function syncBaseChip(){
+  const el=document.getElementById('mcSat');
+  if(!el) return;
+  el.innerHTML=`<b>${BASE_CHIP[curBase]||'MAP'}</b><i>${terrOn?'3D':'2D'}</i>`;
+}
 let curBase='satellite';
 function switchBase(base){
   curBase=base;
+  syncBaseChip();
   const vis=(id,on)=>map.getLayer(id)&&map.setLayoutProperty(id,'visibility',on?'visible':'none');
   vis('satellite', base==='satellite'||base==='hybrid');
   vis('topo', base==='topo');
@@ -1805,6 +1816,28 @@ const BASE_ADDS=[
   {name:'Recent imagery', note:'NOT WIRED — LESS DETAIL · UPDATED OFTEN', ok:false},
 ];
 let baseOpacity=1, terrOn=false, terrExag=1.4;
+/* TERRAIN IS DERIVED FROM PITCH — one state, not two (T10.11).
+   Two independent things used to wear the name "3D": the camera, which right-drag
+   tilts because the map is built with maxPitch:80, and the terrain mesh, which only
+   `setTerrain` turns on and which only the #terr3d checkbox ever called. So tilting
+   gave you a pitched FLAT map with a dead exaggeration slider — 3D that isn't 3D.
+   Now pitch is the ONLY input: past the threshold the mesh is on, at 0 it is released,
+   and the checkbox is just a shortcut that tilts the camera for you. */
+const TERRAIN_PITCH=12;
+let _terrExagApplied=null;                 // what setTerrain was last given, or null
+function applyTerrain(){
+  const want=map.getPitch()>TERRAIN_PITCH;
+  // Only touch the mesh when something actually changed: `pitch` fires every frame of
+  // an easeTo, and setTerrain per frame is a rebuild per frame.
+  if(want && _terrExagApplied!==terrExag){
+    map.setTerrain({source:'dem',exaggeration:terrExag}); _terrExagApplied=terrExag;
+  } else if(!want && _terrExagApplied!==null){
+    map.setTerrain(null); _terrExagApplied=null;
+  }
+  terrOn=want;
+  syncBaseChip();
+  const cb=document.getElementById('terr3d'); if(cb) cb.checked=want;
+}
 function buildBaseDock(){
   const d=document.getElementById('baseDock');
   let h=`<div class="dhead"><h4>${t('base.title')}</h4><button class="dclose" title="Close">✕</button></div><div class="dbody">`;
@@ -1840,13 +1873,12 @@ function buildBaseDock(){
     baseOpacity=+e.target.value/100;
     ['satellite','topo','relief','trans'].forEach(id=>map.getLayer(id)&&
       map.setPaintProperty(id,'raster-opacity',baseOpacity)); };
-  d.querySelector('#terr3d').onchange=e=>{
-    terrOn=e.target.checked;
-    if(terrOn){ map.setTerrain({source:'dem',exaggeration:terrExag}); map.easeTo({pitch:60}); }
-    else { map.setTerrain(null); map.easeTo({pitch:0}); } };
+  // The checkbox no longer OWNS terrain — it tilts the camera, and the pitch handler
+  // turns the mesh on. That is what makes the checkbox and a right-drag the same act.
+  d.querySelector('#terr3d').onchange=e=>{ map.easeTo({pitch:e.target.checked?60:0}); };
   d.querySelector('#terrExag').oninput=e=>{
     terrExag=+e.target.value; d.querySelector('#exagVal').textContent=terrExag.toFixed(1)+'×';
-    if(terrOn) map.setTerrain({source:'dem',exaggeration:terrExag}); };
+    applyTerrain(); };
 }
 /* ---------------------------------------------------------------------------
    SYMBOLOGY §4 — TOOLBARS.
@@ -1991,7 +2023,7 @@ function buildTools(){
   mc.innerHTML=`<button id="mcN" class="round" title="${t('ctl.north','North up')}">N</button>
     <div class="zoomcard"><button id="mcIn" title="${t('ctl.in','Zoom in')}">+</button>
     <button id="mcOut" title="${t('ctl.out','Zoom out')}">−</button></div>
-    <button id="mcSat" class="satchip" title="${t('ctl.base','Basemap')}"><b>SAT</b><i>2D</i></button>
+    <button id="mcSat" class="satchip" title="${t('ctl.base','Basemap')}"></button>
     <button id="mcLoc" title="${t('ctl.locate','Centre the area')}">${railIcon('crosshair',15)}</button>`;
   document.getElementById('mcN').onclick=()=>map.easeTo({bearing:0,pitch:0});
   document.getElementById('mcIn').onclick=()=>map.zoomIn();
@@ -2005,6 +2037,9 @@ function buildTools(){
     document.getElementById('mcN').style.transform=`rotate(${-b}deg)`;
   };
   map.on('rotate',syncCompass); map.on('pitch',syncCompass); syncCompass();
+  // Same listener the compass uses, because it is the same fact: how the camera is
+  // sitting. Terrain follows it, and the chip reports it.
+  map.on('pitch',applyTerrain); applyTerrain();
   const syncZoom=()=>{
     const z=map.getZoom();
     document.getElementById('mcIn').disabled = z>=map.getMaxZoom()-0.01;
