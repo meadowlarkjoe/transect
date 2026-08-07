@@ -22,7 +22,7 @@ underserved. Within a band, cheaper first.
 | # | Ticket | Why it is here |
 |---|--------|----------------|
 | 1 | **T6.3** Focus-area extraction discards most of the model's discrimination | Found by T6.1: the surface separates ground nearly 2:1, the areas handed over capture 6-20% of it. |
-| 2 | **T0.4** Tests that contaminate each other | Three synth tests fail regardless of the code, so a real regression is indistinguishable from the contamination. |
+| 2 | **T0.5** fire_lake's capability gate excludes every focus area | Surfaced by T0.4 once the contamination stopped masking it: 37 of 37 areas excluded, so no areas and no routes. Stale fixture or a wrong gate — not yet separated. |
 
 ### Band 2 — MISSING (a real gap you can see)
 
