@@ -13,11 +13,22 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 24
+ENGINE_REVISION = 25
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    25: "The satellite greenness behind the browse layer is current again, and it is "
+        "no longer looking at snow. Two faults in one line: the imagery window was "
+        "frozen in 2023-24, so every analysis used the same two-year-old pictures no "
+        "matter when you ran it; and because that window crossed a winter and the "
+        "engine picked the CLEAREST scenes, it was picking snowfields — a third of the "
+        "scenes over one test area were December, at 90% snow. Snow reads as bare "
+        "ground, so greenness came back too low over more than a third of some areas. "
+        "It now uses only leaf-on summer imagery from the current season where there is "
+        "enough of it, falling back a year where there is not, and the brief tells you "
+        "the actual dates it used and marks the data down when they are old. Expect "
+        "browse to firm up on real regenerating ground.",
     24: "Funnels now say what they JOIN, and are scored on it. A neck is only worth "
         "sitting on if both ends lead somewhere a moose wants to be — the classic is "
         "feeding ground on one side and security cover on the other, which is the "

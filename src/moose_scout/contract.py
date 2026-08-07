@@ -1529,6 +1529,7 @@ def build(ctx: Context) -> dict:
         _PRODUCT = {
             "ecoforestiere": "stand_type.tif", "nbac": "burn_year.tif",
             "sentinel2": "ndvi.tif", "worldcover": "landcover.tif",
+            # NOTE: the sentinel2 row is enriched below with the dates it actually got.
             "cdem": "dem.tif", "osm": "roads.gpkg", "grhq": "wetland_grhq.tif",
             "baux": "baux.geojson",
         }
@@ -1542,7 +1543,34 @@ def build(ctx: Context) -> dict:
             _dem_src = json.loads((cache / "dem_source.json").read_text())
         except Exception:
             pass
+        # WHICH IMAGERY THIS ANSWER IS BUILT ON (T10.16). The satellite half of the
+        # browse surface is only as current as the scenes behind it, and until this the
+        # window was a frozen literal — 2023-24 imagery on every run, silently, with
+        # nothing anywhere saying so. The dates are now part of the answer.
+        _s2 = {}
+        try:
+            _s2 = json.loads((cache / "ndvi.json").read_text())
+        except Exception:
+            pass
         for e in _man:
+            if e.get("id") == "sentinel2" and _s2:
+                e["imagery_dates"] = [_s2.get("oldest"), _s2.get("newest")]
+                e["scenes"] = _s2.get("n")
+                _seasons = _s2.get("seasons") or []
+                _run_year = int((_s2.get("run_date") or "0000")[:4])
+                _newest_year = int((_s2.get("newest") or "0000")[:4])
+                _age = _run_year - _newest_year
+                if _age >= 2:
+                    e["status"] = "partial"
+                    e["note"] = (f"The freshest usable satellite scene is from "
+                                 f"{_newest_year} — {_age} growing seasons ago. Cuts and "
+                                 f"burns since then are invisible to the greenness term.")
+                elif len(_seasons) > 1:
+                    e["note"] = (f"Leaf-on scenes from {', '.join(str(s) for s in _seasons)} — "
+                                 f"this summer alone did not give enough clear cover.")
+                else:
+                    e["note"] = f"{_s2.get('n')} leaf-on scenes from summer {_newest_year}."
+                continue
             if e.get("id") == "hrdem":
                 _f = float(_dem_src.get("fine_coverage_frac") or 0.0)
                 e["coverage_frac"] = round(_f, 3)

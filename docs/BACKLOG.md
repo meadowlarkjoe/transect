@@ -21,7 +21,7 @@ underserved. Within a band, cheaper first.
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 1 | **T10.16** Sentinel window frozen in 2023–24 | Every run's browse surface is built on 2-year-old imagery. No caveat anywhere. Cuts and burns since Sept 2024 are invisible. |
+| 1 | **T10.19** Re-check browse calibration against honest leaf-on NDVI | T10.16 moved mean NDVI 0.272 → 0.467 on a real box. The browse curve's breakpoints are absolute and were living under the old distribution. |
 | 2 | **T10.1** Multi-window brief reports window 1 for everything | A bow hunter reads rifle-window advice with no way to tell. The engine already knows better — only the readout lies. |
 | 3 | **T10.15** Hunt leg bushwhacks past a mapped trail | Draws a line to a place it then refuses to walk to. Diagnosed: one file missing from the walk-cost surface. |
 | 4 | **T10.2** Method of take not modelled per window | Bow stands placed on rifle logic. Makes T10.1 half a fix — right labels, wrong stands. |
@@ -686,17 +686,56 @@ The access leg looks right because roads.tif IS in the surface; only walking is 
 fails if the two sets diverge — the same class of bug as the waterbodies one that made
 least-cost paths swim across lakes.
 
-### T10.16 — The Sentinel window is frozen in 2023–24 · `ready`
-Found while answering the basemap question, and it outranks what prompted it.
-`acquire/sentinel.py` hardcodes `datetime="2023-07-01/2024-09-15"`. Nothing derives it
-from the run date, so the NDVI feeding the browse surface is built from imagery that was
-already ~2 years old on 2026-08-07 and gets older every day this stands. Cuts and burns
-newer than Sept 2024 are invisible to the greenness term — on ground whose whole browse
-story is disturbance age, that is the input most likely to be wrong.
-It is also silent: no caveat, no date in the brief, nothing that would make a hunter
-suspect the satellite half of the answer is stale.
-**Done when:** the window is derived from the run date, the brief states the imagery
-dates it actually got, and the model says so when the freshest usable scene is old.
+### T10.16 — The Sentinel window was frozen, and was compositing snow · `done` (2026-08-07)
+Found while answering a basemap question; it outranked what prompted it, and then turned
+out to be two bugs in one hardcoded line.
+
+**The reported half.** `acquire/sentinel.py` read `datetime="2023-07-01/2024-09-15"` — a
+literal — so the greenness behind every browse score was built from 2023–24 imagery no
+matter when the analysis ran, ageing further every day it stood. Cuts and burns newer
+than Sept 2024 were invisible to the greenness term, on ground whose whole browse story
+is disturbance age.
+
+**The half that was worse.** That window spanned a boreal winter, and scenes were ranked
+by LOWEST CLOUD. Snow is not cloud — a snowfield reads as a beautifully clear scene.
+Measured against the live catalogue: **3 of the 10 scenes composited over Fire Lake were
+2023-12-08 at 87–93% snow**, and 2 of 10 over Rouyn were 2023-11-25 at 54%. Snow reflects
+high in both red and NIR, so its NDVI collapses toward zero and drags the per-pixel
+median with it. Removing those scenes moved mean NDVI **0.272 → 0.320 at Rouyn** (p10
+0.149 → 0.225) and shifted **38% of the box by more than 0.05**; 12% of cells at Fire
+Lake. The browse surface had been reading systematically LOW, silently, over more than a
+third of some boxes.
+
+**Fixed:** the search walks growing-season windows derived from the run date, newest
+first, stopping as soon as it has enough scenes — so a box with good current cover never
+reaches back a year, and one clouded out all summer degrades to last season rather than
+to nothing. Snow-flagged scenes are rejected outright (>5%). The imagery dates land in
+`ndvi.json`, reach the coverage manifest, and cost confidence when the freshest usable
+scene is two or more seasons old. The geography cache keys on the imagery EPOCH, because
+it keys on geometry alone and would otherwise serve one season's greenness forever —
+which is how this went two years stale without anyone noticing.
+
+**Measured after:** Rouyn now composites 10 leaf-on scenes all from summer 2026
+(29 Jun – 3 Aug), NDVI mean 0.467. Fire Lake needs two seasons (2026 + one 2025 scene)
+and lands at 0.325.
+
+**Worth knowing:** the NDVI browse curve in `habitat.py` uses absolute breakpoints
+(`(n-0.15)/0.5`, cover above 0.5) that are textbook LEAF-ON values — so correcting the
+input moves it into that calibration rather than out of it. That is the argument, not a
+measurement; see T10.19.
+
+### T10.19 — Re-check the browse calibration against honest leaf-on NDVI · `ready`
+T10.16 moved mean NDVI on a real box from 0.272 (autumn scenes plus snow) to 0.467
+(leaf-on summer). The browse and cover curves it feeds use ABSOLUTE breakpoints, and
+this is exactly the situation rev 21 warned about: a constant left pointing at a
+distribution that has shifted underneath it.
+The argument that they are fine is that 0.15/0.65/0.8 for shrub-versus-conifer are
+standard leaf-on NDVI values, so the old input was wrong for them and the new one is
+right. That argument is plausible and is not evidence.
+**Done when:** browse output is compared before and after on several boxes, and either
+the breakpoints are confirmed against leaf-on NDVI or they are re-derived — with the
+comparison recorded, not asserted. Overlaps T6.1, which is the general form of this.
+
 
 ### T9.10b — Decide the fine-grid neck detector · `ready`
 Built, tested and committed in rev 22, switched OFF behind `FINE_NECKS=1`.

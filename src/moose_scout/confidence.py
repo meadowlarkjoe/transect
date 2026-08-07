@@ -101,6 +101,28 @@ def overall(ctx, cache) -> dict:
                        "WorldCover + Sentinel-2 (coarser, lower confidence).")
     if has("landcover.tif"):
         score += 0.03; drivers.append("ESA WorldCover land-cover acquired.")
+    # HOW OLD THE SATELLITE HALF IS (T10.16). Until the frozen window was fixed this was
+    # unanswerable — the imagery was 2023-24 on every run, and nothing said so. A cut or
+    # burn newer than the freshest scene is invisible to the greenness term, on ground
+    # whose whole browse story is disturbance age, so age here is a real confidence cost.
+    try:
+        import json as _json
+        _s2 = _json.loads((cache / "ndvi.json").read_text())
+        _run_year = int((_s2.get("run_date") or "0000")[:4])
+        _newest = int((_s2.get("newest") or "0000")[:4])
+        _age = _run_year - _newest
+        if _age >= 2:
+            score -= 0.06
+            drivers.append(f"Satellite greenness is {_age} growing seasons old (newest "
+                           f"usable scene {_newest}) — recent cuts and burns are not in it.")
+        elif _age == 1:
+            drivers.append(f"Satellite greenness is last summer's ({_newest}) — this "
+                           f"season had too little clear, snow-free cover.")
+        else:
+            drivers.append(f"Satellite greenness from this summer "
+                           f"({_s2.get('n')} leaf-on scenes, newest {_s2.get('newest')}).")
+    except Exception:
+        pass
     if has("roads.tif"):
         drivers.append("OSM road network present (access/pressure modelled).")
     else:

@@ -45,7 +45,10 @@ ARTIFACTS = (
     # native 10 m class fractions (#77/#78) — same grid, measured not sampled
     "lcfrac_tree.tif", "lcfrac_shrub.tif", "lcfrac_grass.tif", "lcfrac_crop.tif",
     "lcfrac_bare.tif", "lcfrac_water.tif", "lcfrac_wetland.tif", "lcfrac_moss.tif",
-    "ndvi.tif",                                                 # sentinel.py
+    "ndvi.tif", "ndvi.json",                                    # sentinel.py (T10.16:
+    #   the sidecar carries the imagery EPOCH. Without it the cache — keyed on geometry
+    #   alone — would serve one season's greenness forever, which is how the window came
+    #   to be two years stale in the first place.)
     "burn_year.tif",                                            # fire.py
     "cut_year.tif", "stand_closure.tif", "stand_type.tif",      # ecoforestiere.py
     "ecoforestiere_absent.flag",                                #   ↳ its coverage flag
