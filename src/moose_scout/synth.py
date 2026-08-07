@@ -1067,14 +1067,32 @@ def _walk_cost(ctx, cache, roads_free=True):
     return cost.astype("float64")
 
 
-def _linear_cost_layer(cache, shape):
-    """Rasterize motorised TRAILS (quad/snowmobile) and RAIL grades onto the analysis
-    grid as a boolean 'easy walking line' mask. Deliberately separate from roads.tif:
-    these are not drivable in a truck, so nothing may treat them as vehicle access —
-    they only make walking (and, for #69, riding) cheaper than bushwhacking, and they
-    are the linear corridors wildlife moves along. None if neither layer is present."""
+def _linear_cost_layer(cache, shape, motorised_only=False):
+    """Linear features that beat bushwhacking, rasterized onto the analysis grid.
+
+    TWO DIFFERENT QUESTIONS, and conflating them was the bug (T10.15). Reported twice
+    with screenshots: "Access line follows road. Hunt line bushwacks for some reason" —
+    the map drew a dashed trail running to the waypoint and the route ignored it and cut
+    its own line through the bush beside it.
+
+    The cause was that this read `aq_trails.gpkg` and `aq_rail.gpkg` only, while
+    `export.py` DRAWS `trails.gpkg` too. Measured across the cached runs, the share of
+    the drawn network the router could not see: 46% on the box he reported (30.3 km of
+    trail), 92-97% on two boxes that have no AQréseau sentiers at all. The app was
+    drawing a path to a place the router did not know how to walk to.
+
+    But they are not interchangeable, which is why this takes a flag rather than simply
+    adding the file. `aq_trails` is the official MOTORISED sentier network — quad and
+    snowmobile. `trails.gpkg` is OSM, and on these boxes it is entirely `path` and
+    `footway`: foot trails. Both beat bushwhacking on foot; only the first is something
+    you ride. Feeding OSM footways to the ATV network would have swapped one wrong
+    answer for another — a quad sent down a hiking trail.
+    """
     import numpy as _np
-    paths = [cache / "aq_trails.gpkg", cache / "aq_rail.gpkg"]
+    names = ["aq_trails.gpkg", "aq_rail.gpkg"]          # official motorised sentiers
+    if not motorised_only:
+        names += ["trails.gpkg", "rail.gpkg"]           # OSM foot paths + rail grades
+    paths = [cache / n for n in names]
     paths = [p for p in paths if p.exists()]
     if not paths:
         return None
@@ -1218,7 +1236,9 @@ def _mode_networks(ctx, cache, shape, kit):
         rd = _opt(cache / "roads.tif")
         if rd is not None:
             m |= np.nan_to_num(rd) > 0
-        lin = _linear_cost_layer(cache, shape)        # quad/snowmobile sentiers + rail
+        # MOTORISED ONLY. OSM `path`/`footway` is a foot trail; riding a quad down one
+        # is not a route, it is a different wrong answer (T10.15).
+        lin = _linear_cost_layer(cache, shape, motorised_only=True)
         if lin is not None:
             m |= lin
         if m.any():

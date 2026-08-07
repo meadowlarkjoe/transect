@@ -21,47 +21,46 @@ underserved. Within a band, cheaper first.
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 1 | **T10.15** Hunt leg bushwhacks past a mapped trail | Draws a line to a place it then refuses to walk to. Diagnosed: one file missing from the walk-cost surface. |
-| 2 | **T10.2** Method of take not modelled per window | Bow stands placed on rifle logic. Makes T10.1 half a fix — right labels, wrong stands. |
-| 3 | **T6.1** Null-model benchmark | The model is unfalsifiable, and rev 21 moved the huntability scale under constants that are still absolute. Load-bearing since 2026-08-06. |
-| 4 | **T0.4** Tests that contaminate each other | Three synth tests fail regardless of the code, so a real regression is indistinguishable from the contamination. |
+| 1 | **T10.2** Method of take not modelled per window | Bow stands placed on rifle logic. Makes T10.1 half a fix — right labels, wrong stands. |
+| 2 | **T6.1** Null-model benchmark | The model is unfalsifiable, and rev 21 moved the huntability scale under constants that are still absolute. Load-bearing since 2026-08-06. |
+| 3 | **T0.4** Tests that contaminate each other | Three synth tests fail regardless of the code, so a real regression is indistinguishable from the contamination. |
 
 ### Band 2 — MISSING (a real gap you can see)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 5 | **T10.21** A portage route is not an extraction route | T10.20 lets a canoe portage in. Coming out with a quartered bull is a different problem, and one walk_km covers both. |
-| 6 | **T10.6** PDF brief renders no analysis | Shipped in T9.7 on the strength of the plates existing; nobody checked what was on them. Basemap only. |
-| 7 | **T10.5** Camp icon regressed to a numbered circle | Collateral from T9.3/T9.1. A camp is not a site index. |
-| 8 | **T10.11 + T10.10** Pitch does not enable terrain; the SAT/2D chip is a constant | Two halves of one complaint, both small, both confirmed in the source. |
-| 9 | **T9.10b** Decide the fine-grid neck detector | Built and gated off in rev 22. Needs a real A/B, not a permanent flag. |
-| 10 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
-| 11 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
-| 12 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
-| 13 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
-| 14 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
-| 15 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
+| 4 | **T10.21** A portage route is not an extraction route | T10.20 lets a canoe portage in. Coming out with a quartered bull is a different problem, and one walk_km covers both. |
+| 5 | **T10.6** PDF brief renders no analysis | Shipped in T9.7 on the strength of the plates existing; nobody checked what was on them. Basemap only. |
+| 6 | **T10.5** Camp icon regressed to a numbered circle | Collateral from T9.3/T9.1. A camp is not a site index. |
+| 7 | **T10.11 + T10.10** Pitch does not enable terrain; the SAT/2D chip is a constant | Two halves of one complaint, both small, both confirmed in the source. |
+| 8 | **T9.10b** Decide the fine-grid neck detector | Built and gated off in rev 22. Needs a real A/B, not a permanent flag. |
+| 9 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
+| 10 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
+| 11 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
+| 12 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
+| 13 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
+| 14 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
 
 ### Band 3 — UGLY (it works and reads badly)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 16 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
-| 17 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
+| 15 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
+| 16 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
 
 ### Band 4 — PLATFORM (nobody sees it; it decides how fast the rest goes)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 18 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
-| 19 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
-| 20 | **T4.1** Extract the Québec legal adapter | The most province-locked file. Blocks T4.2. |
-| 21 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
-| 22 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
-| 23 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
-| 24 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
-| 25 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
-| 26 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
+| 17 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
+| 18 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
+| 19 | **T4.1** Extract the Québec legal adapter | The most province-locked file. Blocks T4.2. |
+| 20 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
+| 21 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
+| 22 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
+| 23 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
+| 24 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
+| 25 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
 
 ---
 
@@ -745,19 +744,41 @@ number; a portaged canoe leg is not.
 estimate is computed on what you can actually carry a load along — not on the way in.
 
 
-### T10.15 — The hunt leg bushwhacks past a mapped trail · `ready`
-Reported twice in one session, with screenshots: "It goes along one road and then
-bushwacks to the location. But you could have just followed the road to basically the
-same location" and "Access line follows road. Hunt line bushwacks for some reason."
-**Diagnosed, and it is one missing file.** `_linear_cost_layer` in `synth.py` builds the
-cheap-walking mask from `aq_trails.gpkg` and `aq_rail.gpkg` only. It never reads
-`trails.gpkg` — the OSM foot/quad trails. But `export.py` DOES draw `trails.gpkg` on the
-map. So the dashed trail visible in the screenshot is a line the router cannot see: the
-app is drawing a path to a place it does not know how to walk to, then routing around it.
-The access leg looks right because roads.tif IS in the surface; only walking is blind.
-**Done when:** the walk-cost surface reads every linear feature the map draws, and a test
-fails if the two sets diverge — the same class of bug as the waterbodies one that made
-least-cost paths swim across lakes.
+### T10.15 — The router could not see the trails the map draws · `done` (2026-08-07)
+Reported twice in one session with screenshots: "It goes along one road and then
+bushwacks to the location. But you could have just followed the road" and "Access line
+follows road. Hunt line bushwacks for some reason" — the second showing a dashed trail
+running to the waypoint and the red route cutting its own line through the bush beside it.
+
+**The cause was one missing file.** `_linear_cost_layer`, which supplies the cheap-walking
+tier, read `aq_trails.gpkg` and `aq_rail.gpkg` only, while `export.py` also DRAWS
+`trails.gpkg`. The app was drawing a path to a place the router did not know how to walk
+to. Share of the drawn network invisible to the router, measured across the cached runs:
+
+| box | invisible |
+|---|---|
+| job_1a0c9d5b6618 (the reported one) | **46%** — 30.3 km of trail |
+| job_0e92b5ca580d | 97% — no AQréseau sentiers on that box at all |
+| job_8892f779ddc9 | 92% |
+| job_20e209ca08d0 | 2% |
+
+**The part that is not symmetric,** and getting it wrong would have swapped one wrong
+answer for another: `aq_trails` is the official MOTORISED sentier network, while
+`trails.gpkg` is OSM and on these boxes is entirely `path` (29) and `footway` (8). Both
+beat bushwhacking on foot; only the first is something you ride. So the walkable set
+grew (32.0 → 66.4 km on the reported box) and the ridable set did not. Feeding OSM
+footways to the ATV network would have sent a quad down a hiking trail.
+
+**IT CHANGED NO ROUTE ON ANY CACHED BOX, and that is worth stating rather than dressing
+up.** The newly-visible paths sit 4.4–12 km from every remaining bushwhack, and T10.20
+had already moved the legs that prompted the report onto the motorised network. This is
+a consistency fix — the router now knows about the same lines the map draws — not a
+measured improvement. The value is that the next box where a footpath DOES run beside a
+stand is no longer routed as if the path were not there.
+
+`test_router_sees_the_map.py` reads `export.py`'s own drawn-layer list and fails if
+anything drawn as a trail or rail is missing from the walkable set, or if a footpath ever
+leaks into the ridable one.
 
 ### T10.16 — The Sentinel window was frozen, and was compositing snow · `done` (2026-08-07)
 Found while answering a basemap question; it outranked what prompted it, and then turned
