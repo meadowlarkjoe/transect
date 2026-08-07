@@ -469,3 +469,80 @@ should be settled together.
 **Done when:** one panel per feature carries the whole explanation — what it is, when to
 hunt it, the score and where the score came from — and hovering shows it. Click should
 pin it, not reveal different content.
+
+### T10.10 — The SAT/2D chip is hardcoded HTML and never updates · `ready`
+Reported: "the basemap icon still shows 2D... Even if i manually activate, the basemap
+pill doesnt update."
+Confirmed, and it is literal: `mc.innerHTML = ... <b>SAT</b><i>2D</i>` — a constant
+string written once at map setup. It is wired to nothing. So it says SAT while you are
+on Relief, and 2D while you are pitched to 60°. `syncCompass` already listens on
+`rotate`/`pitch` right beside it; this needs the same treatment.
+**Done when:** the chip reads the live basemap and the live pitch/terrain state, and a
+test fails if either is rendered from a constant.
+
+### T10.11 — Pitching the camera does not turn terrain on · `ready`
+Reported: "If i hold right and move my mouse click i can enter 3D mode, but... the 3D
+terrain mode isnt activated. Terrain exageration doesnt work until that mode is active."
+Two independent things wear the name "3D". The map is created with `maxPitch:80`, so
+right-drag tilts the CAMERA — but `map.setTerrain({source:'dem'})` is only ever called
+from the `#terr3d` checkbox handler, and the exaggeration slider is guarded by
+`if(terrOn)`. Tilt without the checkbox gives a pitched FLAT map and a dead slider,
+which is exactly the "3D that isn't 3D" being described.
+**Done when:** pitching past a threshold enables terrain (and the chip agrees), the
+exaggeration slider works whenever the map is pitched, and dropping back to 0° releases
+terrain. One state, not two.
+
+### T10.12 — Relief is mislabelled, and LiDAR is now genuinely available · `ready`
+Asked: "Is releif and Lidar not the same? Should we remove lidar from below?"
+**No, and no — keep it.** They are different by ~30x and the panel is currently lying
+about one of them:
+* **Relief** is labelled `CDEM HILLSHADE`. It is not CDEM. It is
+  `server.arcgisonline.com/.../Elevation/World_Hillshade` — Esri's global hillshade,
+  mixed-resolution. It is also capped at z14, and not by Esri: the ceiling comes from
+  the terrarium DEM this app declares for `setTerrain`. So the row states the wrong
+  source AND gives no hint why it goes soft before the imagery does.
+* **LiDAR (HD topo)** would be 1 m bare earth. As of T9.10 we can actually deliver it:
+  the HRDEM mosaic publishes `<tile>-mosaic-1m-dtm_hillshade.tif` beside the DTM we now
+  read, and `dem_source.json` already records the measured coverage fraction for the
+  box. "NOT AVAILABLE FOR THIS AOI" can stop being a placeholder and become a real
+  per-AOI answer — true over Rouyn (92.7%), honest over the far north.
+The COGs are not tiles, so serving them means either a tile endpoint or — cheaper, and
+consistent with how every other engine raster reaches the app — rendering an AOI-sized
+hillshade at analysis time.
+**Done when:** Relief states its real source and why it stops at z14; the LiDAR row is
+enabled exactly when HRDEM covers the box, and says what fraction.
+
+### T10.13 — Leaf-off and "recent imagery" are placeholders; the season picker was never built · `ready`
+Asked: "Can we find a source for leaf off imagery?... Same with recent imagery. We
+talked about letting the user pick what time of year / map they are using but i dont
+know if that ever got added."
+**It was never added** — there is no season or imagery control anywhere in setup or the
+app. And checking turned up something worse than a missing feature:
+`acquire/sentinel.py` hardcodes `datetime="2023-07-01/2024-09-15"`. That window is
+~2 years stale, so the NDVI feeding the browse surface is built from 2023–24 imagery
+regardless of when you run it. That is a MODEL input going quietly out of date, not a
+basemap nicety, and it outranks the rest of this item.
+
+Sources that actually exist, cheapest first:
+* **Leaf-off, 10 m — nearly free.** We already pull Sentinel-2. An April or late-October
+  low-cloud composite is the same code with a different window. Coarse, but it is the
+  only leaf-off that costs nothing.
+* **Bare earth, 1 m — better than leaf-off for what he wants.** The HRDEM DTM hillshade
+  (T10.12) strips vegetation entirely, so old skid trails, benches and ground structure
+  show through canopy that no leaf-off photo would penetrate. Leaf-off shows you the
+  ground between the trees; a DTM shows you the ground under them.
+* **Leaf-off, 20–30 cm — real work.** Québec's MERN orthophotos, often flown in spring
+  leaf-off, distributed per-feuillet with no single mosaic endpoint.
+
+**Done when:** the Sentinel window is derived from the run date rather than frozen;
+setup exposes the imagery season where it changes the answer; and the basemap panel's
+additional-imagery rows reflect what was actually acquired for THIS box instead of three
+permanent "NOT WIRED" placeholders.
+
+### T10.14 — Basemap rows need previews, not CSS gradients · `ready`
+Asked: "For our available basemap types. shoudl have previews beside the type."
+Today `BASE_SWATCH` is four hand-written `linear-gradient()` strings — a grey ramp
+standing in for hillshade, a green-brown ramp for satellite. They convey nothing about
+what the basemap will look like over YOUR ground.
+**Done when:** each row shows a real tile from the current view centre, so the choice is
+made on the actual ground rather than on a generic swatch.
