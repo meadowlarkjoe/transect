@@ -119,6 +119,8 @@ def test_terrain_is_not_applied_before_the_style_is_loaded():
     load (a restored camera, an easeTo on open). An exception thrown inside a map
     listener is not a contained failure."""
     body = _fn("applyTerrain")
-    assert "map.isStyleLoaded()" in body
-    assert "map.once('load',applyTerrain)" in body.replace(" ", ""), \
-        "the deferred state is dropped rather than applied once the style arrives"
+    assert "catch" in body and "map.once('idle',applyTerrain)" in body.replace(" ", "")
+    assert "map.once('load'" not in body.replace(" ", ""), (
+        "retrying on `load` is the trap: it fires once, but isStyleLoaded() drops back "
+        "to false on every ordinary source update, so anyone tilting just after a plan "
+        "opens would silently get no terrain — this ticket's bug in a new hat")

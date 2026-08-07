@@ -1827,25 +1827,32 @@ const TERRAIN_PITCH=12;
 let _terrExagApplied=null;                 // what setTerrain was last given, or null
 function applyTerrain(){
   const want=map.getPitch()>TERRAIN_PITCH;
-  // setTerrain THROWS before the style is loaded ("Style is not done loading"), and a
-  // pitch event can absolutely arrive first — a restored camera, an easeTo on open. An
-  // exception thrown inside a map listener is not a contained failure, so the state is
-  // recorded and the mesh is applied on load instead. Caught live, not in a unit test.
-  if(!map.isStyleLoaded()){
-    terrOn=want; syncBaseChip();
-    map.once('load',applyTerrain);
-    return;
-  }
-  // Only touch the mesh when something actually changed: `pitch` fires every frame of
-  // an easeTo, and setTerrain per frame is a rebuild per frame.
-  if(want && _terrExagApplied!==terrExag){
-    map.setTerrain({source:'dem',exaggeration:terrExag}); _terrExagApplied=terrExag;
-  } else if(!want && _terrExagApplied!==null){
-    map.setTerrain(null); _terrExagApplied=null;
-  }
+  // The camera is the truth and the chip follows it immediately, even if the mesh has
+  // to wait a frame — what the hunter sees tilt is what the chip should say.
   terrOn=want;
   syncBaseChip();
   const cb=document.getElementById('terr3d'); if(cb) cb.checked=want;
+  try{
+    // Only touch the mesh when something actually changed: `pitch` fires every frame of
+    // an easeTo, and setTerrain per frame is a rebuild per frame.
+    if(want && _terrExagApplied!==terrExag){
+      map.setTerrain({source:'dem',exaggeration:terrExag}); _terrExagApplied=terrExag;
+    } else if(!want && _terrExagApplied!==null){
+      map.setTerrain(null); _terrExagApplied=null;
+    }
+  }catch(e){
+    // setTerrain THROWS "Style is not done loading" rather than queueing, and a pitch
+    // event can absolutely arrive during a window where it does — on open, or while the
+    // 30-odd plan sources are still settling after a run. An exception thrown inside a
+    // map listener is not a contained failure.
+    //
+    // Retry on `idle`, NOT on `load`. `load` fires once, but isStyleLoaded() drops back
+    // to false on every ordinary source update, so a `load` guard would silently drop
+    // terrain for anyone who tilts just after a plan opens — the same "3D that isn't 3D"
+    // this ticket is about, wearing a different hat. `idle` fires every time the map
+    // settles, so the retry is always available and can never busy-loop.
+    map.once('idle',applyTerrain);
+  }
 }
 function buildBaseDock(){
   const d=document.getElementById('baseDock');
