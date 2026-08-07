@@ -10,6 +10,8 @@ outputs/<aoi>/brief.md.
 """
 from __future__ import annotations
 
+import os
+
 import json
 
 import numpy as np
@@ -235,6 +237,18 @@ def extract_focus_areas(ctx, hunt, prof):
     # at ~20 km²/moose), not by mean alone, which favoured tiny tight pockets over large
     # good ground.
     cands.sort(key=lambda t: t[1] * t[2], reverse=True)
+    # WHY THESE AREAS AND NOT OTHERS. Reconstructing this loop from outside the pipeline
+    # to answer that produced three wrong answers in a row (a different gate_f, a
+    # different smoothing, a different surface) before it was obvious the reconstruction
+    # was the problem and not the model. FOCUS_DEBUG=1 asks the real code instead.
+    if os.environ.get("FOCUS_DEBUG"):
+        print(f"[synth] focus candidates: {len(cands)} kept | floor {FLOOR} "
+              f"grow_frac {GROW_FRAC_OF_FLOOR} extent_raw {EXTENT_RAW_FRAC} "
+              f"min_area {min_km2:.1f} max_area {max_km2} smoothing "
+              f"{fcfg.get('smoothing_m')} sep {sep_m:.0f} m")
+        for i, (pk, ar, sc, _s) in enumerate(cands, 1):
+            print(f"[synth]   cand {i}: peak(smoothed) {pk:.3f} area {ar:.1f} km2 "
+                  f"mean {sc:.3f} rank-score {ar * sc:.2f}")
 
     feats = []
     masks = []

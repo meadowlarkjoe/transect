@@ -21,7 +21,7 @@ underserved. Within a band, cheaper first.
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 1 | **T6.4** One box captures 2% of achievable, and the extent bar is not why | Residue of T6.3: areas score at random on ground where a contiguous area reaches 0.322. Not extent — siting. |
+| 1 | **T6.4** One box captures 2%; instrumented, not yet explained | Ranking and the extent bar are both ruled out. Three reconstructions of the extraction disagreed with the real code, so FOCUS_DEBUG now asks it directly. |
 
 ### Band 2 — MISSING (a real gap you can see)
 
@@ -341,19 +341,33 @@ top-scoring cells, which trivially beat the oracle — so the settings that prod
 areas reported capture 2.3–3.2, the most flattering possible number for the worst
 possible outcome. `capture` is now None when the extraction produced nothing.
 
-### T6.4 — One box captures 2% of achievable and the extent bar is not why · `ready`
-The residue of T6.3, isolated rather than guessed at. On `job_0e92b5ca580d` the focus
-areas score 0.245 against 0.244 for a random draw, on ground where a contiguous area of
-the same size reaches 0.322 — headroom of 0.078 and essentially none of it captured. The
-extent fix moved it 0.018 → 0.030, which is nothing, and tightening further costs the box
-its second area. Two other boxes are fine (0.46 capture, and one with no headroom at all).
-So this is not the extent bar: the areas are in the wrong PLACE on that box. The peaks
-come from `peak_local_max` on the smoothed surface at `threshold_abs = min_huntability`,
-and the next thing to measure is whether those peaks actually sit on the best
-neighbourhoods there, or whether separation/`max_area_km2` is forcing the choice
-elsewhere.
-**Done when:** capture on that box is either raised materially or explained — with the
-peak locations compared against the oracle's centre, not inferred.
+### T6.4 — One box captures 2%; instrumented, NOT yet explained · `in-progress` (2026-08-07)
+Attempted and stopped short, deliberately. What is established, and what is not:
+
+**Established.**
+* The oracle centre on `job_0e92b5ca580d` sits at smoothed **0.344**, comfortably above
+  the 0.26 admission bar — so nothing structural prevents the extraction from finding it.
+* The real extraction reports only **2 candidates**, with smoothed peaks 0.275 and 0.351
+  and means 0.233 and 0.272, centred ~7 km from the oracle.
+* Ranking is NOT the cause. Both `area × mean` and `mean` alone put the same candidate
+  first, so the "big mediocre blob beats small excellent one" hypothesis from T6.3 does
+  not apply here.
+
+**Not established, and the reason this stopped.** Three separate attempts to reconstruct
+`extract_focus_areas` outside the pipeline all disagreed with it — first a wrong `gate_f`
+(0.80 against the 0.82 `_find` is called with), then a wrong `smoothing_m` (350 against
+the shipped 200), and finally a candidate set that still cannot be reconciled: the
+reconstruction finds 4 kept lobes with peaks 0.390/0.379/0.378/0.363 where the real code
+finds 2 at 0.275/0.351, from what should be identical inputs. Every conclusion drawn from
+that reconstruction is therefore untrustworthy, including any fix built on it.
+
+**What shipped instead:** `FOCUS_DEBUG=1` makes the real `extract_focus_areas` print its
+candidate list — peak, area, mean and rank-score per candidate, with the constants that
+produced them. That is the tool this needs; reconstructing the loop is not.
+
+**Done when:** the candidate list from the instrumented run explains why the ground at
+the oracle centre does not become a candidate — read from the real code, not rebuilt
+beside it.
 
 ### T6.2 — Backtest against harvest density · `blocked` *(by T6.1)*
 **Done when:** modelled huntability correlates (or demonstrably does not) with published
