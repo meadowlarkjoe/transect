@@ -33,14 +33,22 @@ The instruments are now written down rather than reconstructed (`focus_pool.tif`
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 1 | **T10.11 + T10.10** Pitch does not enable terrain; the SAT/2D chip is a constant | Two halves of one complaint, both small, both confirmed in the source. |
-| 2 | **T9.10b** Decide the fine-grid neck detector | Built and gated off in rev 22. Needs a real A/B, not a permanent flag. |
-| 3 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
-| 4 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
-| 5 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
-| 6 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
-| 7 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
-| 8 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
+| 1 | **T9.10b** Decide the fine-grid neck detector | Built and gated off in rev 22. Needs a real A/B, not a permanent flag. |
+| 2 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
+| 3 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
+| 4 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
+| 5 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
+| 6 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
+| 7 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
+
+**T10.11 + T10.10 done 2026-08-07** — terrain is now derived from pitch alone (past 12°
+the mesh is on, at 0 it is released) and the checkbox is a shortcut that tilts the camera,
+so a right-drag and the checkbox are the same act. The chip renders from `curBase` and the
+live terrain state instead of being the literal string `<b>SAT</b><i>2D</i>`. Two things
+were found by driving the live map that no static test would have caught: `setTerrain`
+throws before the style is loaded, and the obvious `load`-once guard for it silently
+recreates the original bug, because `isStyleLoaded()` drops to false on every ordinary
+source update. The retry is on `idle`.
 
 **T10.5 done 2026-08-07** — three faults stacked. In fixed-camp mode the camp is also
 `draft.sites[0]`, so a numbered site dot was drawn at the identical coordinate; `setTab`
@@ -61,22 +69,22 @@ the view framed on the areas. A plate with no plan layers on it now says so.
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 9 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
-| 10 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
+| 8 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
+| 9 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
 
 ### Band 4 — PLATFORM (nobody sees it; it decides how fast the rest goes)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 11 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
-| 12 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
-| 13 | **T4.1** Extract the Québec legal adapter | The most province-locked file. Blocks T4.2. |
-| 14 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
-| 15 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
-| 16 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
-| 17 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
-| 18 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
-| 19 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
+| 10 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
+| 11 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
+| 12 | **T4.1 → T4.2** Extract the Québec legal adapter, then make `UNRESOLVED` loud | The most province-locked file. T4.2 is blocked on it and has to be queued WITH it, not left as prose in this cell. |
+| 13 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
+| 14 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
+| 15 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
+| 16 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
+| 17 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
+| 18 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
 
 ---
 
@@ -804,7 +812,7 @@ should be settled together.
 hunt it, the score and where the score came from — and hovering shows it. Click should
 pin it, not reveal different content.
 
-### T10.10 — The SAT/2D chip is hardcoded HTML and never updates · `ready`
+### T10.10 — The SAT/2D chip is hardcoded HTML and never updates · `done` (2026-08-07)
 Reported: "the basemap icon still shows 2D... Even if i manually activate, the basemap
 pill doesnt update."
 Confirmed, and it is literal: `mc.innerHTML = ... <b>SAT</b><i>2D</i>` — a constant
@@ -814,7 +822,7 @@ on Relief, and 2D while you are pitched to 60°. `syncCompass` already listens o
 **Done when:** the chip reads the live basemap and the live pitch/terrain state, and a
 test fails if either is rendered from a constant.
 
-### T10.11 — Pitching the camera does not turn terrain on · `ready`
+### T10.11 — Pitching the camera does not turn terrain on · `done` (2026-08-07)
 Reported: "If i hold right and move my mouse click i can enter 3D mode, but... the 3D
 terrain mode isnt activated. Terrain exageration doesnt work until that mode is active."
 Two independent things wear the name "3D". The map is created with `maxPitch:80`, so
