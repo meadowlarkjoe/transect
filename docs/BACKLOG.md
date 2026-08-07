@@ -29,7 +29,7 @@ gate on any change.
 **Done when:** `pytest` runs green from a documented command; a smoke test asserts a
 cached Fire Lake contract loads and has non-empty `areas`, `waypoints`, `legend`.
 
-### T0.3 — Contract snapshot harness · `ready`  *(blocked by T0.2)*
+### T0.3 — Contract snapshot harness · `ready`
 The refactors in E1–E4 must not change output. Needs a cheap before/after diff.
 **Done when:** one command runs synth+transect on cached Fire Lake rasters and diffs
 the resulting `transect.json` against a committed snapshot, reporting any field change.
@@ -59,12 +59,12 @@ rather than literals.
 **Done when:** deleting the hardcoded array leaves Fire Lake rendering identically,
 and a synthetic non-moose contract renders a different legend with no client change.
 
-### T1.3 — Layer groups become data · `blocked` *(by T1.1)*
+### T1.3 — Layer groups become data · `ready`
 `MODEL ZONES / SITES & FEATURES / ACCESS & HYDRO` are hardcoded. A goat hunt needs
 *ESCAPE TERRAIN*.
 **Done when:** group names and order come from the contract.
 
-### T1.4 — Move species prose into species config · `blocked` *(by T1.1)*
+### T1.4 — Move species prose into species config · `ready`
 **Done when:** no species-specific sentence remains in `app.js`.
 
 ---
@@ -76,7 +76,7 @@ Declared at `config.py:122`, read by nothing.
 **Done when:** `config/regions/quebec_boreal.yaml` exists describing today's behaviour,
 a resolver maps AOI centroid → region, and Fire Lake output is unchanged (T0.3 proves it).
 
-### T2.2 — Derive `working_crs` from region · `blocked` *(by T2.1)*
+### T2.2 — Derive `working_crs` from region · `ready`
 `EPSG:32198` (Québec Lambert) is the global default in `model.yaml`.
 **Done when:** CRS comes from the region; an AOI outside Québec gets a sane UTM zone.
 
@@ -85,7 +85,7 @@ The honesty constraint: a region missing écoforestière must say so, not look i
 **Done when:** every run emits `coverage: {source: native|fallback|absent}` and the
 confidence score demonstrably drops when sources are absent.
 
-### T2.4 — Global baseline adapter · `blocked` *(by T2.1, T2.3)*
+### T2.4 — Global baseline adapter · `ready`
 **Done when:** an AOI with no regional adapter still produces a plan from Copernicus
 DEM + OSM + ESA WorldCover, labelled `fallback` throughout.
 
@@ -93,7 +93,7 @@ DEM + OSM + ESA WorldCover, labelled `fallback` throughout.
 
 ## E3 — Species model plug-ins
 
-### T3.1 — Species declares its site taxonomy · `blocked` *(by T1.1)*
+### T3.1 — Species declares its site taxonomy · `ready`
 `synth.py` hardcodes `rut_calling` / `thermal_refuge` / `saline_blind` / `glassing`.
 **Done when:** site types come from the species config; adding one needs no `synth.py` edit.
 
@@ -171,7 +171,7 @@ tool (reviewing a desk-built plan)? These imply different builds.
 
 ## E8 — Autonomous infrastructure
 
-### T8.1 — Night-shift workflow · `blocked` *(by T0.1, T0.2)*
+### T8.1 — Night-shift workflow · `ready`
 **Done when:** one command picks the top unblocked ticket, runs engineer → reviewer,
 and leaves a branch plus `docs/proposals/<ticket>.md`. It must refuse to run while
 T0.1/T0.2 are open.
@@ -333,7 +333,7 @@ the PDF header all still speak as if there were one window. So the engine knows 
 difference and the product does not, which is the worst possible split: it looks like
 one answer and is secretly two.
 
-### T10.1 — A multi-window brief reports the first window's analysis for everything · `ready`  ← NEXT
+### T10.1 — A multi-window brief reports the first window's analysis for everything · `ready`
 Reported: "It gave me two focus areas. They overlap... the brief for both areas provides
 its analysis based on the first date range. The only place where the different time
 windows are compared is at the top."
@@ -546,3 +546,42 @@ standing in for hillshade, a green-brown ramp for satellite. They convey nothing
 what the basemap will look like over YOUR ground.
 **Done when:** each row shows a real tile from the current view centre, so the choice is
 made on the actual ground rather than on a generic swatch.
+
+### T10.15 — The hunt leg bushwhacks past a mapped trail · `ready`
+Reported twice in one session, with screenshots: "It goes along one road and then
+bushwacks to the location. But you could have just followed the road to basically the
+same location" and "Access line follows road. Hunt line bushwacks for some reason."
+**Diagnosed, and it is one missing file.** `_linear_cost_layer` in `synth.py` builds the
+cheap-walking mask from `aq_trails.gpkg` and `aq_rail.gpkg` only. It never reads
+`trails.gpkg` — the OSM foot/quad trails. But `export.py` DOES draw `trails.gpkg` on the
+map. So the dashed trail visible in the screenshot is a line the router cannot see: the
+app is drawing a path to a place it does not know how to walk to, then routing around it.
+The access leg looks right because roads.tif IS in the surface; only walking is blind.
+**Done when:** the walk-cost surface reads every linear feature the map draws, and a test
+fails if the two sets diverge — the same class of bug as the waterbodies one that made
+least-cost paths swim across lakes.
+
+### T10.16 — The Sentinel window is frozen in 2023–24 · `ready`
+Found while answering the basemap question, and it outranks what prompted it.
+`acquire/sentinel.py` hardcodes `datetime="2023-07-01/2024-09-15"`. Nothing derives it
+from the run date, so the NDVI feeding the browse surface is built from imagery that was
+already ~2 years old on 2026-08-07 and gets older every day this stands. Cuts and burns
+newer than Sept 2024 are invisible to the greenness term — on ground whose whole browse
+story is disturbance age, that is the input most likely to be wrong.
+It is also silent: no caveat, no date in the brief, nothing that would make a hunter
+suspect the satellite half of the answer is stale.
+**Done when:** the window is derived from the run date, the brief states the imagery
+dates it actually got, and the model says so when the freshest usable scene is old.
+
+### T9.10b — Decide the fine-grid neck detector · `ready`
+Built, tested and committed in rev 22, switched OFF behind `FINE_NECKS=1`.
+Its ACCURACY is settled: an 80 m neck reads 160 m on the 40 m analysis grid and 100 m at
+10 m, and a real run reported four separate funnels at exactly 113 m — the grid's
+quantization floor rather than the terrain. What is unsettled is the POPULATION: on
+47.967, -77.809 the funnel count went 7 → 3. Nothing moved or was invented (each
+survivor sits within 71 m of one the old detector found) but the four that vanished
+scored 0.53, 0.40, 0.33 and 0.24, and losing the 0.53 is not defensible from the
+evidence to hand. Relaxing the polygonize admission bar until the count came back is the
+rev-21 mistake exactly.
+**Done when:** the two versions are compared on ground Joe has walked, and the switch is
+either removed (on) or the code is (off) — not left as a permanent flag.
