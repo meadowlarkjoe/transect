@@ -120,7 +120,7 @@ def test_the_cut_goes_ACROSS_the_neck_not_along_it():
     The cut radius has to come from `db`, which IS the local half-width."""
     import inspect
 
-    src = inspect.getsource(terrain._linkage)
+    src = inspect.getsource(terrain.neck_sides)
     assert "db[blob_full].max()" in src, "the cut radius no longer follows the corridor width"
 
 

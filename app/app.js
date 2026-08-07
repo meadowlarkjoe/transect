@@ -1383,7 +1383,7 @@ const LAYERS=[
   note:'Logging cutblocks by age (écoforestière) — pale = fresh, bright green = 10–25 yr prime browse, dark = closing in. South of ~52°N.',
   hex:'#6FA83A', icon:'leaf', on:false, lyr:'cuts', count:()=>(DOC.cut_zones||[]).length},
  {k:'funnel', group:'MODEL ZONES', kind:'soft', edge:'none', name:'Funnels / passes',
-  note:'Land necks between water/wetland where travelling bulls squeeze through',
+  note:'A neck that travel is FORCED through — it must separate two real pieces of ground (a peninsula is narrow but leads nowhere) and join two places worth moving between, ideally feed on one side and cover on the other.',
   hex:'#FF8C00', icon:'fork', on:false, lyr:'funnel', count:()=>(DOC.funnel_zones||[]).length},
 
  // These were one "Hunt sites" row drawing four different icons — so the map showed

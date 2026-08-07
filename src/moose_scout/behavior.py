@@ -108,6 +108,134 @@ def _aquatic_season_weight(ctx) -> float:
     return float(max(0.0, min(1.0, (over - doy) / (over - peak_end))))
 
 
+# How much a neck's DESTINATIONS can change its score. This REORDERS and discounts; it
+# must never delete. The linkage test (T10.17) already did the hard gating — anything
+# reaching here is a proven bottleneck — and a neck joining two big blocks of security
+# cover is a real travel route even though nothing about it is complementary.
+#
+# THE FLOOR IS 0.6 BECAUSE 0.35 DELETED THE LAYER. Measured on a funnel-rich box where
+# every surviving neck is cover-to-cover in dense conifer: a 0.35 floor multiplied
+# already-marginal geometry scores down past the contract's 0.15 polygonize bar and took
+# the funnel count from 1 to 0. That bar was calibrated against UNWEIGHTED scores, so
+# quietly moving the distribution underneath it is the rev-21 mistake exactly — an
+# absolute constant left pointing at a distribution that has shifted.
+DEST_FLOOR = 0.6
+# A side is sampled within this of the neck. Beyond ~1.5 km you are describing the
+# landscape, not what a moose steps into when it comes through.
+SIDE_SAMPLE_M = 1500.0
+# Two sides of the SAME good thing count for most of it — a moose shuttles between
+# feeding areas and between cover blocks too — but the food-to-cover pairing is the
+# classic and has to stay visibly ahead. At 0.6 the ordering is
+# classic > same-kind > barren with real gaps between them.
+SAME_KIND_WEIGHT = 0.6
+
+
+def _weight_funnels_by_destination(cache, prof, feed, refuge):
+    """Scale each funnel by what its two sides actually hold, and record the pairing.
+
+    Writes terrain/funnel.tif in place and terrain/funnel_dest.json — the latter so the
+    hover card can say WHICH two things a neck joins ("feeding regen to conifer cover")
+    rather than just asserting a number.
+    """
+    from scipy import ndimage as ndi
+    from scipy.ndimage import distance_transform_edt
+
+    from . import terrain as terr
+
+    fpath = cache / "terrain/funnel.tif"
+    funnel = _opt(fpath)
+    if funnel is None or not np.isfinite(funnel).any() or float(np.nanmax(funnel)) <= 0:
+        return
+
+    res = abs(prof["transform"].a)
+    barrier = terr._barrier(cache, prof["crs"], prof["transform"], funnel.shape, res,
+                            funnel.shape)
+    passable = ~barrier
+    db = (distance_transform_edt(passable) * res).astype("float32")
+
+    f = np.clip(np.nan_to_num(feed), 0.0, 1.0)
+    r = np.clip(np.nan_to_num(refuge), 0.0, 1.0)
+
+    out = np.array(funnel, dtype="float32", copy=True)
+    notes = []
+    rad = max(1, int(round(SIDE_SAMPLE_M / res)))
+    for blob, side_a, side_b, _second in terr.neck_sides(funnel > 0, passable, res, db):
+        near = ndi.binary_dilation(blob, iterations=rad)
+        a, b = side_a & near, side_b & near
+        if not a.any() or not b.any():
+            continue
+        # THE 90th PERCENTILE, NOT THE MEAN. The question is "is there feeding ground
+        # worth walking to on that side", and a mean over a 1.5 km disk answers a
+        # different one — it averages the good patch away against everything around it.
+        # Measured with means: every multiplier landed between 0.36 and 0.74, so the
+        # layer was uniformly halved and the classic feed-to-cover neck scored barely
+        # above two sides of the same bog. That is not a weighting, it is a deflation,
+        # and it would have pushed funnels under the polygonize bar wholesale — the
+        # rev-21 mistake wearing a different hat.
+        fa, ra = _side_level(f, a), _side_level(r, a)
+        fb, rb = _side_level(f, b), _side_level(r, b)
+        # COMPLEMENTARY is the classic: food one side, security cover the other. Take
+        # the better of the two orientations — which side is which is not something the
+        # neck knows.
+        comp = max(min(fa, rb), min(fb, ra))
+        # ...but two sides of good ground of the SAME kind is still worth something; a
+        # moose moves between feeding areas too. `both` is the weaker, always-available
+        # floor so this does not become a purely complementary test.
+        both = min(max(fa, ra), max(fb, rb))
+        dest = float(np.clip(max(comp, SAME_KIND_WEIGHT * both), 0.0, 1.0))
+        out[blob] = (funnel[blob] * (DEST_FLOOR + (1.0 - DEST_FLOOR) * dest)).astype("float32")
+        notes.append({
+            "feed": [round(fa, 3), round(fb, 3)],
+            "refuge": [round(ra, 3), round(rb, 3)],
+            "complementary": round(comp, 3),
+            "dest": round(dest, 3),
+            "joins": _describe_join(fa, ra, fb, rb),
+        })
+
+    ru.write(fpath, out, prof)
+    if notes:
+        try:
+            (cache / "terrain/funnel_dest.json").write_text(json.dumps(notes))
+        except Exception:
+            pass
+    print(f"[behavior] funnel destinations scored for {len(notes)} neck(s)")
+
+
+def _side_level(surface, mask):
+    """How good the BEST of a side is, not how good it is on average."""
+    vals = surface[mask]
+    if vals.size == 0:
+        return 0.0
+    return float(np.percentile(vals, 90))
+
+
+# Below this a side holds nothing worth crossing for; and the two scores have to differ
+# by at least MARGIN before we are willing to call a side "feeding" rather than "cover".
+BARE = 0.20
+MARGIN = 0.10
+
+
+def _describe_join(fa, ra, fb, rb):
+    """Plain words for what a neck connects — the thing a hunter can disagree with.
+
+    It must not manufacture a distinction. Calling feed 0.15 / refuge 0.22 "feeding
+    ground to security cover" reads as a finding and is noise; below MARGIN the honest
+    answer is that the two sides are much the same.
+    """
+    def side(fv, rv):
+        if fv < BARE and rv < BARE:
+            return "open ground"
+        if abs(fv - rv) < MARGIN:
+            return "mixed ground"
+        return "feeding" if fv > rv else "cover"
+    a, b = side(fa, ra), side(fb, rb)
+    if a == b:
+        return f"two sides of much the same {a}"
+    if {a, b} == {"feeding", "cover"}:
+        return "feeding ground to security cover"
+    return f"{a} to {b}"
+
+
 def run(ctx: Context) -> None:
     aoi = ctx.aoi.name
     cache = cache_dir(aoi)
@@ -186,6 +314,29 @@ def run(ctx: Context) -> None:
     midday_warm = np.clip(0.15 * z(feed) + 0.85 * z(refuge), 0.0, 1.0)
     for a in (midday_cool, midday_warm):
         a[water_nan] = np.nan
+
+    # --- A FUNNEL HAS TO JOIN TWO PLACES A MOOSE WANTS (T10.18) -------------------
+    # T10.17 made every neck prove it is a BOTTLENECK — that cutting it severs a
+    # linkage — which killed the peninsulas. That test is pure geometry and cannot ask
+    # the second question: a perfect neck between two barren rock outcrops is a perfect
+    # bottleneck and a worthless place to sit.
+    #
+    # What concentrates moose movement is the shuttle between FOOD and SECURITY COVER —
+    # which is the biology already stated at the top of this file, "bulls CRUISE...
+    # terrain funnels between bedding cover and feeding/wallow complexes". So a neck is
+    # worth what it CONNECTS: full credit for feed on one side and refuge on the other,
+    # less for two sides of the same thing, and almost nothing for two sides of barren
+    # ground.
+    #
+    # This lives here rather than in terrain.py for a hard reason: terrain runs before
+    # habitat, so when funnel.tif is written there is no browse and no cover to read.
+    # terrain.py owns the geometry, this owns what is on either side of it, and nothing
+    # upstream of here reads funnel.tif (habitat does not; only synth and the contract
+    # do), so refining it at this point cannot desync the HSM.
+    try:
+        _weight_funnels_by_destination(cache, prof, feed, refuge)
+    except Exception as _e:  # noqa: BLE001 — a geometry-only funnel beats no funnel
+        print(f"[behavior] funnel destination weighting skipped: {_e}")
 
     ru.write(bdir / "feed.tif", feed.astype("float32"), prof)
     ru.write(bdir / "refuge.tif", refuge.astype("float32"), prof)

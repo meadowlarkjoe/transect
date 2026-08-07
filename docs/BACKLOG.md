@@ -25,9 +25,8 @@ underserved. Within a band, cheaper first.
 | 2 | **T10.1** Multi-window brief reports window 1 for everything | A bow hunter reads rifle-window advice with no way to tell. The engine already knows better — only the readout lies. |
 | 3 | **T10.15** Hunt leg bushwhacks past a mapped trail | Draws a line to a place it then refuses to walk to. Diagnosed: one file missing from the walk-cost surface. |
 | 4 | **T10.2** Method of take not modelled per window | Bow stands placed on rifle logic. Makes T10.1 half a fix — right labels, wrong stands. |
-| 5 | **T10.18** A funnel should connect two places a moose wants | T10.17 made necks prove they are bottlenecks. A bottleneck between two barren outcrops is still a bad place to sit. |
-| 6 | **T6.1** Null-model benchmark | The model is unfalsifiable, and rev 21 moved the huntability scale under constants that are still absolute. Load-bearing since 2026-08-06. |
-| 7 | **T0.4** Tests that contaminate each other | Three synth tests fail regardless of the code, so a real regression is indistinguishable from the contamination. |
+| 5 | **T6.1** Null-model benchmark | The model is unfalsifiable, and rev 21 moved the huntability scale under constants that are still absolute. Load-bearing since 2026-08-06. |
+| 6 | **T0.4** Tests that contaminate each other | Three synth tests fail regardless of the code, so a real regression is indistinguishable from the contamination. |
 
 ### Band 2 — MISSING (a real gap you can see)
 
@@ -641,19 +640,37 @@ on the other — is the other half of what makes a funnel, and it is a habitat q
 `terrain.py` runs before `habitat.py`, so that weighting belongs in a later stage. See
 T10.18.
 
-### T10.18 — A funnel should connect two places a moose WANTS · `ready`
+### T10.18 — A funnel should connect two places a moose WANTS · `done` (2026-08-07)
 The other half of T10.17, and his own framing of it: "some sort of terrain featue that
 concentrates movement between two areas that would be interesting to them."
-T10.17 makes a funnel prove it is a BOTTLENECK. It does not ask what is on either side.
-A perfect neck between two barren rock outcrops is a perfect bottleneck and a worthless
-place to sit; a moose moves between food and security cover, so the necks that matter
-are the ones joining feeding ground to bedding/thermal cover.
-The constraint that shapes the work: `terrain.py` runs before `habitat.py`, so terrain
-can only supply the geometry. The destination weighting has to happen in a later stage
-that can see `browse.tif`, `cover.tif` and the refuge surfaces.
-**Done when:** a neck's score is weighted by what its two sides actually hold — full
-credit for feed one side and cover the other, little for two sides of the same barren
-ground — and the hover card says which two things it joins.
+T10.17 made a funnel prove it is a BOTTLENECK. It could not ask what is on either side,
+so a perfect neck between two barren rock outcrops was still a perfect funnel. What
+concentrates moose movement is the shuttle between FOOD and SECURITY COVER — which is
+the biology `behavior.py` already stated at the top of its own file: "bulls CRUISE...
+terrain funnels between bedding cover and feeding/wallow complexes".
+**Where it lives, and why it had to move.** `terrain.py` runs before `habitat.py`, so
+when `funnel.tif` is written there is no browse and no cover to read. Terrain now
+exposes `neck_sides()` — the cut machinery from T10.17 — and `behavior.py` uses the side
+MASKS to score what each neck joins. Nothing between the two reads `funnel.tif` (habitat
+does not; only synth and the contract do), so refining it there cannot desync the HSM.
+**Two things measurement corrected:**
+* **Means washed the answer out.** With a mean over the 1.5 km sample radius every
+  multiplier on a real box landed between 0.36 and 0.74 — the layer uniformly halved,
+  and the classic feed-to-cover neck scored barely above two sides of the same bog. That
+  is a deflation, not a weighting, and it would have pushed funnels under the polygonize
+  bar wholesale: the rev-21 mistake wearing a different hat. The 90th percentile answers
+  the question actually being asked — is there anything worth walking to on that side.
+* **The classic has to win by a visible margin.** At a 0.6 same-kind weight, two sides of
+  identical cover scored 0.60 against 0.64 for the best real feed-to-cover neck. At 0.45
+  the top four necks on that box are all "feeding ground to security cover".
+**Reported, not just scored:** each funnel now carries `joins` — "feeding ground to
+security cover", "two sides of much the same open ground" — because that is a claim a
+hunter can check on the ground and reject. The description refuses to invent a
+distinction it cannot see: below a 0.10 margin between feed and refuge it says the two
+sides are much the same rather than dressing up noise as a finding.
+**Deliberately floors rather than zeroes** (`DEST_FLOOR = 0.35`): a neck that survived
+the linkage test IS a bottleneck whatever grows on it, and zeroing on habitat would
+delete the layer over burnt or rocky country where the geometry is still true.
 
 ### T10.15 — The hunt leg bushwhacks past a mapped trail · `ready`
 Reported twice in one session, with screenshots: "It goes along one road and then

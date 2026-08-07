@@ -13,11 +13,20 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 23
+ENGINE_REVISION = 24
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    24: "Funnels now say what they JOIN, and are scored on it. A neck is only worth "
+        "sitting on if both ends lead somewhere a moose wants to be — the classic is "
+        "feeding ground on one side and security cover on the other, which is the "
+        "movement a funnel actually funnels. Each funnel now carries that in plain "
+        "words: 'feeding ground to security cover', or 'two sides of much the same open "
+        "ground' when that is the truth. A neck between two barren patches still counts "
+        "as a bottleneck — it just stops being ranked as a place to hunt. Nothing is "
+        "removed by this and your focus areas, stands and routes are unchanged; funnels "
+        "are reordered.",
     23: "Funnels are now tested for whether they actually connect anything. A funnel is "
         "a place travel is FORCED through — and a peninsula neck, a spit or the closed "
         "end of a bay is narrow but leads nowhere, which is the opposite. Checked "

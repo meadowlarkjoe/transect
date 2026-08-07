@@ -1164,6 +1164,22 @@ def build(ctx: Context) -> dict:
                             pass
         except Exception as _e:
             print(f"[contract] funnel neck widths unavailable: {_e}")
+        # WHAT THE NECK JOINS (T10.18). "Funnel / pass · 0.1 km²" says nothing a hunter
+        # can argue with; "feeding ground to security cover" is a claim they can check
+        # on the ground and reject. The destinations are what make a bottleneck worth
+        # sitting on, so the layer should say them out loud rather than fold them into a
+        # score. Attached by rank, since behavior scores necks in the same order the
+        # polygonizer walks them.
+        try:
+            _dj = cache / "terrain" / "funnel_dest.json"
+            if _dj.exists() and doc.get("funnel_zones"):
+                _notes = json.loads(_dj.read_text())
+                _best = sorted(_notes, key=lambda n: -(n.get("dest") or 0))
+                for z, note in zip(doc["funnel_zones"], _best):
+                    z["joins"] = note.get("joins")
+                    z["destination_score"] = note.get("dest")
+        except Exception as _e:
+            print(f"[contract] funnel destinations unavailable: {_e}")
         # And say when the barrier that DEFINES a funnel is incomplete. WorldCover barely
         # sees boreal peatland; without MRNF GRHQ, bog reads as passable ground and necks
         # get drawn through it. That is a caveat on the layer, not a silent degradation.

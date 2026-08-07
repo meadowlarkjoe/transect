@@ -176,58 +176,51 @@ FULL_SIDE_KM2 = 5.0
 LINK_HALO_M = 6000.0        # how far around a neck to look before judging its two sides
 
 
-def _linkage(core, passable, res: float, db):
-    """How much of a LINKAGE each neck is, 0..1 — the test that tells a funnel from a
-    dead end.
+def neck_sides(core, passable, res: float, db):
+    """Yield (blob_mask, side_a, side_b, second_km2) for every neck in `core`.
+
+    The two sides are full-grid boolean masks of the ground each neck joins, so a later
+    stage can ask what is ON them. Sizes are in km2. This is the shared machinery behind
+    both halves of the funnel test: `_linkage` here uses only the AREAS (is it a
+    bottleneck at all — T10.17), and behavior.py uses the MASKS (do the two sides hold
+    anything a moose wants — T10.18).
 
     THE BUG THIS EXISTS FOR. The constriction detector asks one question — "is this
     ground narrow, pinched between barriers?" — and that question is purely LOCAL. A
     peninsula neck answers yes. So does a spit, an island's tie-bar, and the closed end
-    of a bay. Measured on two real boxes before this was written: 8 of 10 funnels on one
-    and 10 of 36 on the other were dead ends or cut nothing at all. A dead end is not a
-    weak funnel, it is the OPPOSITE of one — nothing is forced through a place that
-    leads nowhere, and a hunter sitting on one watches ground no travelling bull has a
-    reason to cross.
+    of a bay. Measured across every cached AOI before it was written: 25 of 25 candidates
+    on one real box were dead ends. A dead end is not a weak funnel, it is the OPPOSITE
+    of one — nothing is forced through a place that leads nowhere.
 
     The test is the standard connectivity one (Circuitscape calls these pinch points):
     a real bottleneck is where losing a little ground SEVERS A LINKAGE. Cut the neck and
-    look at what it separated — two substantial regions means travel between them really
-    is squeezed through here; one region and a stub is a dead end; one region means you
-    can walk around it and nothing is funnelled at all.
+    look at what it separated.
 
     TWO THINGS THAT LOOK RIGHT AND ARE NOT, both found by measurement:
 
     1. CUT ACROSS THE NECK, NOT ALONG IT. The medial axis runs ALONG the corridor
-       centre, so deleting those cells leaves the corridor's flanks connected around the
-       gap and severs nothing. The cut has to span the full corridor, so its radius
-       comes from `db` — the distance transform IS the local half-width.
+       centre, so deleting those cells leaves the flanks connected around the gap and
+       severs nothing. The cut radius comes from `db` — the distance transform IS the
+       local half-width.
     2. THE SIDES ARE THE PIECES THE NECK TOUCHES, not the biggest pieces nearby. Taking
        the two largest components in the window paired a peninsula stub with an
-       unrelated region across a lake, so every neck passed once the window was wide
-       enough to reach one. Symptom: widening the halo 6 km -> 25 km moved survivors
-       from 9 to 25 and 47 to 66. The verdict was being decided by how far we happened
-       to look, which is not a property of the ground.
-
-    Deliberately geometric and nothing else. Whether the two sides are worth MOVING
-    between — feed on one, cover on the other — is a habitat question, and habitat.py
-    has not run when this does.
+       unrelated region across a lake. Symptom: widening the halo 6 km -> 25 km moved
+       survivors from 9 to 25 on one box and 47 to 66 on another — the verdict was being
+       decided by how far we happened to look, which is not a property of the ground.
     """
     import numpy as np
     from scipy import ndimage as ndi
 
-    out = np.zeros(core.shape, "float32")
     lab, n = ndi.label(core > 0)
     if n == 0:
-        return out
+        return
 
     cell_km2 = res * res / 1e6
     halo = max(4, int(round(LINK_HALO_M / res)))
-    objs = ndi.find_objects(lab)
-    for i, sl in enumerate(objs, start=1):
+    for i, sl in enumerate(ndi.find_objects(lab), start=1):
         if sl is None:
             continue
         blob_full = lab == i
-        # Radius that actually spans the corridor here, plus a margin so the cut closes.
         rad = int(np.ceil(float(db[blob_full].max()) / res)) + 2
         pad = halo + rad
         y0 = max(0, sl[0].start - pad); y1 = min(core.shape[0], sl[0].stop + pad)
@@ -236,21 +229,34 @@ def _linkage(core, passable, res: float, db):
         seed = blob_full[y0:y1, x0:x1]
 
         cut = ndi.binary_dilation(seed, iterations=rad)
-        open_ground = win & ~cut
-        sublab, sn = ndi.label(open_ground)
+        sublab, sn = ndi.label(win & ~cut)
         if sn < 2:
             continue                     # removing it separates nothing — walk around it
 
-        # The two sides are whatever the cut is in contact with.
         ring = ndi.binary_dilation(cut, iterations=2) & ~cut & win
         touching = set(np.unique(sublab[ring])) - {0}
         if len(touching) < 2:
             continue                     # only one side — a dead end
-        sizes = sorted((float((sublab == t).sum() * cell_km2) for t in touching), reverse=True)
-        second = sizes[1]                # the SMALLER of the two sides it joins
+        ranked = sorted(((int((sublab == tt).sum()), tt) for tt in touching), reverse=True)
+        (na, ta), (nb, tb) = ranked[0], ranked[1]
+
+        def _full(tag):
+            m = np.zeros(core.shape, bool)
+            m[y0:y1, x0:x1] = sublab == tag
+            return m
+
+        yield blob_full, _full(ta), _full(tb), float(nb * cell_km2)
+
+
+def _linkage(core, passable, res: float, db):
+    """0..1 per neck: how much of a LINKAGE it is. See `neck_sides`."""
+    import numpy as np
+
+    out = np.zeros(core.shape, "float32")
+    for blob, _a, _b, second in neck_sides(core, passable, res, db):
         if second < MIN_SIDE_KM2:
             continue                     # a stub — this is a dead end, not a funnel
-        out[blob_full] = min(1.0, second / FULL_SIDE_KM2)
+        out[blob] = min(1.0, second / FULL_SIDE_KM2)
     return out
 
 
