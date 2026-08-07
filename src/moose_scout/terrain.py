@@ -174,9 +174,13 @@ def _barrier(cache, crs, transform, shape, res: float, working_shape=None):
 MIN_SIDE_KM2 = 0.5
 FULL_SIDE_KM2 = 5.0
 LINK_HALO_M = 6000.0        # how far around a neck to look before judging its two sides
+# Both of these were bare cell counts. They are the analysis grid's question, expressed
+# so a finer measurement grid asks it more precisely instead of asking a stricter one.
+CUT_MARGIN_CELLS = 2.0      # how far past the half-width the cut reaches
+RING_CELLS = 2.0            # how thick the "what does this touch" ring is
 
 
-def neck_sides(core, passable, res: float, db):
+def neck_sides(core, passable, res: float, db, grid_res: float | None = None):
     """Yield (blob_mask, side_a, side_b, second_km2) for every neck in `core`.
 
     The two sides are full-grid boolean masks of the ground each neck joins, so a later
@@ -207,6 +211,20 @@ def neck_sides(core, passable, res: float, db):
        unrelated region across a lake. Symptom: widening the halo 6 km -> 25 km moved
        survivors from 9 to 25 on one box and 47 to 66 on another — the verdict was being
        decided by how far we happened to look, which is not a property of the ground.
+
+    3. THE CUT AND THE RING ARE MEASURED IN METRES, NOT CELLS (T9.10b). Both used to end
+       in a bare `+ 2` / `iterations=2` — two CELLS, i.e. 80 m on the 40 m analysis grid
+       and 27 m on a 13 m fine one. That is the "three cells / one cell" mistake
+       `_constriction` documents at length, left standing here. Its effect is not
+       symmetric: a thinner cut fails to SEVER (`sn < 2`, discarded as "separates
+       nothing") and a thinner ring TOUCHES fewer components (`len(touching) < 2`,
+       discarded as a dead end), so both push a finer grid toward rejecting necks that
+       the coarse grid keeps.
+
+       Measured on an 800x800 box carrying the water vectors: candidates rose 1937 ->
+       2284 with the finer medial axis, while kept COLLAPSED 228 -> 77. That is the
+       funnel population change that has blocked this ticket, and it was never about the
+       terrain. Tied to `grid_res`, both grids ask the same question in metres.
     """
     import numpy as np
     from scipy import ndimage as ndi
@@ -217,11 +235,16 @@ def neck_sides(core, passable, res: float, db):
 
     cell_km2 = res * res / 1e6
     halo = max(4, int(round(LINK_HALO_M / res)))
+    # The margin the cut adds beyond the local half-width, and the width of the ring that
+    # asks what the cut touches. Both in METRES against the analysis grid — see (3).
+    g = float(grid_res or res)
+    over = max(1, int(round(CUT_MARGIN_CELLS * g / res)))
+    ring_it = max(1, int(round(RING_CELLS * g / res)))
     for i, sl in enumerate(ndi.find_objects(lab), start=1):
         if sl is None:
             continue
         blob_full = lab == i
-        rad = int(np.ceil(float(db[blob_full].max()) / res)) + 2
+        rad = int(np.ceil(float(db[blob_full].max()) / res)) + over
         pad = halo + rad
         y0 = max(0, sl[0].start - pad); y1 = min(core.shape[0], sl[0].stop + pad)
         x0 = max(0, sl[1].start - pad); x1 = min(core.shape[1], sl[1].stop + pad)
@@ -233,7 +256,7 @@ def neck_sides(core, passable, res: float, db):
         if sn < 2:
             continue                     # removing it separates nothing — walk around it
 
-        ring = ndi.binary_dilation(cut, iterations=2) & ~cut & win
+        ring = ndi.binary_dilation(cut, iterations=ring_it) & ~cut & win
         touching = set(np.unique(sublab[ring])) - {0}
         if len(touching) < 2:
             continue                     # only one side — a dead end
@@ -248,12 +271,12 @@ def neck_sides(core, passable, res: float, db):
         yield blob_full, _full(ta), _full(tb), float(nb * cell_km2)
 
 
-def _linkage(core, passable, res: float, db):
+def _linkage(core, passable, res: float, db, grid_res: float | None = None):
     """0..1 per neck: how much of a LINKAGE it is. See `neck_sides`."""
     import numpy as np
 
     out = np.zeros(core.shape, "float32")
-    for blob, _a, _b, second in neck_sides(core, passable, res, db):
+    for blob, _a, _b, second in neck_sides(core, passable, res, db, grid_res):
         if second < MIN_SIDE_KM2:
             continue                     # a stub — this is a dead end, not a funnel
         out[blob] = min(1.0, second / FULL_SIDE_KM2)
@@ -318,7 +341,7 @@ def _constriction(barrier, res: float, grid_res: float | None = None):
     # a local minimum of corridor width — and a peninsula neck satisfies all of it. This
     # is the test that asks what the neck actually connects, and it runs BEFORE the halo
     # below so the cut measures the real neck rather than its 280 m zone of influence.
-    link = _linkage(constriction, passable, res, db)
+    link = _linkage(constriction, passable, res, db, grid_res)
     n_before = int((constriction > 0).sum())
     constriction = (constriction * link).astype("float32")
     _constriction.last_audit = {

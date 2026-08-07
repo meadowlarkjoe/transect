@@ -33,7 +33,7 @@ The instruments are now written down rather than reconstructed (`focus_pool.tif`
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 1 | **T9.10b** Decide the fine-grid neck detector | Built and gated off in rev 22. Needs a real A/B, not a permanent flag. |
+| 1 | **T9.10b** Decide the fine-grid neck detector | `blocked` — the A/B now runs and the 7→3 collapse is fixed (it was two cell-denominated constants). What is left is ground truth Joe has to supply, plus a separate worker-memory call on `FINE_BUDGET_PX`. |
 | 2 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
 | 3 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
 | 4 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
@@ -1136,7 +1136,7 @@ is sound. The measurements are recorded in `habitat.py` beside the constants.
 **Left open:** the real fix for northern boxes is not a better NDVI curve, it is a
 surveyed source north of the écoforestière limit. That is T5.1's territory.
 
-### T9.10b — Decide the fine-grid neck detector · `ready`
+### T9.10b — Decide the fine-grid neck detector · `blocked` *(needs Joe's ground truth)*
 Built, tested and committed in rev 22, switched OFF behind `FINE_NECKS=1`.
 Its ACCURACY is settled: an 80 m neck reads 160 m on the 40 m analysis grid and 100 m at
 10 m, and a real run reported four separate funnels at exactly 113 m — the grid's
@@ -1148,3 +1148,37 @@ evidence to hand. Relaxing the polygonize admission bar until the count came bac
 rev-21 mistake exactly.
 **Done when:** the two versions are compared on ground Joe has walked, and the switch is
 either removed (on) or the code is (off) — not left as a permanent flag.
+
+**2026-08-07 — the blocking anomaly is resolved, and it was never the terrain.** The
+7 → 3 collapse was two constants in `neck_sides` denominated in CELLS: the cut reached
+`+ 2` cells past the local half-width, and the ring that asks what the cut touches was
+`iterations=2`. 80 m each on the 40 m analysis grid, 27 m on a 13 m fine one — the exact
+"three cells / one cell" mistake `_constriction` documents at length, left standing one
+function away. The error is not symmetric: a thinner cut fails to SEVER (thrown out as
+"separates nothing") and a thinner ring TOUCHES fewer components (thrown out as a dead
+end), so a finer grid was being pushed toward rejection twice over.
+
+Measured on an 800×800 crop of `fire_lake` carrying the water vectors, fine grid 13.3 m:
+
+| | candidates | kept | coarse cells the fine arm drops |
+|---|---|---|---|
+| before | 1937 → 2284 | 228 → **77** | 2595 (85%) |
+| after | 1937 → 2284 | 228 → **436** | 717 (24%) |
+
+The finer medial axis was always finding MORE candidates; the whole collapse was in
+admission. Fixed, the fine arm retains 76% of the coarse necks and distinct widths go
+19 → 98 with the floor dropping 113 m → 53 m. The fix is provably a no-op at
+`res == grid_res`, so nothing shipping today moves (`tests/test_neck_scale.py`).
+
+**Two things this did NOT settle, and they are why this is now `blocked` rather than
+done:**
+
+1. **Are the added necks real?** The fine arm gains 3007 cells at a median width of
+   208 m, and only 16% of those are narrower than the coarse grid's 113 m floor — so
+   most are not simply "necks the grid could not express". That is ground truth.
+2. **The switch is inert on a real box anyway.** `FINE_BUDGET_PX` is 9 Mpx and a 35–45 km
+   analysis grid is 3.1–6.5 Mpx, so the step floors to 1 and `FINE_NECKS=1` changes
+   nothing in production. The decision with actual blast radius is whether to raise the
+   BUDGET, which is a worker-memory measurement, not a modelling call.
+
+The instrument is `scripts/ab_necks.py` — written down, not reconstructed.
