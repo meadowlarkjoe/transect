@@ -13,11 +13,19 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 22
+ENGINE_REVISION = 23
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    23: "Funnels are now tested for whether they actually connect anything. A funnel is "
+        "a place travel is FORCED through — and a peninsula neck, a spit or the closed "
+        "end of a bay is narrow but leads nowhere, which is the opposite. Checked "
+        "against every saved analysis: on some ground every single 'funnel' the map "
+        "showed was a dead end. Expect far fewer funnels, and on open country expect "
+        "none — where that happens the layer now tells you why instead of just going "
+        "blank. Nothing else about your plan changes: same focus areas, same stands, "
+        "same routes.",
     22: "Terrain now uses 1 m LiDAR (NRCan HRDEM) wherever it has been flown — the "
         "brief tells you how much of your box it covered, and falls back to the 30 m "
         "national DEM everywhere else. Glassing knobs are scored from that finer "
