@@ -13,11 +13,23 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 21
+ENGINE_REVISION = 22
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    22: "Funnel neck widths are now measured on a grid several times finer than the "
+        "analysis runs on, so narrow necks are reported instead of censored: the old "
+        "grid could not express anything tighter than about 113 m, and returned that "
+        "same number for every tight funnel it found. Expect real widths — 48 m, 80 m, "
+        "130 m — and about the same amount of funnel ground overall, not more. Terrain "
+        "now uses 1 m LiDAR (NRCan HRDEM) wherever it has been flown, which is what "
+        "makes the finer grid worth measuring on; the brief says how much of your box "
+        "it covered and falls back to the 30 m national DEM elsewhere. Glassing knobs "
+        "are scored from the finer terrain. And leased shelters on crown land — abris "
+        "sommaires, chalets de villégiature, outfitter camps — now count toward hunter "
+        "pressure. They never restrict where you may hunt; they are evidence somebody "
+        "else is already hunting there.",
     21: "The browse and feeding layer is rebuilt, and it can now tell you where its "
         "answer came from. It reads five different things — a 10 m satellite "
         "classification, greenness, mapped fire perimeters with a year on them, the "

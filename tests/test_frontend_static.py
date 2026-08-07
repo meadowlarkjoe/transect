@@ -25,7 +25,11 @@ def _lyr_map(src):
     file is not a module we can import."""
     import re
     start = src.index("const LYR_MAP=")
-    end = src.index("]};", start)          # the object ends on its last layer array
+    # +1 so the closing `]` of the LAST array is inside the slice. Without it the final
+    # entry never matched the regex below and was silently exempt from this whole test —
+    # which is how `tenureOk` went unchecked, and how the next row added at the end of
+    # the map would have too.
+    end = src.index("]};", start) + 1
     body = src[start:end]
     out = {}
     for k, v in re.findall(r"([a-zA-Z0-9_]+):\s*(\[[^\[\]]*\])", body):

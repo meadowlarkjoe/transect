@@ -50,6 +50,14 @@ pressure:
   road_decay_m: 1500            # pressure falls off with distance from access
   town_decay_m: 25000
   parking_decay_m: 1000
+  # Leased shelters on crown land (T9.8) — a PRESSURE term, never a barrier. Shorter
+  # decay than a road: a road carries people past, a cabin is hunted outward from.
+  camp_decay_m: 1200
+  camp_weight:                  # by lease class; see acquire/baux.py for what each is
+    abri_sommaire: 1.00         # built to hunt and trap from — the strongest signal
+    pourvoirie_camp: 0.90       # outfitter lodging (also fills a known TFS gap)
+    villegiature: 0.55          # a cottage; often a summer thing
+    residence: 0.45
   # sweet spot = high huntability AND low pressure; weight in ranking:
   weight_in_ranking: 0.25
 

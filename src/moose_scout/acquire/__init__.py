@@ -101,7 +101,7 @@ def run(ctx: Context) -> dict[str, str]:
     except Exception:
         pass
 
-    from . import dem, ecoforestiere, fire, grhq, hydro, roads, sentinel, tenure, zones
+    from . import baux, dem, ecoforestiere, fire, grhq, hydro, roads, sentinel, tenure, zones
 
     # GEOGRAPHY CACHE (#79). Every source below skips a layer that is already on disk,
     # so linking in what a previous job over this same box + grid already downloaded is
@@ -145,6 +145,7 @@ def run(ctx: Context) -> dict[str, str]:
     steps = [
         ("zones", zones.fetch),
         ("tenure", tenure.fetch),
+        ("baux", baux.fetch),          # leased shelters → hunter PRESSURE, never a gate
         ("dem", dem.fetch),
         ("ecoforestiere", ecoforestiere.fetch),
         ("fire", fire.fetch),          # burn history → disturbance-age browse curve

@@ -4,18 +4,24 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def target_grid(ctx):
+def target_grid(ctx, res=None):
     """The canonical analysis grid for an AOI: the AOI bbox as a TIGHT axis-aligned
     raster in the working CRS at raster_resolution_m. Every layer is reprojected
     onto this exact grid so the HSM overlay aligns cell-for-cell. Returns
-    (dst_crs, transform, width, height)."""
+    (dst_crs, transform, width, height).
+
+    `res` overrides the analysis resolution for the TERRAIN FINE GRID (T9.10). It
+    shares this function, and therefore the same origin, so a fine cell nests exactly
+    inside a working cell whenever the ratio is a whole number — which is what lets
+    terrain.py aggregate block-wise instead of resampling.
+    """
     import math
 
     from rasterio.transform import from_origin
     from rasterio.warp import transform_bounds
 
     dst_crs = ctx.model.working_crs
-    res = ctx.model.raster_resolution_m
+    res = float(res or ctx.model.raster_resolution_m)
     minlon, minlat, maxlon, maxlat = ctx.aoi.bbox_wgs84()
     l, b, r, t = transform_bounds("EPSG:4326", dst_crs, minlon, minlat, maxlon, maxlat)
     w = int(math.ceil((r - l) / res))

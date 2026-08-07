@@ -57,6 +57,18 @@ sources:
     label_fr: "Élévation (MNÉC)"
     kind: dem
     coverage: { country: canada }
+  - id: baux
+    label_en: "Leased shelters on public land (baux)"
+    label_fr: "Droits fonciers — baux (abri sommaire, villégiature)"
+    kind: pressure
+    coverage: { region: quebec }
+    note_en: "Hunter PRESSURE only — a lease covers the building, not the country around it, and never removes huntable ground."
+  - id: hrdem
+    label_en: "LiDAR terrain (HRDEM, 1 m)"
+    label_fr: "Relief LiDAR (MNHR, 1 m)"
+    kind: dem_fine
+    coverage: { region: canada_lidar }
+    out_caveat: "No LiDAR over this box — funnel neck widths and glassing prominence come from the 30 m national DEM, which cannot resolve a neck much under 100 m."
   - id: osm
     label_en: "Roads, trails & water (OpenStreetMap)"
     label_fr: "Routes, sentiers et eau (OpenStreetMap)"

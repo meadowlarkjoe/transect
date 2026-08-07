@@ -252,32 +252,220 @@ the existing MapLibre map offscreen rather than re-implementing symbology server
 with scale bar, north arrow and datum, because this is the artifact that goes in a pack
 where there is no cell service.
 
-### T9.8 — Abri sommaire / baux de villégiature · `ready`  ← NEXT
+### T9.8 — Abri sommaire / baux de villégiature · `done` (2026-08-07)
 A leased rustic shelter on public land. NOT a legal barrier — the land stays huntable —
-so it must never gate access. It is a PRESSURE signal: someone hunts that ground every
+so it never gates access. It is a PRESSURE signal: someone hunts that ground every
 season, and it is secondary evidence the ground is usable.
-Sources checked today: the queryable one
-(`services7.arcgis.com/.../LOC_LAS_regroupe_19juin2023`, 3160 pts, `Type_de_ba` =
-"Bail d'abri sommaire" | "Bail de villegiature") is ABITIBI-ONLY and a June-2023
-snapshot; the official province-wide one
-(`Territoire/Droits_fonciers_WMS`, layer 0 "Droits fonciers ponctuels") does NOT support
-query — WMS export only.
-**Done when:** the official data is loaded via the Donnees Quebec download with a
-coverage envelope declared in the region profile, cross-checked against the regional
-service over Abitibi, and wired as a proximity term beside `dist_road` in hunter
-pressure — never as a barrier.
+**Source resolved.** The regional queryable service the earlier pass found
+(`services7.arcgis.com/.../LOC_LAS_regroupe_19juin2023`, Abitibi-only, June-2023) is
+GONE — the whole ArcGIS org returns `400 Invalid URL` as of 2026-08-07, so the
+cross-check named here is not possible and is also not needed: it was only ever a
+regional proxy for the official layer, which we now hold directly. Données Québec
+publishes that layer as a plain SHP download (`couche-des-droits-fonciers-baux`,
+4 MB) — province-wide, all 17 admin regions, refreshed 2026-06-29, 48,004 point leases
++ 1,029 polygon leases. The WMS is still export-only and is not used.
+**Classified, not swallowed whole.** 38 lease purposes, of which 34 are wind turbines,
+telecom masts, billboards and tailings ponds. Four are somebody occupying the ground:
+abri sommaire (9,843), villégiature (32,384), pourvoirie sans droits exclusifs (524 —
+which also fills a known TFS gap, since tenure.py only sees outfitters WITH exclusive
+rights), résidence principale (251).
+**Measured:** Rouyn 8 km box → 86 abris + 3 cottages (backcountry hunting shelters);
+Saguenay 25 km → 321 cottages, 0 abris (lake cottage country); Fire Lake 35 km → 135
+leases of which 36 are infrastructure and dropped. The filter earns its keep.
+**Expired leases are kept on purpose.** 8,390 of 48,004 have lapsed on paper, but a
+lapsed lease does not demolish the cabin and the extract lags annual renewals. The
+count is reported in the sidecar rather than silently applied.
 
 ### T9.9 — Browse sub-layer display · `done` (2026-08-06)
 Stipple in a green ramp, indented under Browse / feeding, denser dots; IDENTIFY asks the
 specific layers before the blanket one; cut zones carry their real years.
 
-### T9.10 — Higher-resolution terrain · `ready`
-`acquire/dem.py` pulls MRDEM-30 (NRCan, 30 m) and every terrain product derives from it,
-including funnel neck widths and the glassing prominence term. A 30 m grid cannot resolve
-a 100 m neck or a small knob — which is what the relief basemap shows and the model does
-not. Quebec publishes 1 m LiDAR DTM over much of the managed south (the same ground where
-ecoforestiere is strongest); NRCan HRDEM is the alternative.
-**Done when:** the finer DTM is read at native resolution and aggregated in SOURCE space
-(a 1 m DTM over a 9 km box is ~81 M cells — do not warp it whole), with a declared
-coverage envelope and an honest fallback to MRDEM-30, and the new water detail is fed to
-the funnel barrier AND the display together (the rev-12 lesson).
+### T9.10 — Higher-resolution terrain · `done` (2026-08-07)
+The premise was half right, and the half that was wrong is the point.
+
+**The 30 m SOURCE was not the limit — the 40 m ANALYSIS GRID was.** Swapping MRDEM-30
+for 1 m LiDAR under a fixed 40 m grid moved mean slope by 1.2% and mean |TPI| by 1.4%.
+Nothing. Measuring the same LiDAR at 10 m instead doubled the peak slope inside a 40 m
+cell, raised peak |TPI| by half, and took ground with |TPI| > 6 m from 62 to 82 km².
+So the two ship together: a fine grid over MRDEM-30 would be interpolation rather than
+information, and finer data under a coarse grid is a no-op.
+
+**Necks were worse than coarse — they were censored.** On a 40 m grid the tightest neck
+the detector could report was 113 m, and a real run returned four funnels all reporting
+*exactly* 113 m: the quantization floor, not the terrain. Sub-100 m necks came back as
+exactly zero on every box tested. Rasterizing water with `all_touched` (required, or
+thin water vanishes) grows each shore by up to a cell, so a 100 m neck arrived as 0–1
+cells. The same box now reports necks at 48, 53, 80, 93 m.
+
+**The trap, and why total funnel area did not inflate.** Two constants in the detector
+were in CELLS — the medial-axis test `size=3` and the off-barrier floor `db > res` — so
+the detector asked a different question at every resolution. Left alone, moving to a
+fine grid inflated total neck area 3.5×: an apparent improvement that was pure grid
+artefact. In metres (120 m, 20 m) total neck area is flat-to-slightly-lower
+(4.80 → 3.83 km², 6.84 → 5.94 km²) while sub-150 m neck ground went up 3–4×. That is
+the shape a real resolution fix should have.
+
+**Delivered:** HRDEM mosaic read decimated so GDAL serves it from the COG overviews
+(aggregation in SOURCE space, never a whole-tile warp), nodata contamination inverted
+exactly from a matching `read_masks` fraction, void-filled against MRDEM-30 by a
+smoothed local delta (measured bias between the two products: 0.05 m, so no datum step
+to correct), `dem_source.json` carrying the measured coverage into the manifest, and a
+`prominence.tif` peak-per-cell layer that glassing reads — with its divisor moved 30 → 45
+so the resolution upgrade does not silently re-saturate the term audit #56 unsaturated.
+Coverage measured: Rouyn 92.7–99.99%, Fire Lake 41–54%.
+
+**Left undone:** Québec's own 1 m LiDAR DTM (Données Québec, per-feuillet tiles) is not
+wired — HRDEM covers the same managed south and is a single national mosaic. Worth
+revisiting only if a box lands in an HRDEM gap that Québec has flown.
+
+---
+
+## E10 — What the second real multi-window run showed (2026-08-07)
+
+From Joe running a two-window (rifle + bow) analysis on the live engine at
+47.967, -77.809 and reading the exported PDF. Ordered by the honest severity rule: a
+SILENTLY WRONG answer outranks a missing one, which outranks an ugly one.
+
+The through-line in three of these: **T9.2 shipped the model change and not the
+readout.** `_merge` really does run every (site × window) as its own analysis and tag
+every area with its window — that part is tested and correct. But the BRIEF, the map and
+the PDF header all still speak as if there were one window. So the engine knows the
+difference and the product does not, which is the worst possible split: it looks like
+one answer and is secretly two.
+
+### T10.1 — A multi-window brief reports the first window's analysis for everything · `ready`  ← NEXT
+Reported: "It gave me two focus areas. They overlap... the brief for both areas provides
+its analysis based on the first date range. The only place where the different time
+windows are compared is at the top."
+Confirmed in the export: the header reads `dates 2026-10-10 → 2026-10-25` — one window —
+on a run that had two, and "Your dates & the rut" reasons from that one window only.
+This is SILENTLY WRONG, not merely thin: a bow hunter reads post-rut advice written for
+the rifle window and has no way to tell.
+**Done when:** each window gets its own complete briefing — its own focus areas,
+strategy, stands and rut read — and the comparison between windows is an ADDITIONAL
+section, not a substitute for either. The per-window verdict block from T9.2 stays as
+the lead.
+
+### T10.2 — Method of take is not modelled per window · `ready`
+Reported: "shooting locations for a bow (max 30/40yds) are going to be different for
+those with a rifle (longer range, need visibility more than proximity — can reach out
+further / less concern about local scent as you wont be as close)."
+Today the weapon is not an input at all, so both windows get identically-placed stands.
+That makes T10.1 half a fix: separate briefs that still recommend the same 200 m
+sightline to a bow hunter are still the wrong answer, just labelled correctly.
+**Done when:** a window carries its method of take; shooter placement, the scent-wick
+arc and the glassing/visibility weighting all read it. A bow window wants proximity,
+cover and wind discipline; a rifle window wants sightline.
+
+### T10.3 — Which window an area belongs to is invisible on the map · `ready`
+Reported: "They overlap. Im guessing these are different for each season, but thats not
+clear on the map. Maybe... a slider or multi select on the map that allows you to either
+see analysis for all dates vs analysis for a single date range."
+`areas[].window` already exists (T9.2) — this is a display control, not new modelling.
+**Done when:** with more than one window the map offers all-windows vs a single window,
+and an area always says which window it came from.
+
+### T10.4 — The legend describes DATA SOURCES where it should describe the ANIMAL · `ready`
+Two reports, one principle. On browse: "Recent cuts are under browse/feeding but also
+their own thing... I dont care about seeing them all individually to this level. Im more
+curious about the TYPE of browse (aquatic vegetation, regen (prime), regen (new), regen
+(closing), specific species of vegetation that moose like)... I want the legend to show
+things that hunters actually care about and not rely on them to have to evaluate the
+relative quality of a data source. **this is true for everything we show, not just
+browse/feeding.**" On water: "Water is a parent class. Inside that should be beaver
+ponds, wetlands, rivers&lakes... Duplication should be eliminated. Data of higher
+specificity (ex beaver pond) should outrank general data (ex. waterbody). Same logic for
+feeding / browse."
+
+**The principle, stated once:** a layer group is named for the thing on the ground; its
+sublayers are KINDS of that thing, not the sources that found it; and where two sources
+describe the same ground the more specific one wins and the general one does not draw
+underneath it. Ranking sources is the model's job — rev 21 already built exactly that
+ordering for browse (dated cut > dated burn > surveyed stand > satellite) and then
+handed the result to the reader to interpret, which is the error.
+
+Today's legend fails this twice over. Browse/feeding exposes four rows named "from dated
+cuts", "from dated burns", "from the stand map", "from satellite land cover" — pure
+provenance — while "Recent cuts" ALSO stands alone as its own row, so the same cutblock
+is drawn and counted twice. Water has no parent at all: Rivers & lakes, Wetlands and
+Beaver ponds are three unrelated rows in ACCESS & HYDRO, and a beaver flowage is drawn
+over the waterbody that already covers it.
+
+**Done when:**
+* **Water** is one parent with sublayers — beaver ponds · wetlands · rivers & lakes —
+  each independently toggleable, and a cell is drawn by its MOST SPECIFIC layer only
+  (a beaver pond is not also a generic waterbody).
+* **Browse/feeding** sublayers are named by what the animal eats and what stage it is
+  in: aquatic vegetation · regen new / prime / closing in · named species where the
+  stand map has them. "Recent cuts" stops being a second top-level row.
+* **Provenance moves to the hover card**, where T9.4 already stacks a card per feature —
+  the honest place for "this came from a surveyed cut with a year on it".
+* The same test is applied to every remaining group: does this row name something a
+  hunter cares about, or something the engine cares about?
+
+### T10.5 — The camp icon regressed to a numbered circle · `ready`
+Reported: "For a camp style hunt we use to show a CAMP icon with a cabin at the camp
+location. Now it just shows a number 1 in a circle."
+Almost certainly collateral from T9.3 (`camp_plan`) or T9.1 (per-site numbering), where
+a fixed camp started being rendered as a SITE index. Visible in the screenshot: a plain
+amber "1" where the tent/cabin pin used to be.
+**Done when:** a fixed camp draws its own icon, and site numbering never claims a camp.
+
+### T10.6 — The PDF brief renders no analysis · `ready`
+Reported: "None of the analysis / polygons / waypoints / etc. render on the PDF."
+Confirmed: each of the five plate pages carries exactly one image — the basemap — so the
+offscreen map T9.7 drives is painting terrain and none of the plan layers. T9.7 was
+declared done on the strength of the plates existing; nobody checked what was ON them.
+That is the exact failure mode the "verify the artifact" rule exists for, repeated.
+**Done when:** every plate shows the same features the app draws for that layer, and a
+test fails if a plate comes back with no plan geometry on it.
+
+### T10.7 — PDF layout is browser print chrome · `ready`
+Reported: "The design/layout of the PDF needs to be polished."
+Every page carries `2026-08-07, 8:47 AM`, `Page 1 of 11` and the raw plan URL — the
+print-to-PDF headers and footers, not a designed page. That was the accepted cost of
+choosing print-to-PDF over a vendored library (T9.7); it is now the visible cost.
+**Done when:** the export reads as a document — its own header/footer, page numbering
+and typography — with the browser's chrome suppressed.
+
+### T10.8 — Draw the area to analyse, instead of only a radius · `ready`
+Asked: "right now we only do analysis by radius. and the minimum area is 5km. For a
+hunting camp we are currently looking at buying, that area is too big. I have a smaller,
+specific area that I want to analyze... have it default to search radius, but also give
+people the option to draw an area for analysis using our area draw tool."
+
+**Feasible, and cheaper than it looks.** Everything downstream already runs on a
+rectangle: `target_grid` builds a tight axis-aligned raster from `aoi.bbox_wgs84()`, and
+nothing in the engine knows or cares that the rectangle came from a radius. A drawn
+polygon supplies the same two things — a bbox and a centre.
+
+**THE PART THAT MATTERS, and the reason the 5 km floor exists.** The engine cannot
+answer about a parcel using only the parcel. `dist_road` measures to a road that is
+usually OUTSIDE the boundary; a land-bridge funnel needs the lakes on BOTH sides of the
+neck; TPI uses a 500 m window, the pinch test a 600 m one, and pressure decays over
+1.5 km. Analysing a tight polygon alone would report "no access, no funnels" about
+ground that has both. So: **analyse a PADDED bbox (~2–3 km beyond the drawing) and clip
+the OUTPUT to the polygon.** Focus areas, stands and routes get intersected with the
+drawn shape; routes are allowed to leave it, because the road you drive in on does.
+With the padding restoring the context, the 5 km minimum can go — it was protecting
+against exactly this failure.
+
+**Done when:** setup offers radius (default) or draw-an-area; a drawn AOI stores its
+ring, analyses a padded box, and clips reported features to the ring; the brief says
+which mode produced it and how much padding was used; and the geocache keys on the
+PADDED bbox so redrawing a similar parcel still hits a warm cache.
+
+### T10.9 — Hover tooltip and the click card are two different explanations · `ready`
+Reported: "the explainability layer exists but it only appears on click, separate from
+tooltip. these should be combined."
+Visible in the screenshot: the hover tooltip says "Browse / feeding · mostly the
+satellite land cover (100%) · sources partly agree · score 0.562 · 5.3 km²" while a
+separate click popup says "Riparian / wetland browse · 5.3 km² · Alder edges plus
+emergent/submergent aquatics · When: dawn & dusk... Score: 0.562 · Why: mostly the
+satellite land cover". Same feature, same numbers, two panels, and the RICHER one (the
+When/Why) is the one you have to discover by clicking.
+Related to T10.4: once provenance moves off the legend it belongs here, so these two
+should be settled together.
+**Done when:** one panel per feature carries the whole explanation — what it is, when to
+hunt it, the score and where the score came from — and hovering shows it. Click should
+pin it, not reveal different content.

@@ -535,7 +535,12 @@ function buildSources(){
     properties:{t:o.t,cls:o.cls||o.t,name:o.name||'',unpaved:!!o.unpaved}})));
   const wetlandZones=zFC(DOC.wetland_zones);
   const beaverPonds=fc((DOC.beaver_ponds||[]).map(p=>({type:'Feature',geometry:{type:'Point',coordinates:p.ll},properties:{}})));
-  return {browseSub,areas,areaLabels,camps,staging,packin,routes,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones,feedEdgeZones,burnZones,cutZones,wetlandZones,beaverPonds,tenureZones,infra};
+  // Leased shelters (T9.8). Squares, not circles, and a built-structure brown — these
+  // are BUILDINGS somebody else uses, and must not read as one of your own sites.
+  const leases=fc((((DOC.leases||{}).points)||[]).map(p=>({type:'Feature',
+    geometry:{type:'Point',coordinates:[p.lon,p.lat]},
+    properties:{kind:p.kind||'', label:p.label||'Leased shelter'}})));
+  return {browseSub,areas,areaLabels,camps,staging,packin,routes,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones,feedEdgeZones,burnZones,cutZones,wetlandZones,beaverPonds,leases,tenureZones,infra};
 }
 
 function init(){
@@ -661,6 +666,15 @@ function init(){
   map.addLayer({id:'beaverPonds',type:'circle',source:'beaverPonds',
     layout:{visibility:'none'},paint:{'circle-radius':['interpolate',['linear'],['zoom'],8,2.2,13,5],
       'circle-color':'#2FB5C4','circle-stroke-color':'#0b3b40','circle-stroke-width':1,'circle-opacity':0.9}});
+  map.addSource('leases',{type:'geojson',data:S.leases});
+  map.addLayer({id:'leases',type:'circle',source:'leases',
+    layout:{visibility:'none'},paint:{
+      'circle-radius':['interpolate',['linear'],['zoom'],8,2.0,13,4.5],
+      // An abri sommaire is the hunting signal; a cottage is mostly a summer thing.
+      // Same layer, different weight, so the map shows the difference the model uses.
+      'circle-color':['match',['get','kind'],
+        'abri_sommaire','#B8734A','pourvoirie_camp','#A85C3A','#9C8B6E'],
+      'circle-stroke-color':'#2b1d12','circle-stroke-width':1,'circle-opacity':0.9}});
   // thermal refuge + funnel ZONES (areas, not points)
   map.addSource('refugeZones',{type:'geojson',data:S.refugeZones});
   map.addSource('funnelZones',{type:'geojson',data:S.funnelZones});
@@ -1310,7 +1324,8 @@ const LYR_MAP={feedEdge:['feedEdgeZones','feedEdgeZones-line'],areas:['areas-fil
   burns:['burnZones','burnZones-line'],
   cuts:['cutZones','cutZones-line'],
   wetland:['wetlandZones','wetlandZones-line'],beaver:['beaverPonds'],
-  tenure:['tenureBlocked','tenureZones-line'],tenureOk:['tenureZones-line-ok']};
+  tenure:['tenureBlocked','tenureZones-line'],tenureOk:['tenureZones-line-ok'],
+  leases:['leases']};
 
 /* ============================================================================
    ONE ARRAY drives the panel row, the map paint and the legend meaning, so they
@@ -1435,6 +1450,14 @@ const LAYERS=[
   note:'ZEC or réserve faunique — you may hunt here, but register or reserve first',
   hex:'#E0A62E', dash:'dashed', icon:'milestone', on:true, lyr:'tenureOk',
   count:()=>(DOC.tenure_zones||[]).filter(z=>z.huntable!==false).length},
+ // Leased shelters (T9.8). Deliberately in ACCESS & HYDRO next to the tenure rows and
+ // deliberately NOT styled like them: tenure answers "may you hunt here", this answers
+ // "who else is". A lease covers the building, not the country — the note says so,
+ // because a red pin beside a "Closed to you" row would read as a closure.
+ {k:'leases', group:'ACCESS & HYDRO', kind:'point', edge:'none', name:'Leased shelters',
+  note:'Abris sommaires, chalets de villégiature and outfitter camps leased on crown land. Somebody hunts this ground every season — and thought it worth building on. Does NOT restrict where you may hunt.',
+  hex:'#B8734A', icon:'home', on:false, lyr:'leases',
+  count:()=>((DOC.leases||{}).points||[]).length},
  {k:'boundaries', group:'ACCESS & HYDRO', kind:'outline', edge:'dashed', name:'Borders & places',
   note:'Reference geography', hex:'#CBD5DA', on:true, lyr:'boundaries', count:()=>'—'},
  {k:'water', group:'ACCESS & HYDRO', kind:'line', edge:'solid', name:'Rivers & lakes',
@@ -2877,7 +2900,7 @@ function applyDoc(newDoc){        // re-bind the whole map + panels to fresh eng
   ['browse_cut_zones','browse_burn_zones','browse_stand_zones','browse_lc_zones']
     .forEach(k=>setD(k,(S.browseSub&&S.browseSub[k])||fc([])));
   setD('refugeZones',S.refugeZones); setD('funnelZones',S.funnelZones); setD('burnZones',S.burnZones); setD('cutZones',S.cutZones); setD('tenureZones',S.tenureZones);
-  setD('wetlandZones',S.wetlandZones); setD('beaverPonds',S.beaverPonds);
+  setD('wetlandZones',S.wetlandZones); setD('beaverPonds',S.beaverPonds); setD('leases',S.leases);
   setD('rivers',S.rivers); setD('lakes',S.lakes); setD('crossings',S.crossings); setD('infra',S.infra);
   setD('areas',S.areas); setD('areaLabels',S.areaLabels); setD('camps',S.camps);
   setD('staging',S.staging); setD('packin',fc(S.packin)); setD('sites',fc(window._sites));

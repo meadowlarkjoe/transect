@@ -145,6 +145,7 @@
       'lay.water': 'Rivers & lakes', 'lay.water.n': 'Mapped hydrography (OSM)',
       'lay.wetland': 'Wetlands', 'lay.wetland.n': 'GRHQ marsh / bog / fen — a travel barrier that shapes funnels; slow on foot',
       'lay.beaver': 'Beaver ponds', 'lay.beaver.n': 'GRHQ flowages — a rut hub: bulls scent-mark the wet edge, cows follow.',
+      'lay.leases': 'Leased shelters', 'lay.leases.n': 'Abris sommaires, chalets de villégiature and outfitter camps leased on crown land. Somebody hunts this ground every season — and thought it worth building on. Does NOT restrict where you may hunt.',
       'lay.crossings': 'River crossings', 'lay.crossings.n': 'On the access legs. Green = a mapped bridge · amber = fordable · red = needs a boat.',
       'lay.nodata': 'NO DATA',
 
@@ -385,6 +386,7 @@
       'lay.water': 'Rivières et lacs', 'lay.water.n': 'Hydrographie cartographiée (OSM)',
       'lay.wetland': 'Milieux humides', 'lay.wetland.n': 'Marais / tourbières / fens du GRHQ — une barrière de déplacement qui façonne les corridors; lent à pied',
       'lay.beaver': 'Étangs de castor', 'lay.beaver.n': 'Retenues du GRHQ — un pôle du rut : les mâles marquent la rive humide, les femelles suivent.',
+      'lay.leases': 'Baux (abris et chalets)', 'lay.leases.n': 'Abris sommaires, baux de villégiature et hébergement de pourvoirie sur les terres du domaine de l’État. Quelqu’un chasse ce territoire chaque saison — et l’a jugé assez bon pour y bâtir. Ne restreint PAS où vous pouvez chasser.',
       'lay.crossings': 'Traverses de rivière', 'lay.crossings.n': 'Sur les segments d’accès. Vert = pont cartographié · ambre = guéable · rouge = embarcation requise.',
       'lay.nodata': 'AUCUNE DONNÉE',
 

@@ -1016,6 +1016,30 @@ def build(ctx: Context) -> dict:
     except Exception:
         doc["access_unknown"] = False
 
+    # LEASED SHELTERS (T9.8) — how much company to expect, and where. Reported as its
+    # own block rather than folded silently into the pressure surface, because "nine
+    # abris sommaires in your box" is a fact a hunter can act on (and argue with), and
+    # a number buried inside a raster is neither. Points are carried so the map can
+    # show them; the layer is PRESSURE and never limits where you may hunt.
+    try:
+        _bx = json.loads((cache / "baux.json").read_text())
+        _fc = json.loads((cache / "baux.geojson").read_text())
+        doc["leases"] = {
+            "count": int(_bx.get("leases") or 0),
+            "by_kind": _bx.get("by_kind") or {},
+            "source": _bx.get("source"),
+            "note_en": ("Leases on crown land. Evidence that somebody hunts this ground "
+                        "every season — and that the ground is worth building on. It "
+                        "does NOT restrict where you may hunt."),
+            "points": [{"lon": f["geometry"]["coordinates"][0],
+                        "lat": f["geometry"]["coordinates"][1],
+                        "kind": f["properties"].get("kind"),
+                        "label": f["properties"].get("label_en")}
+                       for f in (_fc.get("features") or [])[:400]],
+        }
+    except Exception:
+        doc["leases"] = None
+
     # BURN REGENERATION — the strongest browse predictor we have, and the only one with
     # local validation (old burns correlate with moose numbers at r=0.62 in this zone).
     # It drives the browse score, so it must be visible: a hunter should be able to see
@@ -1470,9 +1494,31 @@ def build(ctx: Context) -> dict:
             "ecoforestiere": "stand_type.tif", "nbac": "burn_year.tif",
             "sentinel2": "ndvi.tif", "worldcover": "landcover.tif",
             "cdem": "dem.tif", "osm": "roads.gpkg", "grhq": "wetland_grhq.tif",
+            "baux": "baux.geojson",
         }
         _man = coverage_manifest(ctx, _region)
+        # HRDEM has no declarable envelope — LiDAR coverage is a ragged national mosaic,
+        # not a latitude band — so its manifest row is MEASURED, from what acquire wrote.
+        # Reporting a declared "in" for a box with no LiDAR would be the exact lie the
+        # manifest exists to prevent.
+        _dem_src = {}
+        try:
+            _dem_src = json.loads((cache / "dem_source.json").read_text())
+        except Exception:
+            pass
         for e in _man:
+            if e.get("id") == "hrdem":
+                _f = float(_dem_src.get("fine_coverage_frac") or 0.0)
+                e["coverage_frac"] = round(_f, 3)
+                e["native_res_m"] = _dem_src.get("native_res_m")
+                if _f <= 0.0:
+                    e["coverage"], e["status"] = "out", "fallback"
+                else:
+                    e["coverage"] = "in" if _f >= 0.995 else "partial"
+                    e["status"] = "ok" if _f >= 0.995 else "partial"
+                    e["note"] = (f"LiDAR terrain over {round(100 * _f)}% of the box; "
+                                 f"the rest falls back to the 30 m national DEM.")
+                continue
             decl = e.get("coverage")            # declared: in | partial | out
             prod = _PRODUCT.get(e.get("id"))
             if decl == "out":

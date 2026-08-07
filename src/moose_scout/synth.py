@@ -495,7 +495,16 @@ def run(ctx: Context, manual_areas=None) -> None:
     funnel = ru.read(cache / "terrain/funnel.tif")[0]
     dem = ru.read(cache / "dem.tif")[0]
     dist_water = ru.read(cache / "dist_water.tif")[0]
-    tpi = _opt(cache / "terrain/tpi.tif")          # prominence for glassing
+    # Prominence for glassing. T9.10 measures this on the LiDAR fine grid and reports
+    # the PEAK inside each analysis cell — an 80 m knob is two cells at 40 m and the
+    # smoothing flattens it, which is the "they need to be on high points and it feels
+    # like they often aren't" complaint. terrain.py falls the layer back to the coarse
+    # tpi wherever no LiDAR was flown, so this is never the reason a glassing point is
+    # missing; the `or` below only covers a cache written before T9.10.
+    tpi = _opt(cache / "terrain/prominence.tif")
+    prom_is_peak = tpi is not None
+    if tpi is None:
+        tpi = _opt(cache / "terrain/tpi.tif")   # cache written before T9.10
     cover = _opt(cache / "cover.tif")
     browse = _opt(cache / "browse.tif")            # glassable openings / feeding edge
 
@@ -678,8 +687,15 @@ def run(ctx: Context, manual_areas=None) -> None:
     #    a hillside at your back blocking half the view. Require the cell to sit near the
     #    neighbourhood MAXIMUM as well: full credit at the local summit, fading out ~15 m
     #    below it. Mid-slope ground stops qualifying as a knob.
+    #
+    # 3. THE SCALE HAS TO FOLLOW THE MEASUREMENT (T9.10). Since the layer became a PEAK
+    #    within the cell measured on the LiDAR grid, the same knob reads ~1.5x higher in
+    #    metres than the 40 m cell mean did. Dividing by 30 would have quietly undone
+    #    fix (1) by pushing the same cells back into saturation — a resolution upgrade
+    #    silently re-breaking the calibration it was supposed to help. The divisor moves
+    #    with the statistic so "full prominence" keeps meaning the same landform.
     if tpi is not None:
-        prom = np.clip(np.nan_to_num(tpi) / 30.0, 0.0, 1.0)
+        prom = np.clip(np.nan_to_num(tpi) / (45.0 if prom_is_peak else 30.0), 0.0, 1.0)
         if dem is not None:
             _win_p = max(3, int(round(600 / _res)) | 1)
             _demf = np.nan_to_num(dem, nan=np.nanmin(dem) if np.isfinite(dem).any() else 0.0)

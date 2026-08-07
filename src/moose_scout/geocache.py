@@ -38,7 +38,9 @@ from pathlib import Path
 # and does NOT: access.py writes it, and it encodes one hunter's reachability verdict.
 # Sharing it would have handed that verdict to the next person over the same ground.
 ARTIFACTS = (
-    "dem.tif",                                                  # dem.py
+    "dem.tif", "dem_fine.tif", "dem_source.json",               # dem.py (T9.10: dem.tif
+    #   without its sidecar is a pre-LiDAR file — dem.fetch re-fetches rather than
+    #   serving a 30 m surface from an old slot with nothing saying so)
     "landcover.tif", "water.tif", "wetland.tif",                # hydro.py
     # native 10 m class fractions (#77/#78) — same grid, measured not sampled
     "lcfrac_tree.tif", "lcfrac_shrub.tif", "lcfrac_grass.tif", "lcfrac_crop.tif",
@@ -53,6 +55,7 @@ ARTIFACTS = (
     "aq_trails.gpkg", "aq_rail.gpkg",
     "beaver_pond.tif", "wetland_grhq.tif",                      # grhq.py
     "tenure.geojson",                                           # tenure.py
+    "baux.geojson", "baux.json",                                # baux.py
     "zones_chasse.geojson",                                     # zones.py
 )
 

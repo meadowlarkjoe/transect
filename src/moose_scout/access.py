@@ -166,6 +166,79 @@ def _opt(path):
         return None
 
 
+# How strongly each class of lease implies somebody is hunting that ground. An abri
+# sommaire in the forest exists TO hunt and trap from; a lakeside cottage is mostly a
+# summer thing and its occupant may never carry a rifle. These are the honest ordering,
+# not measured coefficients — model.yaml can override any of them.
+_LEASE_WEIGHT = {
+    "abri_sommaire": 1.00,
+    "pourvoirie_camp": 0.90,
+    "villegiature": 0.55,
+    "residence": 0.45,
+}
+
+
+def _lease_pressure(ctx, cache, prof, shape):
+    """0..1 pressure around leased shelters (cache/<aoi>/baux.geojson), or None.
+
+    None means "we have no lease data" and leaves `pressure` exactly as the road term
+    left it — the same distinction access_unknown draws for roads. An empty file is NOT
+    None: "no cabins in this box" is a real answer and deserves the zero it gets.
+    """
+    import json
+
+    src = cache / "baux.geojson"
+    if not src.exists():
+        return None
+    try:
+        fc = json.loads(src.read_text())
+        feats = fc.get("features") or []
+    except Exception as e:  # noqa: BLE001
+        print(f"[access] baux.geojson unreadable, no lease pressure: {e}")
+        return None
+
+    mcfg = getattr(ctx, "model", None)
+    pcfg = (getattr(mcfg, "pressure", None) or {}) if mcfg else {}
+    decay = float(pcfg.get("camp_decay_m", 1200) or 1200)
+    weights = dict(_LEASE_WEIGHT)
+    weights.update({str(k): float(v) for k, v in (pcfg.get("camp_weight") or {}).items()})
+
+    out = np.zeros(shape, dtype="float32")
+    if not feats:
+        return out
+
+    from scipy.ndimage import distance_transform_edt
+
+    # One distance transform PER CLASS, so a strong signal never gets diluted by a weak
+    # one nearby: the nearest cabin is what matters, and which KIND of cabin it is.
+    from pyproj import Transformer
+    tr = Transformer.from_crs("EPSG:4326", prof["crs"], always_xy=True)
+    inv = ~prof["transform"]
+    res = abs(prof["transform"].a)
+    by_kind: dict[str, np.ndarray] = {}
+    for f in feats:
+        kind = (f.get("properties") or {}).get("kind") or "villegiature"
+        try:
+            lon, lat = f["geometry"]["coordinates"][:2]
+            x, y = tr.transform(float(lon), float(lat))
+            c, r = inv * (x, y)
+            ci, ri = int(c), int(r)
+        except Exception:
+            continue
+        if not (0 <= ri < shape[0] and 0 <= ci < shape[1]):
+            continue
+        seeds = by_kind.setdefault(kind, np.ones(shape, dtype=bool))
+        seeds[ri, ci] = False          # False = seed, for distance_transform_edt
+
+    for kind, seeds in by_kind.items():
+        w = float(weights.get(kind, 0.5))
+        if w <= 0 or seeds.all():
+            continue
+        d = distance_transform_edt(seeds, sampling=(res, res)).astype("float32")
+        out = np.maximum(out, (w * np.exp(-d / decay)).astype("float32"))
+    return np.clip(out, 0.0, 1.0).astype("float32")
+
+
 def run(ctx: Context) -> None:
     cache = cache_dir(ctx.aoi.name)
     res = ctx.model.raster_resolution_m
@@ -259,6 +332,23 @@ def run(ctx: Context) -> None:
     pressure = np.exp(-dist_road / road_decay).astype("float32")
     if access_unknown:
         pressure = np.zeros(hsm.shape, dtype="float32")   # unknown roads → don't invent pressure
+    # LEASED SHELTERS (T9.8). A road is where hunters can GET to; an abri sommaire is
+    # where one of them already IS, every season. Roads alone miss the camp you can only
+    # reach by water or quad, and they miss the difference between a road nobody uses and
+    # a road with nine cabins on it.
+    #
+    # Deliberately additive and deliberately NOT a barrier: this never touches the legal
+    # gate or huntability. The ground around somebody's cabin is still crown land and
+    # still yours to hunt — it is just less likely to be quiet.
+    #
+    # It also survives `access_unknown`. When the road network failed to acquire we
+    # refuse to invent road pressure, but a lease we DID acquire is direct evidence
+    # regardless of whether we mapped the road to it.
+    lease = _lease_pressure(ctx, cache, prof, hsm.shape)
+    if lease is not None:
+        # Two independent reasons to expect company — combine as probabilities, not by
+        # max: a cabin ON a road is more pressured than either fact alone implies.
+        pressure = (1.0 - (1.0 - pressure) * (1.0 - lease)).astype("float32")
     ru.write(cache / "pressure.tif", pressure, prof)
 
     # --- phase-weighted habitat: let the HUNT DATES steer what "good" means -------
