@@ -32,7 +32,8 @@ from moose_scout import validate
 def _r(**kw):
     base = dict(ok=True, selected_frac=0.05, overlap_road=0.1,
                 mean_hunt_selected=0.40, mean_hunt_random=0.20,
-                mean_hunt_ceiling=0.60, capture=0.5,
+                mean_hunt_ceiling=0.60, mean_hunt_oracle=0.50,
+                oracle_headroom=0.30, capture=0.5,
                 patches_selected=3, patches_random=5000,
                 spearman_hunt_vs_proximity=0.1)
     base.update(kw)
@@ -85,14 +86,34 @@ def test_confetti_fails_even_if_it_concentrates():
                                patches_random=5000))["beats_random"] is False
 
 
-def test_the_measured_capture_on_real_boxes_is_reported_not_flattered():
-    """THE FINDING. On first measurement the focus areas captured 6%, 16% and 20% of the
-    gap between random ground and what the model's own score could reach — so the
-    benchmark FAILS two of three real boxes, and the threshold was left where it fails
-    rather than moved until it passed. Retuning this to go green is the rev-21 mistake."""
-    for cap in (0.06, 0.16, 0.20):
+def test_the_measured_capture_is_reported_not_flattered():
+    """THE FINDING, after the yardstick was corrected twice. Measured against a FAIR
+    oracle — the best contiguous area of the same size — a real box captures 2% of what
+    a walkable area could achieve there. The threshold was left where it fails rather
+    than moved until it passed; retuning to go green is the rev-21 mistake."""
+    for cap in (0.02, 0.05, 0.20):
         assert validate.verdict(_r(capture=cap))["beats_random"] is False, cap
     assert validate.verdict(_r(capture=0.30))["beats_random"] is True
+
+
+def test_the_yardstick_is_a_contiguous_area_not_cherry_picked_cells():
+    """The first ceiling was the best n CELLS, which is maximally fragmented and which no
+    walkable area could ever reach — judged against it every result looked like failure,
+    which is uninformative. Measured on one box: model 0.248, cherry-picked 0.435, best
+    contiguous 0.322. Capture 1% against the wrong target, 5% against the right one."""
+    import inspect
+    src = inspect.getsource(validate.benchmark)
+    assert "_oracle_blob" in src
+    assert "hunt_oracle - hunt_rand" in src, "capture is measured against the wrong ceiling"
+
+
+def test_no_headroom_means_no_verdict_rather_than_a_bad_one():
+    """On ground with no structure at this scale the denominator is noise — it produced a
+    meaningless -26% on a real box whose oracle beat random by 0.005. 'Not applicable' is
+    the honest answer there, not 'failed'."""
+    v = validate.verdict(_r(capture=None, oracle_headroom=0.005))
+    assert v["beats_random"] is None
+    assert v["beats_road"] is True, "the road verdict is independent and must survive"
 
 
 def test_capture_is_zero_when_the_selection_is_random_and_one_at_the_ceiling():

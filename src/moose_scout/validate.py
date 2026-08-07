@@ -35,6 +35,9 @@ import json
 from pathlib import Path
 
 SEED = 20260807
+# Below this the best contiguous area barely beats a random draw, so the ground has no
+# structure at this scale and `capture` is dividing by noise.
+MIN_HEADROOM = 0.02
 
 
 def _top_mask(score, huntable, n_cells):
@@ -81,8 +84,23 @@ def benchmark(cache: Path, sample: int = 200_000) -> dict:
 
     cache = Path(cache)
     hunt = ru.read(cache / "huntability.tif")[0]
+    prof = ru.read(cache / "huntability.tif")[1]
     dist_road = ru.read(cache / "dist_road.tif")[0]
+
+    # COMPARE AGAINST THE POOL THE MODEL COULD ACTUALLY CHOOSE FROM. The first version
+    # drew its nulls from every finite cell of huntability.tif, but synth crops a 2 km
+    # border before extracting anything — focal and Hessian filters produce artefacts at
+    # the raster edge, so that ground is never a candidate. Measured on one box: 399.5
+    # km2 finite against 256.5 km2 the model can reach, so a third of the random null's
+    # pool was ground the model was never allowed to pick. A null model has to be given
+    # the same choices as the thing it is a null for.
+    res = abs(prof["transform"].a)
+    m = max(5, int(round(2000 / res)))
     huntable = np.isfinite(hunt)
+    huntable[:m, :] = False
+    huntable[-m:, :] = False
+    huntable[:, :m] = False
+    huntable[:, -m:] = False
     if not huntable.any():
         return {"ok": False, "why": "no huntable ground in this cache"}
 
@@ -130,12 +148,24 @@ def benchmark(cache: Path, sample: int = 200_000) -> dict:
 
     hunt_sel, comp_sel = stats(picked)
     hunt_rand, comp_rand = stats(rand_pick)
-    # THE CEILING: the best n cells the model's OWN score can offer. A focus area is a
-    # contiguous blob, so it necessarily swallows mediocre interior ground that a
-    # cherry-picked top-n would skip. Without this the "+14% over random" reading is
-    # unreadable — it does not say whether the box is uniformly mediocre or the
-    # extraction is throwing the signal away.
+    # TWO CEILINGS, and only one of them is a fair target.
+    #
+    # `hunt_top` is the best n CELLS the score can offer — cherry-picked and maximally
+    # fragmented. No focus area could ever reach it, because an area has to be ground you
+    # can walk. Reported for scale, never used as the yardstick: against it every result
+    # looks like a failure, which is uninformative.
+    #
+    # `hunt_oracle` is the best CONTIGUOUS region of the same size — same shape of thing
+    # the model is asked to produce, at the best available place. That is the honest
+    # target, and the difference between the two is stark: on one real box the model
+    # scored 0.248, cherry-picked cells 0.435, and the fair oracle 0.322. Judged against
+    # 0.435 the model captured 1%; judged against what a contiguous area could actually
+    # achieve, 5% — still poor, but now a claim about the EXTRACTION rather than about
+    # the impossibility of contiguity. On a second box the oracle itself reached only
+    # 0.253 against 0.248 random, which says that box has almost no structure at this
+    # scale and the model's near-random result is honest.
     hunt_top, _ = stats(_top_mask(hunt, huntable, n))
+    hunt_oracle, _ = stats(_oracle_blob(hunt, huntable, n))
 
     # Correlation over a sample of huntable cells — the full grid is tens of millions.
     idx = np.flatnonzero(huntable.ravel())
@@ -158,14 +188,46 @@ def benchmark(cache: Path, sample: int = 200_000) -> dict:
         "mean_hunt_selected": round(hunt_sel, 4),
         "mean_hunt_random": round(hunt_rand, 4),
         "mean_hunt_ceiling": round(hunt_top, 4),
-        # 0 = no better than random, 1 = as good as the score allows.
-        "capture": round((hunt_sel - hunt_rand) / (hunt_top - hunt_rand), 4)
-        if hunt_top > hunt_rand else None,
+        "mean_hunt_oracle": round(hunt_oracle, 4),
+        # 0 = no better than random, 1 = as good as a contiguous area of this size can be.
+        # None when there is nothing to capture: on ground with no structure at this
+        # scale the denominator is noise, and it produced a meaningless -26% on a real
+        # box whose oracle beat random by 0.005.
+        "capture": round((hunt_sel - hunt_rand) / (hunt_oracle - hunt_rand), 4)
+        if (hunt_oracle - hunt_rand) >= MIN_HEADROOM else None,
+        # When the oracle barely beats random there is no structure to exploit at this
+        # scale, and a low capture says nothing about the extraction.
+        "oracle_headroom": round(hunt_oracle - hunt_rand, 4),
         "patches_selected": comp_sel,
         "patches_random": comp_rand,
         # How much of the model's score is just "near a road".
         "spearman_hunt_vs_proximity": round(_spearman(hv, -dv), 4),
     }
+
+
+def _oracle_blob(hunt, huntable, n):
+    """The best CONTIGUOUS region of n cells — the fair target for a focus area.
+
+    Centred on the strongest ground at the area's own scale (a Gaussian whose sigma
+    follows the area radius, so it finds the best NEIGHBOURHOOD rather than the best
+    pixel), then the n nearest huntable cells. Same size, same shape of thing, best
+    available place.
+    """
+    import numpy as np
+    from scipy.ndimage import gaussian_filter
+
+    hv = np.nan_to_num(hunt)
+    sigma = max(2.0, float(np.sqrt(n / np.pi)) / 2.0)
+    sm = gaussian_filter(np.where(huntable, hv, 0.0), sigma=sigma)
+    sm = np.where(huntable, sm, -1.0)
+    cy, cx = np.unravel_index(int(np.argmax(sm)), sm.shape)
+    Y, X = np.ogrid[:hunt.shape[0], :hunt.shape[1]]
+    dist = np.where(huntable, (Y - cy) ** 2 + (X - cx) ** 2, np.inf).ravel()
+    n = int(min(n, int(huntable.sum())))
+    idx = np.argpartition(dist, n - 1)[:n] if n > 1 else [int(np.argmin(dist))]
+    out = np.zeros(hv.size, bool)
+    out[idx] = True
+    return out.reshape(hv.shape)
 
 
 def _rasterize_areas(path: Path, cache: Path):
@@ -203,7 +265,12 @@ def verdict(r: dict) -> dict:
     # is worth. The threshold is a floor, not a target — it exists to FAIL loudly, and
     # on first measurement it failed on two of three real boxes (6% and 16% capture).
     cap = r.get("capture")
-    concentrates = cap is not None and cap >= 0.25
+    if cap is None:
+        # Nothing to capture — the honest verdict is "not applicable", not "failed".
+        return dict(r, beats_road=bool(r["overlap_road"] < 0.75
+                                       and abs(r["spearman_hunt_vs_proximity"]) < 0.75),
+                    beats_random=None)
+    concentrates = cap >= 0.25
     coherent = r["patches_selected"] * 5 < max(1, r["patches_random"])
     beats_random = bool(concentrates and coherent)
     # "Beats road" means: it is not just a road buffer. Two ways to fail — picking the
@@ -226,11 +293,14 @@ def report(cache: Path) -> str:
         f"{r['mean_hunt_random']:.3f} for a random draw of the same size;\n"
         f"                       {r['patches_selected']} patches against "
         f"{r['patches_random']} (random selection is confetti)\n"
-        f"  ceiling              {r['mean_hunt_ceiling']:.3f} is the best the model's own "
-        f"score could do at this area;\n"
+        f"  fair oracle          {r['mean_hunt_oracle']:.3f} is the best CONTIGUOUS area of "
+        f"this size (cherry-picked cells reach {r['mean_hunt_ceiling']:.3f},\n"
+        f"                       which no walkable area could);\n"
         f"                       the focus areas capture "
         f"{'n/a' if r['capture'] is None else format(100 * r['capture'], '.0f') + '%'} "
-        f"of the gap between random and that ceiling\n"
+        f"of the gap between random and that oracle\n"
+        f"                       (oracle headroom over random: {r['oracle_headroom']:.3f} — "
+        f"below ~0.02 there is no structure at this scale to capture)\n"
         f"  rank corr vs road proximity  {r['spearman_hunt_vs_proximity']:+.3f}\n"
         f"  -> distinguishable from a road buffer: {r['beats_road']}\n"
         f"  -> distinguishable from random:        {r['beats_random']}\n"

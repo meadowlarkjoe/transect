@@ -21,7 +21,7 @@ underserved. Within a band, cheaper first.
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 1 | **T6.3** Focus-area extraction discards most of the model's discrimination | Found by T6.1: the surface separates ground nearly 2:1, the areas handed over capture 6-20% of it. |
+| 1 | **T6.3** Extraction grows areas into below-average ground | Benchmark corrected twice; on a box with real headroom the model captures 2% of what a contiguous area could achieve. The extent bar (0.216) sits below the landscape mean (0.235). |
 
 ### Band 2 — MISSING (a real gap you can see)
 
@@ -297,20 +297,49 @@ for a literally random model.
 **What it must never be quoted as:** beating both nulls does not mean the answer is
 right. Ground truth is T6.2, which stays open.
 
-### T6.3 — Focus-area extraction discards most of the model's discrimination · `ready`
-Found by T6.1, and it is the most actionable thing that benchmark produced. The
-huntability surface separates ground well — a matched-area top-N averages 0.43–0.45
-against 0.22–0.24 for random — but the focus areas the hunter is actually handed average
-0.25–0.27. Capture: **16%, 20%, 6%** on three real boxes.
-Some loss is structural: an area has to be contiguous and clear `min_area_km2`, so it
-necessarily includes mediocre interior ground. That does not explain 6%. Candidates worth
-measuring before changing anything: the polygonize smoothing and opening (which rev 19
-already showed can delete an entire ribbon), the admission bar being absolute while the
-scale moved under it in rev 21, and whether ranking by `area x habitat` is quietly
-preferring big mediocre blobs over small excellent ones.
-**Done when:** capture is measured before and after on the same boxes and the benchmark's
-`beats_random` goes true on ground where the surface genuinely supports it — without the
-threshold moving.
+### T6.3 — The benchmark was measuring it wrong; the extraction is still leaving score on the table · `in-progress` (2026-08-07)
+Opened by T6.1's finding. Investigating it corrected the BENCHMARK twice before it said
+anything trustworthy about the extraction — both corrections were mine, and both changed
+the conclusion.
+
+**Correction 1 — the null was given choices the model never had.** `validate` drew its
+random null from every finite cell of `huntability.tif`. But synth crops a 2 km border
+before extracting anything (focal and Hessian filters produce edge artefacts), so that
+ground is never a candidate: 399.5 km² finite against 256.5 km² the model can reach. A
+null model has to be offered the same choices as the thing it is a null for.
+
+**Correction 2 — the ceiling was unreachable by construction.** Capture was measured
+against the best n CELLS, which is maximally fragmented; no walkable area could ever
+reach it, so every result looked like failure and the number carried no information. The
+fair target is the best CONTIGUOUS area of the same size, at the best available place.
+
+**What it says now, and it differs by box:**
+
+| | random | model | fair oracle | cherry-picked | headroom |
+|---|---|---|---|---|---|
+| job_0e92b5ca580d | 0.244 | **0.248** | **0.322** | 0.435 | 0.078 |
+| job_8892f779ddc9 | 0.248 | 0.249 | 0.253 | 0.396 | 0.005 |
+
+On the first box a same-size contiguous area **can** score 0.322 and the model delivers
+0.248 — it is picking the wrong ground, capturing 2% of what is achievable. On the second
+the oracle itself barely beats random, so there is no structure at that scale to exploit
+and the model's near-random result is honest. `capture` now returns None below a
+headroom of 0.02 rather than reporting the meaningless −26% it produced there.
+
+**Where the loss most likely comes from,** identified but NOT yet changed: the extent bar
+is `min_huntability × grow_frac_of_floor` = 0.30 × 0.72 = **0.216**, and random ground on
+these boxes averages 0.235–0.248. An admitted area is therefore allowed to grow out into
+ground *below the landscape mean*, which is exactly how a 19 km² single patch ends up
+scoring like a random draw. `grow_frac_of_floor` was introduced to stop lobes collapsing
+after the rev-21 browse rebuild — a constant tuned to restore a COUNT, which is precisely
+what a capture metric is for catching.
+
+**Deliberately not changed yet.** Moving that constant is a model change of exactly the
+kind rev 21 warns about, and a sweep showed the obvious tightening (grow_frac 1.3) takes
+both boxes to ZERO areas. It needs its own pass, with the corrected benchmark in hand and
+before/after capture on several boxes — not a threshold nudged at the end of a long day.
+**Done when:** capture rises materially on boxes with real headroom, area counts and
+sizes are reported alongside it, and no box loses its areas.
 
 ### T6.2 — Backtest against harvest density · `blocked` *(by T6.1)*
 **Done when:** modelled huntability correlates (or demonstrably does not) with published
