@@ -170,3 +170,32 @@ def test_the_new_artifacts_are_shareable():
     for name in ("stand_height.tif", "stand_age.tif", "stand_slope.tif",
                  "stand_ess_browse.tif", "stands.gpkg", "stands.json"):
         assert name in geocache.ARTIFACTS, name
+
+
+def test_nothing_caps_the_vertices_of_a_large_stand():
+    """Asked directly: "Some stands are going to be massive and have a lot more than 90
+    vertices. It should be a relative smoothing, not absolute."
+
+    Douglas-Peucker with a DISTANCE tolerance keeps whatever a boundary needs to stay
+    within that distance, so a big stand keeps proportionally more. Measured on the
+    shipped layer, 1299 stands from 0.5 to 515 ha: median 60 vertices under 5 ha against
+    812 over 200 ha, max 860, and vertex density flat at 4.5-5.0 per 100 m of boundary
+    across every band. The "90 average" was an outcome, never a target.
+
+    And a size-RELATIVE tolerance would invert that: the biggest stand would get the
+    coarsest boundary, when its edge is exactly as walkable as a small one's. Absolute
+    distance is what keeps large stands honest.
+    """
+    src = inspect.getsource(E.fetch)
+    assert "simplify(VEC_SIMPLIFY_M)" in src
+    for bad in ("[:90]", "coords[:", "max_vertices", "MAX_VERT"):
+        assert bad not in src, f"a vertex cap ({bad}) crept in"
+
+
+def test_the_only_hard_cap_counts_stands_and_says_so():
+    """MAX_VEC is real and will bite: a 35 km box is ~84,000 stands. It is allowed to
+    exist only because it is recorded rather than silent."""
+    src = inspect.getsource(E.fetch)
+    i = src.index("MAX_VEC")
+    assert "len(vec) < MAX_VEC" in src, "the cap counts something other than stands"
+    assert "truncated" in src and "stands.json" in src
