@@ -34,11 +34,27 @@ The instruments are now written down rather than reconstructed (`focus_pool.tif`
 | # | Ticket | Why it is here |
 |---|--------|----------------|
 | 1 | **T9.10b** Decide the fine-grid neck detector | `blocked` — the A/B now runs and the 7→3 collapse is fixed (it was two cell-denominated constants). What is left is ground truth Joe has to supply, plus a separate worker-memory call on `FINE_BUDGET_PX`. |
-| 2 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
-| 3 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
-| 4 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
-| 5 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
-| 6 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
+| 2 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
+| 3 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
+| 4 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
+
+**T10.4 + T10.9 done 2026-08-07** (engine rev 31). Water became one parent over beaver
+ponds · wetlands · rivers & lakes, and the DRAW ORDER was inverted to match the rule —
+the generic lake fill had been painting over the flowage the model calls a rut hub.
+Browse became a parent over six KINDS OF FOOD (aquatic · regen new/prime/closing in ·
+deciduous · other) filtered from one source, so every zone is drawn exactly once; the
+engine stamps the kind, most specific first. "Recent cuts" stopped being a second
+top-level row — an aged cut IS the regen layer — and its years survive as `dist_age`
+("disturbed ~18 yr ago"). Provenance moved to the hover card, which is T10.9: all ten
+explanatory popups are gone, `maplibregl.Popup` no longer appears in the file, hover
+carries the whole explanation and click PINS it.
+
+*Not named species.* The écoforestière stand map carries résineux / mélange / feuillus
+CLASSES. "Deciduous & mixed" is as precise as the data honestly gets.
+
+*Two defects found by measuring rather than reading:* a polygon clipping one burned cell
+was named by that cell (every zone on `fire_lake` came back "regen prime"); and the
+classifier converted whole rasters per polygon, gigabytes of copies on a large box.
 
 **T10.3 done 2026-08-07** — every map feature class now carries its window (areas,
 labels, camps, staging, sites, routes) and a season pill offers all-windows or one. It
@@ -79,22 +95,22 @@ the view framed on the areas. A plate with no plan layers on it now says so.
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 7 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
-| 8 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
+| 5 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
+| 6 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
 
 ### Band 4 — PLATFORM (nobody sees it; it decides how fast the rest goes)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 9 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
-| 10 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
-| 11 | **T4.1 → T4.2** Extract the Québec legal adapter, then make `UNRESOLVED` loud | The most province-locked file. T4.2 is blocked on it and has to be queued WITH it, not left as prose in this cell. |
-| 12 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
-| 13 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
-| 14 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
-| 15 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
-| 16 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
-| 17 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
+| 7 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
+| 8 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
+| 9 | **T4.1 → T4.2** Extract the Québec legal adapter, then make `UNRESOLVED` loud | The most province-locked file. T4.2 is blocked on it and has to be queued WITH it, not left as prose in this cell. |
+| 10 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
+| 11 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
+| 12 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
+| 13 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
+| 14 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
+| 15 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
 
 ---
 
@@ -686,7 +702,7 @@ see analysis for all dates vs analysis for a single date range."
 **Done when:** with more than one window the map offers all-windows vs a single window,
 and an area always says which window it came from.
 
-### T10.4 — The legend describes DATA SOURCES where it should describe the ANIMAL · `ready`
+### T10.4 — The legend describes DATA SOURCES where it should describe the ANIMAL · `done` (2026-08-07)
 Two reports, one principle. On browse: "Recent cuts are under browse/feeding but also
 their own thing... I dont care about seeing them all individually to this level. Im more
 curious about the TYPE of browse (aquatic vegetation, regen (prime), regen (new), regen
@@ -807,7 +823,7 @@ ring, analyses a padded box, and clips reported features to the ring; the brief 
 which mode produced it and how much padding was used; and the geocache keys on the
 PADDED bbox so redrawing a similar parcel still hits a warm cache.
 
-### T10.9 — Hover tooltip and the click card are two different explanations · `ready`
+### T10.9 — Hover tooltip and the click card are two different explanations · `done` (2026-08-07)
 Reported: "the explainability layer exists but it only appears on click, separate from
 tooltip. these should be combined."
 Visible in the screenshot: the hover tooltip says "Browse / feeding · mostly the
