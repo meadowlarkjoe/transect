@@ -196,6 +196,11 @@ class ScoutReq(BaseModel):
     lat: float
     lon: float
     radius_km: float = 35.0
+    # A DRAWN BOUNDARY (T10.8) as [[lon, lat], ...]. When present it REPLACES the radius
+    # as the analysis extent: the engine analyses the ring's bbox padded by DRAW_PAD_KM
+    # and clips the reported features back to the ring. Optional, so every existing
+    # client keeps working unchanged.
+    ring: list[list[float]] | None = None
     target_dates: list[str] | None = None
     residency: str = "quebec_resident"
     zone_hint: str | None = None

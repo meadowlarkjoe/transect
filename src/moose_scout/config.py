@@ -112,24 +112,64 @@ class HunterCfg(BaseModel):
     hunt_radius_km: Optional[float] = None             # analysis radius from a fixed camp
 
 
+# How far beyond a DRAWN boundary the analysis still has to look (T10.8).
+#
+# The engine cannot answer about a parcel using only the parcel, and this is the whole
+# reason the 5 km radius floor existed. `dist_road` measures to a road that is usually
+# OUTSIDE the boundary. A land-bridge funnel needs the lakes on BOTH sides of the neck.
+# TPI uses a 500 m window, the pinch test 600 m, and hunter pressure decays over 1.5 km.
+# Analysed alone, a tight polygon would report "no access, no funnels" about ground that
+# has both — confidently, which is the worst way to be wrong.
+#
+# 2.5 km clears every one of those windows with room to spare. It is padding on the
+# ANALYSIS only: the reported features are clipped back to the ring.
+DRAW_PAD_KM = 2.5
+
+
 class AOI(BaseModel):
-    """Area of interest — the unit of analysis."""
+    """Area of interest — the unit of analysis.
+
+    Two ways to say where: a CENTRE AND A RADIUS (the default), or a DRAWN RING. They
+    meet at `bbox_wgs84()`, which is the single source of truth for the analysis extent —
+    everything downstream builds on that rectangle and neither knows nor cares which mode
+    produced it.
+    """
 
     name: str
     title: str = ""
     species: str = "moose"
     center: LatLon
     bbox_halfwidth_km: float = 35.0
+    # A drawn boundary as [(lon, lat), ...]. When set it REPLACES the radius as the
+    # extent — padded for analysis, and clipped back to for reporting.
+    ring: Optional[list[Tuple[float, float]]] = None
+    pad_km: float = DRAW_PAD_KM
     zone_hint: Optional[str] = None    # documented zone until boundaries are wired
     season: SeasonCfg
     hunter: HunterCfg = Field(default_factory=HunterCfg)
     notes: str = ""
 
+    @property
+    def drawn(self) -> bool:
+        return bool(self.ring) and len(self.ring) >= 4
+
     def bbox_wgs84(self) -> tuple[float, float, float, float]:
         """(minlon, minlat, maxlon, maxlat). Simple metric->degree approximation
-        that is plenty accurate for an AOI-sized box at boreal latitudes."""
+        that is plenty accurate for an AOI-sized box at boreal latitudes.
+
+        For a drawn AOI this is the ring's own bbox PADDED by `pad_km` — see DRAW_PAD_KM
+        for why analysing the ring alone gives confidently wrong answers.
+        """
         import math
 
+        if self.drawn:
+            lons = [p[0] for p in self.ring]
+            lats = [p[1] for p in self.ring]
+            mid = (min(lats) + max(lats)) / 2.0
+            dlat = self.pad_km / 111.0
+            dlon = self.pad_km / (111.0 * math.cos(math.radians(mid)))
+            return (min(lons) - dlon, min(lats) - dlat,
+                    max(lons) + dlon, max(lats) + dlat)
         hw_km = self.bbox_halfwidth_km
         dlat = hw_km / 111.0
         dlon = hw_km / (111.0 * math.cos(math.radians(self.center.lat)))
@@ -139,6 +179,22 @@ class AOI(BaseModel):
             self.center.lon + dlon,
             self.center.lat + dlat,
         )
+
+    def effective_halfwidth_km(self) -> float:
+        """Half the LONGER side of the analysis box, in km.
+
+        Resolution scaling and the memory ceiling are sized from this rather than from
+        `bbox_halfwidth_km`, because a drawn AOI's extent comes from its ring and the
+        stored halfwidth would be describing a box that is not being analysed. One
+        source of truth — `bbox_wgs84()` — and this reads it.
+        """
+        import math
+
+        minlon, minlat, maxlon, maxlat = self.bbox_wgs84()
+        mid = (minlat + maxlat) / 2.0
+        km_lat = (maxlat - minlat) * 111.0
+        km_lon = (maxlon - minlon) * 111.0 * math.cos(math.radians(mid))
+        return max(km_lat, km_lon) / 2.0
 
 
 class ModelCfg(BaseModel):
