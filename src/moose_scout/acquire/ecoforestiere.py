@@ -17,6 +17,11 @@ Writes (on the working grid; 0 / nodata where no stand):
                      0 none/non-forest
   stand_closure.tif  float32 canopy closure 0..1 (from density class A–D)
   cut_year.tif       int16 year of the most recent CUT origin (0 = none) → browse age
+  stand_height.tif   float32 representative stand height in METRES (0 = unknown)
+  stand_age.tif      int16 stand age in years (0 = unknown; uneven-aged classes mapped)
+  stand_slope.tif    float32 slope class as a percent grade (0 = unknown)
+  stand_ess_browse.tif  float32 0..1 browse value of the SPECIES composition (E11.2)
+  stands.gpkg        the polygons with their survey attributes, for the map (E11.6)
 """
 from __future__ import annotations
 
@@ -56,6 +61,88 @@ T_RESINEUX, T_MELANGE, T_FEUILLU, T_CUT, T_PARTIAL, T_BURN = 1, 2, 3, 4, 5, 6
 T_TOURBIERE = 7
 ORGANIC_DEPOSITS = ("7",)          # dep_sur 7E / 7T — organique épais / mince
 HYDRIC_DRAINAGE = ("4", "5", "6")  # imparfait / mauvais / très mauvais
+
+# --------------------------------------------------------------- E11.2: the rest of it
+# Measured over 1908 stands around 47.98, -77.82, which is what these tables are built
+# from rather than guessed at.
+
+# `cl_haut` — MFFP height class → representative stand height in METRES.
+# Sampled: 3 (748) · 4 (643) · 5 (181) · 2 (67) · 6 (35) · 1 (4).
+HEIGHT_M = {"1": 24.0, "2": 19.5, "3": 14.5, "4": 9.5, "5": 5.5, "6": 3.0, "7": 1.0}
+
+# A moose browses to roughly 3 m. So a stand's OWN foliage is food only in the short
+# classes; taller stands feed an animal through their understory, which is a different
+# claim and one this raster must not silently make. This is the gate that stops species
+# data promoting 20 m hardwood to prime browse — see E11.3.
+BROWSE_REACH_M = 3.0
+
+# `cl_age` — even-aged stands carry a number; uneven-aged carry a letter code.
+# J = jeune, V = vieux; IN = inéquienne, IR = irrégulière. Sampled: 50 · 30 · VIR · JIN ·
+# JIR · VIN · 70 · 10 · 120 · 90 · 5050 (a two-storey stand, first storey wins).
+UNEVEN_AGE = {"JIN": 40, "JIR": 40, "VIN": 100, "VIR": 100}
+
+# `cl_pent` — slope class → representative PERCENT grade.
+SLOPE_PCT = {"A": 1.5, "B": 6.0, "C": 12.0, "D": 23.0, "E": 35.0, "F": 50.0}
+
+# `gr_ess` — the field the engine used to throw away entirely. It is a run of 2-character
+# species codes, dominant first, repeated for a pure stand (ENEN = black spruce, pure).
+#
+# The value here is BROWSE VALUE TO A MOOSE, not "is it a hardwood". Balsam fir is a
+# conifer and is genuinely browsed; larch is a conifer that is not. Black spruce is the
+# thing this whole engine calls a food desert, and it is 46% of the sampled ground.
+ESS_BROWSE = {
+    # the money species
+    "BP": 1.00, "BG": 0.95, "BJ": 0.85,          # bouleaux — paper / grey / yellow birch
+    "PT": 1.00, "PE": 0.95, "PB": 0.90, "PA": 0.90,   # peupliers — aspen / poplar
+    "SO": 0.95,                                   # sorbier — mountain-ash
+    "ER": 0.70, "ES": 0.65, "EA": 0.70, "EO": 0.70,   # érables
+    "FN": 0.60, "FA": 0.60, "FP": 0.55,           # frênes
+    "FX": 0.70, "FI": 0.75, "FT": 0.60, "FH": 0.60,   # feuillus indéterminés / intolérants
+    "CT": 0.55, "CR": 0.50, "CB": 0.50, "CC": 0.50,   # cerisiers / chênes
+    "OA": 0.55, "TA": 0.55,                       # orme / tilleul
+    # conifers a moose will actually take
+    "SB": 0.35, "SE": 0.30,                       # sapin baumier — real winter browse
+    "PG": 0.10, "PB_": 0.10, "PI": 0.10, "PS": 0.10,  # pins
+    "TO": 0.20, "PU": 0.20,                       # thuya / pruche
+    # conifers it will not
+    "EN": 0.00, "EB": 0.05, "EP": 0.05, "EU": 0.05, "EV": 0.05,   # épinettes
+    "ML": 0.05, "ME": 0.05, "MH": 0.05, "MJ": 0.05,               # mélèzes
+    "RX": 0.05,                                   # résineux indéterminés
+}
+# Position weights: gr_ess is ordered by dominance, so the first pair carries the stand.
+ESS_WEIGHTS = (0.5, 0.3, 0.2)
+
+
+def ess_browse(gr_ess: str) -> float:
+    """0..1 browse value of a stand's species composition, dominance-weighted.
+
+    Returns 0.0 for an unreadable or empty code rather than a middling guess: absent
+    evidence is not evidence of forage, and the caller falls back to the cover class.
+    """
+    s = (gr_ess or "").strip().upper()
+    codes = [s[i:i + 2] for i in range(0, len(s) - len(s) % 2, 2)]
+    if not codes:
+        return 0.0
+    tot = wsum = 0.0
+    for i, c in enumerate(codes[:3]):
+        w = ESS_WEIGHTS[i] if i < len(ESS_WEIGHTS) else 0.0
+        wsum += w
+        tot += w * ESS_BROWSE.get(c, 0.10)     # unknown code: assume near-nil, not average
+    return round(tot / wsum, 4) if wsum else 0.0
+
+
+def stand_age(cl_age: str) -> int:
+    """Stand age in years, 0 when unknown. Uneven-aged classes get a representative age."""
+    s = (cl_age or "").strip().upper()
+    if not s:
+        return 0
+    if s in UNEVEN_AGE:
+        return UNEVEN_AGE[s]
+    if s.isdigit():
+        # `5050` is a two-storey stand written as two classes; the FIRST storey is the
+        # one the canopy belongs to.
+        return int(s[:2]) if len(s) == 4 else int(s)
+    return 0
 # density class A–D → mid canopy-closure fraction (A 80–100, B 60–80, C 40–60, D 25–40)
 CLOSURE = {"A": 0.90, "B": 0.70, "C": 0.50, "D": 0.32}
 
@@ -143,6 +230,7 @@ def fetch(ctx: Context) -> None:
         pass  # coverage check is an optimisation; the in-fetch 400 path still guards
 
     dst_crs, transform, w, h = target_grid(ctx)
+    res_m = float(ctx.model.raster_resolution_m)
     minlon, minlat, maxlon, maxlat = ctx.aoi.bbox_wgs84()
 
     # WFS bbox in native Lambert (easting,northing → minX,minY,maxX,maxY)
@@ -159,6 +247,18 @@ def fetch(ctx: Context) -> None:
     st = np.zeros((h, w), "int16")
     cl = np.zeros((h, w), "float32")
     cy = np.zeros((h, w), "int16")
+    # E11.2 — the attributes that arrive in the SAME response and were being discarded.
+    # Free to collect; the download is the cost and it is already paid.
+    hgt = np.zeros((h, w), "float32")     # metres
+    age = np.zeros((h, w), "int16")       # years, 0 = unknown
+    slp = np.zeros((h, w), "float32")     # percent grade
+    esb = np.zeros((h, w), "float32")     # 0..1 browse value of the species composition
+    # ...and the polygons themselves, for a map layer that can show what the survey says
+    # (E11.6). A raster cannot carry `ENENBP`, and that label is the whole reason a guide's
+    # sheet is worth looking at.
+    vec = []
+    seen_stands = 0
+    truncated = False
     # Wall-clock budget: the écoforestière is dense and its geometry is heavy (~64 MB per
     # 8000 stands, no gzip), so a big box can be an ~800 MB / multi-minute download that
     # would blow the acquire step's per-source budget on the droplet. If we can't finish
@@ -168,6 +268,9 @@ def fetch(ctx: Context) -> None:
     # Full-stand pull is worth the wait (richest habitat signal); the budget is a safety
     # net for a genuinely stuck fetch, not a speed cap. Big boxes take several minutes.
     BUDGET = float(os.environ.get("ECOFOR_BUDGET_S", "800"))
+    # A cap on the DISPLAY copy only. The rasters take every stand; this stops a dense
+    # 70 km box turning a map layer into a hundred-megabyte download nobody asked for.
+    MAX_VEC = int(os.environ.get("ECOFOR_MAX_VEC", "40000"))
     t0 = _time.time()
     got_any = False
     start, PAGE = 0, 8000
@@ -186,6 +289,7 @@ def fetch(ctx: Context) -> None:
         if not page:
             break
         tsh, csh, ysh = [], [], []
+        hsh, ash, ssh, esh = [], [], [], []
         for f in page:
             try:
                 props = f.get("properties") or {}
@@ -196,11 +300,47 @@ def fetch(ctx: Context) -> None:
                 if g.is_empty:
                     continue
                 tsh.append((g, int(code)))
+                seen_stands += 1
+                if len(vec) >= MAX_VEC:
+                    truncated = True
                 clv = CLOSURE.get((props.get("cl_dens") or "").strip().upper()[:1], 0.0)
                 if clv > 0:
                     csh.append((g, float(clv)))
                 if code == T_CUT and cut_yr > 0:
                     ysh.append((g, int(cut_yr)))
+                _h = HEIGHT_M.get((props.get("cl_haut") or "").strip()[:1], 0.0)
+                _a = stand_age(props.get("cl_age"))
+                _s = SLOPE_PCT.get((props.get("cl_pent") or "").strip().upper()[:1], 0.0)
+                _e = ess_browse(props.get("gr_ess"))
+                if _h > 0:
+                    hsh.append((g, float(_h)))
+                if _a > 0:
+                    ash.append((g, int(_a)))
+                if _s > 0:
+                    ssh.append((g, float(_s)))
+                if _e > 0:
+                    esh.append((g, float(_e)))
+                if len(vec) < MAX_VEC:
+                    # SIMPLIFIED TO THE ANALYSIS GRID. The WFS returns full-precision
+                    # boundaries — 198 vertices per stand, measured — and the model cannot
+                    # resolve past its own cell size, so the extra detail is weight the
+                    # hunter downloads and nothing reads. Measured on an 8 km box: 5.5 MB
+                    # raw against 0.69 MB at 20 m, and a 35 km box would otherwise be
+                    # some 400 MB of map layer.
+                    try:
+                        gs = g.simplify(res_m)
+                        if gs.is_empty or not gs.is_valid:
+                            gs = g
+                    except Exception:
+                        gs = g
+                    vec.append({"geometry": gs, "cls": int(code),
+                                "gr_ess": (props.get("gr_ess") or "").strip(),
+                                "type_couv": (props.get("type_couv") or "").strip(),
+                                "height_m": float(_h), "age_yr": int(_a),
+                                "slope_pct": float(_s), "ess_browse": float(_e),
+                                "closure": float(clv), "cut_year": int(cut_yr or 0),
+                                "dep_sur": (props.get("dep_sur") or "").strip(),
+                                "cl_drai": (props.get("cl_drai") or "").strip()})
             except Exception:
                 continue
         if tsh:
@@ -216,6 +356,16 @@ def fetch(ctx: Context) -> None:
             pcy = rasterize(ysh, out_shape=(h, w), transform=transform, fill=0,
                             dtype="float32").astype("int16")
             cy = np.maximum(cy, pcy)          # most recent cut wins (higher year)
+        # These merge by "last stand wins where it has a value", matching `st` — NOT by
+        # maximum. A max would smear the tallest stand in the page across every cell its
+        # neighbours touch, and height is the one field this must not exaggerate.
+        for shapes, acc, dt in ((hsh, hgt, "float32"), (ash, age, "int16"),
+                                (ssh, slp, "float32"), (esh, esb, "float32")):
+            if not shapes:
+                continue
+            pr = rasterize(shapes, out_shape=(h, w), transform=transform, fill=0,
+                           dtype="float32")
+            acc[pr > 0] = pr[pr > 0].astype(dt) if dt == "int16" else pr[pr > 0]
         if len(page) < PAGE:
             break
         start += PAGE
@@ -226,9 +376,37 @@ def fetch(ctx: Context) -> None:
 
     for name, arr, dt, nod in (("stand_type.tif", st, "int16", 0),
                                ("stand_closure.tif", cl, "float32", 0.0),
-                               ("cut_year.tif", cy, "int16", 0)):
+                               ("cut_year.tif", cy, "int16", 0),
+                               ("stand_height.tif", hgt, "float32", 0.0),
+                               ("stand_age.tif", age, "int16", 0),
+                               ("stand_slope.tif", slp, "float32", 0.0),
+                               ("stand_ess_browse.tif", esb, "float32", 0.0)):
         prof = {"driver": "GTiff", "dtype": dt, "count": 1, "height": h, "width": w,
                 "crs": dst_crs, "transform": transform, "nodata": nod,
                 "compress": "deflate", "tiled": True}
         with rasterio.open(cache / name, "w", **prof) as dst:
             dst.write(arr, 1)
+
+    # THE POLYGONS, so the map can show what the survey actually says (E11.6). A raster
+    # cannot carry `ENENBP`, and that label is the whole reason a guide's sheet is worth
+    # looking at. Best-effort: this is a display artefact, and failing to write it must
+    # never cost anyone the analysis that was already computed above.
+    try:
+        import geopandas as gpd
+
+        if vec:
+            gdf = gpd.GeoDataFrame(
+                [{k: v for k, v in row.items() if k != "geometry"} for row in vec],
+                geometry=[row["geometry"] for row in vec], crs=dst_crs)
+            gdf.to_file(cache / "stands.gpkg", driver="GPKG", layer="stands")
+        # A CAP THAT TRUNCATES IN SILENCE reads as "this is all the forest there is".
+        # Say so, in the log and in a sidecar the map can render as a caveat.
+        if truncated:
+            print(f"[ecoforestiere] stand polygons capped at {MAX_VEC} of "
+                  f"{seen_stands} — the map layer is partial; the RASTERS are complete")
+        json.dump({"stands": len(vec), "seen": seen_stands,
+                   "truncated": bool(truncated), "cap": MAX_VEC,
+                   "simplify_m": res_m},
+                  open(cache / "stands.json", "w"))
+    except Exception as e:  # noqa: BLE001
+        print(f"[ecoforestiere] stand polygons not written: {e}")
