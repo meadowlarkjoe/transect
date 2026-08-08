@@ -34,9 +34,8 @@ The instruments are now written down rather than reconstructed (`focus_pool.tif`
 | # | Ticket | Why it is here |
 |---|--------|----------------|
 | 1 | **T9.10b** Decide the fine-grid neck detector | `blocked` — the A/B now runs and the 7→3 collapse is fixed (it was two cell-denominated constants). What is left is ground truth Joe has to supply, plus a separate worker-memory call on `FINE_BUDGET_PX`. |
-| 2 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
-| 3 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
-| 4 | **T10.22** Serve the LiDAR hillshade as a basemap | Split out of T10.12, which established that the coverage is real. Needs a per-job asset route and a RETENTION answer before any rendering — a hillshade served from the pruned geography cache 404s on a reopened plan. |
+| 2 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
+| 3 | **T10.22** Serve the LiDAR hillshade as a basemap | Split out of T10.12, which established that the coverage is real. Needs a per-job asset route and a RETENTION answer before any rendering — a hillshade served from the pruned geography cache 404s on a reopened plan. |
 
 **T10.4 + T10.9 done 2026-08-07** (engine rev 31). Water became one parent over beaver
 ponds · wetlands · rivers & lakes, and the DRAW ORDER was inverted to match the rule —
@@ -95,22 +94,22 @@ the view framed on the areas. A plate with no plan layers on it now says so.
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 5 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
-| 6 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
+| 4 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
+| 5 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
 
 ### Band 4 — PLATFORM (nobody sees it; it decides how fast the rest goes)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 7 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
-| 8 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
-| 9 | **T4.1 → T4.2** Extract the Québec legal adapter, then make `UNRESOLVED` loud | The most province-locked file. T4.2 is blocked on it and has to be queued WITH it, not left as prose in this cell. |
-| 10 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
-| 11 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
-| 12 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
-| 13 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
-| 14 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
-| 15 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
+| 6 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
+| 7 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
+| 8 | **T4.1 → T4.2** Extract the Québec legal adapter, then make `UNRESOLVED` loud | The most province-locked file. T4.2 is blocked on it and has to be queued WITH it, not left as prose in this cell. |
+| 9 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
+| 10 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
+| 11 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
+| 12 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
+| 13 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
+| 14 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
 
 ---
 
@@ -796,7 +795,7 @@ choosing print-to-PDF over a vendored library (T9.7); it is now the visible cost
 **Done when:** the export reads as a document — its own header/footer, page numbering
 and typography — with the browser's chrome suppressed.
 
-### T10.8 — Draw the area to analyse, instead of only a radius · `ready`
+### T10.8 — Draw the area to analyse, instead of only a radius · `done` (2026-08-08)
 Asked: "right now we only do analysis by radius. and the minimum area is 5km. For a
 hunting camp we are currently looking at buying, that area is too big. I have a smaller,
 specific area that I want to analyze... have it default to search radius, but also give
@@ -822,6 +821,32 @@ against exactly this failure.
 ring, analyses a padded box, and clips reported features to the ring; the brief says
 which mode produced it and how much padding was used; and the geocache keys on the
 PADDED bbox so redrawing a similar parcel still hits a warm cache.
+
+**Done 2026-08-08.** `bbox_wgs84()` is the single source of truth for the extent in both
+modes, and `effective_halfwidth_km()` sizes the grid, the resolution panel and the run
+estimate from the box actually being analysed — a drawn parcel carries whatever the
+radius slider last held, so quoting it offered a 35 km box's grid for a 2 km parcel.
+Clipping keeps what overlaps the ring by ≥10%; **routes are never clipped** (the road you
+drive in on starts outside, and clipping it would amputate the approach and report the
+stump as the way in) and a **parking waypoint outside the line survives** (staging is on
+a road; dropping it leaves every route starting from nowhere). A clip that fails KEEPS
+the feature — over-reporting is recoverable by looking at the map, silently losing a
+focus area is not.
+
+*The 5 km floor stays for RADIUS mode,* and that is deliberate rather than an oversight:
+the padding that retires it only exists for a drawn ring. A 3 km radius box has the same
+missing-context problem the floor was protecting against.
+
+*One thing the ticket asked for that correctness would not allow.* "the geocache keys on
+the PADDED bbox so redrawing a similar parcel still hits a warm cache" — it keys on the
+padded bbox, but NOT loosely. `restore` hardlinks the cached rasters in with no shape
+check, so a key that matched a box we did not analyse hands the run a misaligned grid
+rather than a miss. Rounding stays at 4 dp (~11 m); a parcel redrawn further out than
+that pays for a re-fetch. Existing cache slots are invalidated by the new key.
+
+Its test used an `_AOI` stub carrying `center` and `bbox_halfwidth_km`, which stopped
+resembling the real thing the moment the key read `bbox_wgs84()` — every test in the file
+failed on a double that had quietly drifted. It uses the real `AOI` now.
 
 ### T10.9 — Hover tooltip and the click card are two different explanations · `done` (2026-08-07)
 Reported: "the explainability layer exists but it only appears on click, separate from
