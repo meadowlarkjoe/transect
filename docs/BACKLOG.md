@@ -34,12 +34,22 @@ The instruments are now written down rather than reconstructed (`focus_pool.tif`
 | # | Ticket | Why it is here |
 |---|--------|----------------|
 | 1 | **T9.10b** Decide the fine-grid neck detector | `blocked` — the A/B now runs and the 7→3 collapse is fixed (it was two cell-denominated constants). What is left is ground truth Joe has to supply, plus a separate worker-memory call on `FINE_BUDGET_PX`. |
-| 2 | **T10.3** Which window an area belongs to is invisible | `areas[].window` already exists — this is display only. |
-| 3 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
-| 4 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
-| 5 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
-| 6 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
-| 7 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
+| 2 | **T10.4** Legend names data sources, not the animal | Browse and water both. The engine's source ranking is being handed to the reader to interpret. |
+| 3 | **T10.9** Hover tooltip and click card disagree | Same feature, two panels, and the richer one is the one you have to discover. Settle with T10.4. |
+| 4 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
+| 5 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
+| 6 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
+
+**T10.3 done 2026-08-07** — every map feature class now carries its window (areas,
+labels, camps, staging, sites, routes) and a season pill offers all-windows or one. It
+composes with each layer's own filter rather than replacing it, features with no window
+stay visible under every selection, and the derived shooter/scent geometry filters
+separately because it is built from `window._sites` rather than the source. The sidebar
+honours it and every area card names its window, preferring the METHOD when the windows
+differ by weapon. Two things came from rendering it live rather than reading it:
+`getStyle()` returns *undefined* before load (the same trap as T10.11, in a call that
+sits in the source refresh where an exception aborts the rest of it), and suppressing
+"rifle" as an unlabelled default left one chip saying "bow" and the other saying nothing.
 
 **T10.11 + T10.10 done 2026-08-07** — terrain is now derived from pitch alone (past 12°
 the mesh is on, at 0 it is released) and the checkbox is a shortcut that tilts the camera,
@@ -69,22 +79,22 @@ the view framed on the areas. A plate with no plan layers on it now says so.
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 8 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
-| 9 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
+| 7 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
+| 8 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
 
 ### Band 4 — PLATFORM (nobody sees it; it decides how fast the rest goes)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 10 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
-| 11 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
-| 12 | **T4.1 → T4.2** Extract the Québec legal adapter, then make `UNRESOLVED` loud | The most province-locked file. T4.2 is blocked on it and has to be queued WITH it, not left as prose in this cell. |
-| 13 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
-| 14 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
-| 15 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
-| 16 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
-| 17 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
-| 18 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
+| 9 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
+| 10 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
+| 11 | **T4.1 → T4.2** Extract the Québec legal adapter, then make `UNRESOLVED` loud | The most province-locked file. T4.2 is blocked on it and has to be queued WITH it, not left as prose in this cell. |
+| 12 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
+| 13 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
+| 14 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
+| 15 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
+| 16 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
+| 17 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
 
 ---
 
@@ -668,7 +678,7 @@ everybody. It now reads `DOC.scent.geometry`, which the wicks already did.
 a NameError — the same class of bug the routing code's own comment warns about. The
 distance is a parameter now, not a lookup.
 
-### T10.3 — Which window an area belongs to is invisible on the map · `ready`
+### T10.3 — Which window an area belongs to is invisible on the map · `done` (2026-08-07)
 Reported: "They overlap. Im guessing these are different for each season, but thats not
 clear on the map. Maybe... a slider or multi select on the map that allows you to either
 see analysis for all dates vs analysis for a single date range."
