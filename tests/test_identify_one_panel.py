@@ -61,9 +61,11 @@ def test_the_features_that_had_the_richest_popups_carry_a_body():
         assert "body:" in seg, f"{lyr} lost the prose its popup used to carry"
 
 
-def test_all_four_browse_sources_carry_their_note():
+def test_every_browse_kind_carries_its_note():
+    """Was four SOURCE entries; T10.4 made it six KIND entries, and each still has to
+    explain itself in the one panel."""
     ident = _identify()
-    assert len(re.findall(r"body:\(\)=>\(LAYERS\.find", ident)) == 4
+    assert len(re.findall(r"body:\(\)=>brNote\('br\w+'\)", ident)) == 6
 
 
 def test_the_legal_restriction_is_not_click_to_discover():

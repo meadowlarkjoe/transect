@@ -526,17 +526,13 @@ function buildSources(){
     properties:{cls:z.cls,area_km2:z.area_km2}})));
   const browseZones=fc((DOC.browse_zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},
     properties:{type:z.type,what:z.what,when:z.when,area_km2:z.area_km2,score:z.score,
+      // WHAT THE ANIMAL EATS AND WHAT STAGE IT IS IN (T10.4). 'other' rather than null:
+      // a MapLibre filter cannot compare against null, and every zone must be drawn by
+      // exactly one child or the ground its kinds cover gets drawn twice.
+      kind:z.kind||'other', distAge:(z.dist_age!=null?z.dist_age:null),
       // #96 provenance — which source decided this ground and how well the rest agreed.
       // Absent on plans computed before rev 21, so every reader has to tolerate null.
       src:(z.why&&z.why.source)||null, srcShare:(z.why&&z.why.share)||null, agree:(z.agree!=null?z.agree:null)}})));
-  // BROWSE SUB-LAYERS (#96). browse.tif is a composite of four kinds of evidence; these
-  // are the same polygonizer run over each contributor on its own, so the hunter can
-  // switch off the satellite guess and see only ground backed by a dated, surveyed cut.
-  const browseSub={};
-  (DOC.browse_sublayers||[]).forEach(sl=>{
-    browseSub[sl.key]=fc((DOC[sl.key]||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},
-      properties:{area_km2:z.area_km2,score:z.score,name:sl.name,note:sl.note}})));
-  });
   const zFC=(zones)=>fc((zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},properties:{area_km2:z.area_km2}})));
   const refugeZones=zFC(DOC.refuge_zones), funnelZones=zFC(DOC.funnel_zones);
   // #70: the feeding EDGE is a band, not a dot — draw its real extent alongside the
@@ -544,12 +540,6 @@ function buildSources(){
   const feedEdgeZones=zFC(DOC.feed_edge_zones);
   const burnZones=fc((DOC.burn_zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},
     properties:{cls:z.cls,area_km2:z.area_km2}})));
-  const cutZones=fc((DOC.cut_zones||[]).map(z=>({type:'Feature',geometry:{type:'Polygon',coordinates:[z.ll]},
-    // The BAND is a 15-year bucket; the years are the thing a hunter actually wants —
-    // a 1998 cut and a 2012 cut are both "prime regen" and are not the same walk.
-    properties:{cls:z.cls,area_km2:z.area_km2,
-      yrFirst:(z.years&&z.years.first)||null, yrLast:(z.years&&z.years.last)||null,
-      yrMed:(z.years&&z.years.median)||null, ageMed:(z.years&&z.years.age_median)||null}})));
   const tenureZones=fc((DOC.tenure_zones||[]).map(t=>({type:'Feature',geometry:t.geometry,
     properties:{tenure:t.tenure,name:t.name,access:t.access,huntable:!!t.huntable}})));
   // `unpaved` is carried SEPARATELY from `cls` on purpose: class is the road's role
@@ -565,7 +555,7 @@ function buildSources(){
   const leases=fc((((DOC.leases||{}).points)||[]).map(p=>({type:'Feature',
     geometry:{type:'Point',coordinates:[p.lon,p.lat]},
     properties:{kind:p.kind||'', label:p.label||'Leased shelter'}})));
-  return {browseSub,areas,areaLabels,camps,staging,packin,routes,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones,feedEdgeZones,burnZones,cutZones,wetlandZones,beaverPonds,leases,tenureZones,infra};
+  return {areas,areaLabels,camps,staging,packin,routes,rivers,lakes,crossings,huntZones,browseZones,refugeZones,funnelZones,feedEdgeZones,burnZones,wetlandZones,beaverPonds,leases,tenureZones,infra};
 }
 
 function init(){
@@ -601,37 +591,46 @@ function init(){
   // the likelihood bands, and texture survives overlap where another fill can't.
   map.addLayer({id:'browseZones',type:'fill',source:'browseZones',
     layout:{visibility:'none'},paint:{'fill-pattern':'pat-browse','fill-opacity':0.9}});
-  // One layer per browse contributor (#96). Outlined rather than filled: these sit ON
-  // TOP of the composite, so a solid wash would just hide the thing it is explaining.
-  // Colour runs hard-evidence -> guess, matching the precedence the engine uses.
-  // Written out one by one rather than built in a loop ON PURPOSE: the static gate
+  // ONE LAYER PER KIND OF FOOD, NOT PER SOURCE THAT FOUND IT (T10.4). These used to be
+  // browse_cut_zones / browse_burn_zones / browse_stand_zones / browse_lc_zones, named
+  // "from dated cuts", "from dated burns", "from the stand map", "from satellite land
+  // cover". That is the ENGINE's business: ranking those sources is a job rev 21 already
+  // did, and handing the result to the reader to interpret was the error. "I want the
+  // legend to show things that hunters actually care about and not rely on them to have
+  // to evaluate the relative quality of a data source."
+  //
+  // They are FILTERS on the one composite source now, so every browse zone is drawn by
+  // exactly one of them and nothing is drawn twice. Provenance did not disappear — it
+  // moved to the hover card, which is the honest place for "this came from a surveyed
+  // cut with a year on it" (T10.9).
+  //
+  // Written out one by one rather than in a loop ON PURPOSE: the static gate
   // test_toggled_layer_ids_exist scans for literal addLayer ids to prove no toggle is a
-  // no-op, and a computed id makes that check blind. A little repetition is cheaper than
-  // a gate that cannot see the thing it guards.
-  const _bsub=(k)=>({type:'geojson',data:(S.browseSub&&S.browseSub[k])||fc([])});
-  map.addSource('browse_cut_zones',_bsub('browse_cut_zones'));
-  map.addLayer({id:'browse_cut_zones',type:'fill',source:'browse_cut_zones',
-    layout:{visibility:'none'},paint:{'fill-pattern':'pat-browseCut','fill-opacity':0.95}});
-  map.addLayer({id:'browse_cut_zones-line',type:'line',source:'browse_cut_zones',
+  // no-op, and a computed id makes that check blind.
+  map.addLayer({id:'brRegenPrime',type:'fill',source:'browseZones',filter:['==',['get','kind'],'regen_prime'],
+    layout:{visibility:'none'},paint:{'fill-pattern':'pat-brRegenPrime','fill-opacity':0.95}});
+  map.addLayer({id:'brRegenPrime-line',type:'line',source:'browseZones',filter:['==',['get','kind'],'regen_prime'],
     layout:{visibility:'none'},paint:{'line-color':'#8FE04A','line-width':1.4,'line-opacity':0.9}});
-  map.addSource('browse_burn_zones',_bsub('browse_burn_zones'));
-  map.addLayer({id:'browse_burn_zones',type:'fill',source:'browse_burn_zones',
-    layout:{visibility:'none'},paint:{'fill-pattern':'pat-browseBurn','fill-opacity':0.95}});
-  map.addLayer({id:'browse_burn_zones-line',type:'line',source:'browse_burn_zones',
+  map.addLayer({id:'brAquatic',type:'fill',source:'browseZones',filter:['==',['get','kind'],'aquatic'],
+    layout:{visibility:'none'},paint:{'fill-pattern':'pat-brAquatic','fill-opacity':0.95}});
+  map.addLayer({id:'brAquatic-line',type:'line',source:'browseZones',filter:['==',['get','kind'],'aquatic'],
+    layout:{visibility:'none'},paint:{'line-color':'#22a884','line-width':1.4,'line-opacity':0.9}});
+  map.addLayer({id:'brRegenClosing',type:'fill',source:'browseZones',filter:['==',['get','kind'],'regen_closing'],
+    layout:{visibility:'none'},paint:{'fill-pattern':'pat-brRegenClosing','fill-opacity':0.95}});
+  map.addLayer({id:'brRegenClosing-line',type:'line',source:'browseZones',filter:['==',['get','kind'],'regen_closing'],
     layout:{visibility:'none'},paint:{'line-color':'#5FBF57','line-width':1.4,'line-opacity':0.9}});
-  map.addSource('browse_stand_zones',_bsub('browse_stand_zones'));
-  map.addLayer({id:'browse_stand_zones',type:'fill',source:'browse_stand_zones',
-    layout:{visibility:'none'},paint:{'fill-pattern':'pat-browseStand','fill-opacity':0.95}});
-  map.addLayer({id:'browse_stand_zones-line',type:'line',source:'browse_stand_zones',
+  map.addLayer({id:'brDeciduous',type:'fill',source:'browseZones',filter:['==',['get','kind'],'deciduous'],
+    layout:{visibility:'none'},paint:{'fill-pattern':'pat-brDeciduous','fill-opacity':0.95}});
+  map.addLayer({id:'brDeciduous-line',type:'line',source:'browseZones',filter:['==',['get','kind'],'deciduous'],
     layout:{visibility:'none'},paint:{'line-color':'#3E9A63','line-width':1.4,'line-opacity':0.9}});
-  map.addSource('browse_lc_zones',_bsub('browse_lc_zones'));
-  map.addLayer({id:'browse_lc_zones',type:'fill',source:'browse_lc_zones',
-    layout:{visibility:'none'},paint:{'fill-pattern':'pat-browseLc','fill-opacity':0.95}});
-  map.addLayer({id:'browse_lc_zones-line',type:'line',source:'browse_lc_zones',
+  map.addLayer({id:'brRegenNew',type:'fill',source:'browseZones',filter:['==',['get','kind'],'regen_new'],
+    layout:{visibility:'none'},paint:{'fill-pattern':'pat-brRegenNew','fill-opacity':0.95}});
+  map.addLayer({id:'brRegenNew-line',type:'line',source:'browseZones',filter:['==',['get','kind'],'regen_new'],
+    layout:{visibility:'none'},paint:{'line-color':'#C7E88A','line-width':1.4,'line-opacity':0.9}});
+  map.addLayer({id:'brOther',type:'fill',source:'browseZones',filter:['==',['get','kind'],'other'],
+    layout:{visibility:'none'},paint:{'fill-pattern':'pat-brOther','fill-opacity':0.95}});
+  map.addLayer({id:'brOther-line',type:'line',source:'browseZones',filter:['==',['get','kind'],'other'],
     layout:{visibility:'none'},paint:{'line-color':'#9CA86B','line-width':1.4,'line-opacity':0.9}});
-  // edge:'none' — stipple carries the identity; satellite-derived browse has no surveyed edge
-  // TENURE — closed ground gets a hatched red wash + hard outline; bookable ground a
-  // dashed amber outline only. This is the legal gate made visible.
   map.addSource('feedEdgeZones',{type:'geojson',data:S.feedEdgeZones});
   map.addLayer({id:'feedEdgeZones',type:'fill',source:'feedEdgeZones',
     layout:{visibility:'none'},paint:{'fill-color':'#4FB0E5','fill-opacity':0.18}});
@@ -668,20 +667,6 @@ function init(){
   // Recent LOGGING CUTS (écoforestière), coloured by age — a surveyed cutblock edge, so
   // it earns a stroke. Green family (it's about browse), distinct from the ember burns:
   // fresh = pale (open, browse not up yet), regen = bright (prime), closing = dark.
-  map.addSource('cutZones',{type:'geojson',data:S.cutZones});
-  const cutCol=['match',['get','cls'],'fresh','#C7C267','regen','#6FA83A','closing','#3F6B34','#6FA83A'];
-  // Cuts already draw ABOVE browse (added later, and MapLibre paints in insertion order),
-  // but they did not READ as above it: browse is a dense stipple at 0.9 while the cut fill
-  // was 0.32, so the layer underneath won the contrast fight and the cuts looked buried.
-  // Cuts are the one browse input with a hard surveyed edge and a real date on it, so it
-  // gets the stronger mark of the two.
-  map.addLayer({id:'cutZones',type:'fill',source:'cutZones',
-    layout:{visibility:'none'},paint:{'fill-color':cutCol,'fill-opacity':0.5}});
-  map.addLayer({id:'cutZones-line',type:'line',source:'cutZones',
-    layout:{visibility:'none'},paint:{'line-color':cutCol,'line-width':1.8,'line-opacity':1}});
-  // GRHQ WETLANDS (milieu humide) — the marsh/bog barrier that shapes funnels + travel (#62).
-  // Teal, hatched-feel via a soft fill; off by default. Beaver PONDS ride on top as small dots
-  // (a rut hub worth a stand).
   map.addSource('wetlandZones',{type:'geojson',data:S.wetlandZones});
   map.addLayer({id:'wetlandZones',type:'fill',source:'wetlandZones',
     layout:{visibility:'none'},paint:{'fill-color':'#3E8E7E','fill-opacity':0.22}});
@@ -1372,12 +1357,13 @@ const LYR_MAP={feedEdge:['feedEdgeZones','feedEdgeZones-line'],areas:['areas-fil
   refuge:['refugeZones'],
   funnel:['funnelZones'],
   browse:['browseZones'],
-  browseCut:['browse_cut_zones','browse_cut_zones-line'],
-  browseBurn:['browse_burn_zones','browse_burn_zones-line'],
-  browseStand:['browse_stand_zones','browse_stand_zones-line'],
-  browseLc:['browse_lc_zones','browse_lc_zones-line'],
+  brRegenPrime:['brRegenPrime','brRegenPrime-line'],
+  brAquatic:['brAquatic','brAquatic-line'],
+  brRegenClosing:['brRegenClosing','brRegenClosing-line'],
+  brDeciduous:['brDeciduous','brDeciduous-line'],
+  brRegenNew:['brRegenNew','brRegenNew-line'],
+  brOther:['brOther','brOther-line'],
   burns:['burnZones','burnZones-line'],
-  cuts:['cutZones','cutZones-line'],
   wetland:['wetlandZones','wetlandZones-line'],beaver:['beaverPonds'],
   tenure:['tenureBlocked','tenureZones-line'],tenureOk:['tenureZones-line-ok'],
   leases:['leases'],
@@ -1411,35 +1397,57 @@ const LAYERS=[
  {k:'refuge', group:'MODEL ZONES', kind:'cross', edge:'none', name:'Thermal refuge',
   note:'Cool midday bedding', hex:'#FF00C8', icon:'trees', on:true, lyr:'refuge',
   count:()=>(DOC.refuge_zones||[]).length},
+ // BROWSE IS A PARENT CLASS, and its children are KINDS OF FOOD (T10.4). They used to be
+ // "from dated cuts" / "from dated burns" / "from the stand map" / "from satellite land
+ // cover" — the four sources the composite is built from, which is the engine's business
+ // and not the hunter's. Every zone is drawn by exactly one child, so nothing is drawn
+ // twice and the parent needs no layer of its own.
+ //
+ // Ordered by what it is worth to the animal, and the greens run the same way.
+ // NOT NAMED SPECIES: the écoforestière stand map carries résineux / mélange / feuillus
+ // CLASSES, not species, so "deciduous & mixed" is as precise as the data honestly gets.
  {k:'browse', group:'MODEL ZONES', kind:'stipple', edge:'none', name:'Browse / feeding',
-  note:'Regen & riparian forage — the food itself', hex:'#8FB43A', icon:'leaf', on:false, lyr:'browse',
-  count:()=>(DOC.browse_zones||[]).length},
- // #96 — the parts browse is made of, indented under it. Each is the SAME polygonizer
- // over one contributor's own raster, so switching off "satellite land cover" leaves
- // only ground backed by a surveyed, dated disturbance. A contributor with no data for
- // this AOI shows a count of 0 rather than disappearing: absent evidence is a fact.
- // GREEN RAMP, HARDEST EVIDENCE TO GUESS. They share the parent's stipple so they read
- // as the same KIND of thing, differing only in shade — bright saturated green where a
- // dated survey backs the ground, dull olive where it is a satellite's opinion. `sub`
- // indents them under Browse / feeding: they are parts of it, not siblings of it.
- {k:'browseCut', group:'MODEL ZONES', sub:'browse', kind:'stipple', edge:'none',
-  name:'from dated cuts', note:'Logging polygons with a cut year, aged through the browse curve — the hardest browse evidence there is.',
-  hex:'#8FE04A', on:false, lyr:'browseCut', count:()=>(DOC.browse_cut_zones||[]).length},
- {k:'browseBurn', group:'MODEL ZONES', sub:'browse', kind:'stipple', edge:'none',
-  name:'from dated burns', note:'Mapped fire perimeters with a year. Peaks later than a cut — fire regenerates more slowly.',
-  hex:'#5FBF57', on:false, lyr:'browseBurn', count:()=>(DOC.browse_burn_zones||[]).length},
- {k:'browseStand', group:'MODEL ZONES', sub:'browse', kind:'stipple', edge:'none',
-  name:'from the stand map', note:'Surveyed stand species and canopy closure, but no date. Beats the satellite, loses to a dated disturbance.',
-  hex:'#3E9A63', on:false, lyr:'browseStand', count:()=>(DOC.browse_stand_zones||[]).length},
- {k:'browseLc', group:'MODEL ZONES', sub:'browse', kind:'stipple', edge:'none',
-  name:'from satellite land cover', note:'10 m land cover refined by greenness. Covers everywhere — and it is a guess everywhere it is used.',
-  hex:'#9CA86B', on:false, lyr:'browseLc', count:()=>(DOC.browse_lc_zones||[]).length},
+  note:'What there is to eat, and what stage it is at.', hex:'#8FB43A', icon:'leaf',
+  on:false, parent:true, count:()=>(DOC.browse_zones||[]).length},
+ {k:'brRegenPrime', group:'MODEL ZONES', sub:'browse', kind:'stipple', edge:'none',
+  name:'Regen — prime (10–25 yr)',
+  note:'Willow, birch and aspen at moose height with cover alongside. The money browse.',
+  hex:'#8FE04A', on:false, lyr:'brRegenPrime',
+  count:()=>(DOC.browse_zones||[]).filter(z=>z.kind==='regen_prime').length},
+ {k:'brAquatic', group:'MODEL ZONES', sub:'browse', kind:'stipple', edge:'none',
+  name:'Aquatic & riparian',
+  note:'Alder edges plus emergent and submergent aquatics — sodium-rich feeding, dawn and dusk.',
+  hex:'#22a884', on:false, lyr:'brAquatic',
+  count:()=>(DOC.browse_zones||[]).filter(z=>z.kind==='aquatic').length},
+ {k:'brRegenClosing', group:'MODEL ZONES', sub:'browse', kind:'stipple', edge:'none',
+  name:'Regen — closing in (26–40 yr)',
+  note:'Growing out of reach as the canopy closes. Still worth hunting at the edges.',
+  hex:'#5FBF57', on:false, lyr:'brRegenClosing',
+  count:()=>(DOC.browse_zones||[]).filter(z=>z.kind==='regen_closing').length},
+ {k:'brDeciduous', group:'MODEL ZONES', sub:'browse', kind:'stipple', edge:'none',
+  name:'Deciduous & mixed stand',
+  note:'Hardwood browse mapped by survey rather than inferred. The stand map has classes, not species.',
+  hex:'#3E9A63', on:false, lyr:'brDeciduous',
+  count:()=>(DOC.browse_zones||[]).filter(z=>z.kind==='deciduous').length},
+ {k:'brRegenNew', group:'MODEL ZONES', sub:'browse', kind:'stipple', edge:'none',
+  name:'Regen — new (<10 yr)',
+  note:'Below reachable height with no security cover yet. Open ground, not a feeding area.',
+  hex:'#C7E88A', on:false, lyr:'brRegenNew',
+  count:()=>(DOC.browse_zones||[]).filter(z=>z.kind==='regen_new').length},
+ {k:'brOther', group:'MODEL ZONES', sub:'browse', kind:'stipple', edge:'none',
+  name:'Other forage',
+  note:'Scores as browse, but nothing dated or surveyed says what stage it is at — a land-cover read.',
+  hex:'#9CA86B', on:false, lyr:'brOther',
+  count:()=>(DOC.browse_zones||[]).filter(z=>!z.kind||z.kind==='other').length},
  {k:'burns', group:'MODEL ZONES', kind:'hatch', edge:'solid', name:'Burn regeneration',
   note:'Fire perimeters by age — browse peaks 15–22 yr after a burn. Strongest single predictor here.',
   hex:'#C97A2B', icon:'flame', on:false, lyr:'burns', count:()=>(DOC.burn_zones||[]).length},
- {k:'cuts', group:'MODEL ZONES', kind:'stipple', edge:'solid', name:'Recent cuts',
-  note:'Logging cutblocks by age (écoforestière) — pale = fresh, bright green = 10–25 yr prime browse, dark = closing in. South of ~52°N.',
-  hex:'#6FA83A', icon:'leaf', on:false, lyr:'cuts', count:()=>(DOC.cut_zones||[]).length},
+ // "Recent cuts" USED TO BE A SECOND TOP-LEVEL ROW HERE (removed in T10.4). It drew the
+ // same cutblocks the browse layer already draws — "Recent cuts are under browse/feeding
+ // but also their own thing?" — and now that browse names its regen STAGES, an aged cut
+ // is exactly what a regen row is. The one thing that row had which the stages do not is
+ // the actual years, so that survives as `dist_age` on the browse zone itself and shows
+ // as "disturbed ~18 yr ago" on the hover card.
  {k:'funnel', group:'MODEL ZONES', kind:'soft', edge:'none', name:'Funnels / passes',
   note:'A neck that travel is FORCED through — it must separate two real pieces of ground (a peninsula is narrow but leads nowhere) and join two places worth moving between, ideally feed on one side and cover on the other.',
   hex:'#FF8C00', icon:'fork', on:false, lyr:'funnel', count:()=>(DOC.funnel_zones||[]).length},
@@ -3058,9 +3066,7 @@ function applyDoc(newDoc){        // re-bind the whole map + panels to fresh eng
   const S=buildSources();
   const setD=(id,data)=>{const s=map.getSource(id); if(s&&data) s.setData(data);};
   setD('huntZones',S.huntZones); setD('browseZones',S.browseZones);
-  ['browse_cut_zones','browse_burn_zones','browse_stand_zones','browse_lc_zones']
-    .forEach(k=>setD(k,(S.browseSub&&S.browseSub[k])||fc([])));
-  setD('refugeZones',S.refugeZones); setD('funnelZones',S.funnelZones); setD('burnZones',S.burnZones); setD('cutZones',S.cutZones); setD('tenureZones',S.tenureZones);
+  setD('refugeZones',S.refugeZones); setD('funnelZones',S.funnelZones); setD('burnZones',S.burnZones); setD('tenureZones',S.tenureZones);
   setD('wetlandZones',S.wetlandZones); setD('beaverPonds',S.beaverPonds); setD('leases',S.leases);
   setD('rivers',S.rivers); setD('lakes',S.lakes); setD('crossings',S.crossings); setD('infra',S.infra);
   setD('areas',S.areas); setD('areaLabels',S.areaLabels); setD('camps',S.camps);
@@ -4356,10 +4362,12 @@ const PLATES=[
    note:'Ranked focus areas with the huntability bands beneath them, your camp or staging '+
         'point, and the approach lines between them. Bands are model output with no surveyed '+
         'edge — treat the boundary as a gradient, not a fence.'},
-  {key:'browse', name:'Browse & feeding', rows:['browse','cuts','burns'],
-   note:'Where the food is. Browse is a composite: dated logging cuts and burns are surveyed '+
-        'polygons with a year on them, the rest is a satellite classification. The cut layer '+
-        'is drawn over it so you can see which of the green is actually backed by a dated cut.'},
+  {key:'browse', name:'Browse & feeding',
+   rows:['brRegenPrime','brAquatic','brRegenClosing','brDeciduous','brRegenNew','brOther','burns'],
+   note:'Where the food is, by what it is and what stage it is at. Prime regen (10–25 yr '+
+        'after a cut or a fire) is the money browse; new regen is open ground with nothing '+
+        'at reachable height yet; aquatic feeding is its own behaviour, at dawn and dusk. '+
+        'Where the stage is dated the card says how long ago the ground was disturbed.'},
   {key:'refuge', name:'Thermal refuge & water', rows:['refuge','water','wetland','beaver'],
    note:'Cool, closed cover for the middle of a warm day, plus the hydrography that shapes '+
         'both travel and the funnels. Wetland is passable to a moose — it slows a hunter far '+
@@ -4919,6 +4927,10 @@ function _watchJob(jid,hdr){
    it belongs to, and gives the one fact that matters for that kind. The feature
    under the cursor also lifts, so the label and the geometry can't be mismatched.
 --------------------------------------------------------------------------- */
+// The years the removed "Recent cuts" row used to carry, on the kind that replaced it.
+const brSub=p=>`${p.area_km2} km² · scores ${p.score}`
+  + (p.distAge!=null?` · disturbed ~${p.distAge} yr ago`:'');
+const brNote=k=>(LAYERS.find(r=>r.k===k)||{}).note||'';
 const IDENTIFY = [
   // ORDER IS PRIORITY, and it is the inverse of GENERALITY — most specific first, so the
   // thing you are pointing AT wins over the thing it sits inside. The huntability band
@@ -4975,14 +4987,6 @@ const IDENTIFY = [
   // browse listed first every hover on a cut reported "Browse / feeding, 140 km²" — the
   // least informative true statement available. Browse is a composite covering most of
   // the map; the layers that say WHY a piece of it scores have to be asked first.
-  {lyr:'cutZones',     row:'cuts',     title:p=>({fresh:'Recent cut · fresh (<10 yr)',regen:'Recent cut · prime regen (10–25 yr)',closing:'Recent cut · closing in (26–40 yr)'}[p.cls]||'Logging cut'),
-                       sub:p=>{
-                         const yr = (p.yrFirst&&p.yrLast)
-                           ? (p.yrFirst===p.yrLast ? `cut ${p.yrFirst}` : `cut ${p.yrFirst}–${p.yrLast}`)
-                           : '';
-                         const age = p.ageMed!=null ? `~${p.ageMed} yr old` : '';
-                         return [yr, age, `${p.area_km2} km²`].filter(Boolean).join(' · ');
-                       }},
   {lyr:'burnZones',    row:'burns',    title:p=>`Burn regeneration · ${p.cls||''}`, sub:p=>`${p.area_km2} km²`,
                        body:p=>{
                          const bm=DOC.burn_meta||{};
@@ -4991,18 +4995,22 @@ const IDENTIFY = [
                            : 'Regenerating burn, either side of the peak. Under ~8 yr the browse is below reachable height with no security cover; past ~30 yr the canopy closes and it grows out of reach.')
                            + (bm.first_year?` Mapped fires ${bm.first_year}–${bm.last_year} (NBAC) · ${bm.pct_of_aoi}% of this area burned.`:'');
                        }},
-  {lyr:'browse_cut_zones',   row:'browseCut',   title:()=>'Browse — from dated cuts',
-                       sub:p=>`${p.area_km2} km² · scores ${p.score} on this source alone`,
-                       body:()=>(LAYERS.find(r=>r.k==='browseCut')||{}).note||''},
-  {lyr:'browse_burn_zones',  row:'browseBurn',  title:()=>'Browse — from dated burns',
-                       sub:p=>`${p.area_km2} km² · scores ${p.score} on this source alone`,
-                       body:()=>(LAYERS.find(r=>r.k==='browseBurn')||{}).note||''},
-  {lyr:'browse_stand_zones', row:'browseStand', title:()=>'Browse — from the stand map',
-                       sub:p=>`${p.area_km2} km² · scores ${p.score} on this source alone`,
-                       body:()=>(LAYERS.find(r=>r.k==='browseStand')||{}).note||''},
-  {lyr:'browse_lc_zones',    row:'browseLc',    title:()=>'Browse — from satellite land cover',
-                       sub:p=>`${p.area_km2} km² · scores ${p.score} on this source alone`,
-                       body:()=>(LAYERS.find(r=>r.k==='browseLc')||{}).note||''},
+  // ONE ENTRY PER KIND OF FOOD (T10.4). The source-named entries these replace — "Browse
+  // — from dated cuts" and friends — told the hunter which raster won an argument.
+  // Provenance still appears, on the composite's own card below, which is where a claim
+  // about evidence belongs.
+  {lyr:'brRegenPrime',   row:'brRegenPrime',   title:()=>'Regen — prime browse',
+                       sub:p=>brSub(p), body:()=>brNote('brRegenPrime')},
+  {lyr:'brAquatic',      row:'brAquatic',      title:()=>'Aquatic & riparian feeding',
+                       sub:p=>brSub(p), body:()=>brNote('brAquatic')},
+  {lyr:'brRegenClosing', row:'brRegenClosing', title:()=>'Regen — closing in',
+                       sub:p=>brSub(p), body:()=>brNote('brRegenClosing')},
+  {lyr:'brDeciduous',    row:'brDeciduous',    title:()=>'Deciduous & mixed stand',
+                       sub:p=>brSub(p), body:()=>brNote('brDeciduous')},
+  {lyr:'brRegenNew',     row:'brRegenNew',     title:()=>'Regen — new, little to eat yet',
+                       sub:p=>brSub(p), body:()=>brNote('brRegenNew')},
+  {lyr:'brOther',        row:'brOther',        title:()=>'Other forage',
+                       sub:p=>brSub(p), body:()=>brNote('brOther')},
   // LAST of the browse family: the composite, which is what you get when nothing more
   // specific is under the cursor. It leads with WHERE ITS ANSWER CAME FROM.
   {lyr:'browseZones',  row:'browse',   title:()=>'Browse / feeding',

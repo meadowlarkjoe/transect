@@ -300,6 +300,76 @@ def _cut_zones(ctx, cache):
     return out, meta
 
 
+
+# How much of a zone a dated disturbance (or a stand class) has to cover before it gets to
+# NAME the zone. Not tuned to make a number look right — it is the share at which "this
+# ground is an aged cut" stops being a statement about a corner of it. Without it a
+# polygon clipping ONE burned cell was labelled by that cell, and on a fire-driven box
+# every zone came back "regen prime" — precision the data has not got.
+KIND_MIN_SHARE = 0.35
+
+
+def _browse_dist_age(inside, cut_yr, burn_yr, year_now):
+    """Median years since the most recent DATED disturbance covering this zone, or None.
+
+    Shared with `_browse_kind` rather than recomputed, and surfaced on the zone itself so
+    the map can say "cut ~18 yr ago" where the old top-level "Recent cuts" row used to.
+    That row went away with T10.4 — it drew the same cutblocks the browse layer already
+    draws — but its YEARS were real information and had to survive it.
+    """
+    import numpy as np
+
+    if inside is None or not inside.any():
+        return None
+    n_in = int(inside.sum())
+    ages = []
+    for arr in (cut_yr, burn_yr):
+        if arr is None:
+            continue
+        yv = arr[inside]
+        yv = yv[yv > 1800]
+        if yv.size and yv.size / max(1, n_in) >= KIND_MIN_SHARE:
+            ages.append(float(np.median(year_now - yv)))
+    return min(ages) if ages else None      # the most recent disturbance is the live one
+
+
+def _browse_kind(lc_cls, inside, cut_yr, burn_yr, stand_r, year_now):
+    """The animal-facing kind of a browse zone: most specific first (T10.4).
+
+    Aquatic beats everything because sodium feeding is its own behaviour at its own time
+    of day. A dated regen STAGE beats a land-cover class because an aged cut is a far
+    stronger statement about food than "shrub". Returns None when nothing outranks the
+    land-cover name the caller already has.
+
+    `cut_yr` / `burn_yr` / `stand_r` arrive already nan-to-num'd — converting them here
+    would copy the whole raster once per polygon.
+    """
+    import numpy as np
+
+    if lc_cls == 90:
+        return "aquatic"
+    if inside is None or not inside.any():
+        return None
+    n_in = int(inside.sum())
+    a = _browse_dist_age(inside, cut_yr, burn_yr, year_now)
+    if a is not None:
+        if a <= 9:
+            return "regen_new"
+        if a <= 25:
+            return "regen_prime"
+        if a <= 40:
+            return "regen_closing"
+    if stand_r is not None:
+        sv = stand_r[inside].astype(int)
+        sv = sv[sv > 0]
+        if sv.size and sv.size / max(1, n_in) >= KIND_MIN_SHARE:
+            vals, cnts = np.unique(sv, return_counts=True)
+            # 2 = mélange, 3 = feuillus (acquire/ecoforestiere.py)
+            if int(vals[int(np.argmax(cnts))]) in (2, 3):
+                return "deciduous"
+    return None
+
+
 def _browse_zones(ctx, cache, min_km2=0.8, smooth_m=280):
     """Browse/feeding zones split BY TYPE (from land cover), each with what it is and
     when moose feed on it. Separate from huntability."""
@@ -336,6 +406,66 @@ def _browse_zones(ctx, cache, min_km2=0.8, smooth_m=280):
         10: ("Forest-edge browse", "Regenerating conifer/mixedwood edge — the cover-to-forage seam.",
              "All day where cover meets forage; prime travel/feeding edge."),
     }
+    # WHAT THE ANIMAL EATS AND WHAT STAGE IT IS IN (T10.4). The legend used to split
+    # browse by the SOURCE that found it — "from dated cuts", "from satellite land cover"
+    # — which is the engine's business, not the hunter's: "I want the legend to show
+    # things that hunters actually care about and not rely on them to have to evaluate
+    # the relative quality of a data source."
+    #
+    # `kind` is that answer, and it is deliberately ordered most-specific-first, the same
+    # rule the water group follows. A regen STAGE beats a land-cover class because an
+    # aged cut is a far stronger statement about food than "shrub"; aquatic beats
+    # everything because sodium feeding is its own behaviour at its own time of day.
+    #
+    # NOT NAMED SPECIES, and that is a data limit rather than a choice: the écoforestière
+    # stand map carries résineux / mélange / feuillus CLASSES, not species. Calling a
+    # polygon "willow" because it is feuillus would be inventing precision.
+    KIND_WHEN = {
+        "aquatic": "Dawn & dusk feeding; midday water use in warm weather.",
+        "regen_new": "Open and exposed — worth a look at first light, but there is little at "
+                     "reachable height yet and no cover to hold an animal.",
+        "regen_prime": "First & last light, all season. This is the food.",
+        "regen_closing": "Still worth hunting at the edges; the canopy is closing and the "
+                         "browse is growing out of reach.",
+        "deciduous": "First & last light where it meets cover.",
+    }
+    KIND_WHAT = {
+        "aquatic": "Alder edges plus emergent and submergent aquatics — sodium-rich feeding.",
+        "regen_new": "Disturbed under ~10 years ago. Browse is below reachable height and "
+                     "there is no security cover yet.",
+        "regen_prime": "Disturbed 10–25 years ago: willow, birch and aspen at moose height "
+                       "with cover alongside. The money browse.",
+        "regen_closing": "Disturbed 26–40 years ago. Growing out of reach as the canopy closes.",
+        "deciduous": "Deciduous or mixed stand — hardwood browse, mapped by survey rather "
+                     "than inferred.",
+    }
+
+    def _kind_of(lc_cls, inside):
+        return _browse_kind(lc_cls, inside, cut_yr, burn_yr, stand_r, year_now)
+
+    year_now = int(ctx.aoi.season.year)
+    cut_yr = burn_yr = stand_r = None
+    for name, var in (("cut_year.tif", "cut"), ("burn_year.tif", "burn"),
+                      ("stand_type.tif", "stand")):
+        try:
+            arr = ru.read(cache / name)[0]
+        except Exception:
+            arr = None
+        if arr is not None and arr.shape != browse.shape:
+            arr = None                 # a grid mismatch would index the wrong ground
+        if arr is not None:
+            # ONCE, HERE. `np.nan_to_num(arr)` inside the per-polygon helper copied the
+            # whole raster on every call — three rasters times up to 32 polygons, which
+            # on a 6.5 Mpx box is ~5 GB of copies and killed the worker outright (exit
+            # 137). The conversion does not depend on the polygon, so it does not belong
+            # in the loop.
+            arr = np.nan_to_num(arr)
+        if var == "cut":
+            cut_yr = arr
+        elif var == "burn":
+            burn_yr = arr
+        else:
+            stand_r = arr
     # Same size-vs-value fix as _polygonize (#89): open only far enough to kill speckle,
     # let strong ground past the area floor, and rank by score rather than by area. This
     # is the function that produced the inversion the hunter saw — small prime cutblocks
@@ -353,6 +483,14 @@ def _browse_zones(ctx, cache, min_km2=0.8, smooth_m=280):
         agr_r = ru.read(cache / "browse_agree.tif")[0]
     except Exception:
         pass
+    # Same hoist as the disturbance rasters above, and for the same reason: these were
+    # converted per POLYGON, so a 6.5 Mpx box paid a full-raster copy up to 32 times per
+    # source. That predates T10.4 — it is why this function could be killed outright on a
+    # large box before any of this was added.
+    if src_r is not None:
+        src_r = np.nan_to_num(src_r)
+    if agr_r is not None:
+        agr_r = np.nan_to_num(agr_r)
     from rasterio.features import geometry_mask
     raw = np.nan_to_num(browse)
 
@@ -382,7 +520,7 @@ def _browse_zones(ctx, cache, min_km2=0.8, smooth_m=280):
             why = None
             agree = None
             if src_r is not None and inside is not None and inside.any():
-                codes = np.nan_to_num(src_r)[inside].astype(int)
+                codes = src_r[inside].astype(int)
                 codes = codes[codes > 0]
                 if codes.size:
                     vals, cnts = np.unique(codes, return_counts=True)
@@ -391,15 +529,26 @@ def _browse_zones(ctx, cache, min_km2=0.8, smooth_m=280):
                     why = {"source": SRC_NAME.get(top, "unknown"),
                            "share": round(share, 2)}
                 if agr_r is not None:
-                    a = np.nan_to_num(agr_r)[inside]
+                    a = agr_r[inside]
                     if a.size:
                         agree = round(float(a.mean()), 2)
             gw = to_wgs(gm).simplify(0.0008)
             for pp in (gw.geoms if gw.geom_type == "MultiPolygon" else [gw]):
                 ring = [[round(x, 5), round(y, 5)] for x, y in pp.exterior.coords]
                 if len(ring) >= 4:
+                    kind = _kind_of(cls, inside)
                     z = {"type": name, "what": what, "when": when,
                          "area_km2": round(km2, 1), "score": round(score, 3), "ll": ring}
+                    age = _browse_dist_age(inside, cut_yr, burn_yr, year_now)
+                    if age is not None:
+                        z["dist_age"] = int(round(age))
+                    if kind:
+                        # The animal-facing answer REPLACES the prose, so the map and the
+                        # legend say the same thing. `type` stays as written for plans
+                        # saved before this and for anything still reading it.
+                        z["kind"] = kind
+                        z["what"] = KIND_WHAT.get(kind, what)
+                        z["when"] = KIND_WHEN.get(kind, when)
                     if why:
                         z["why"] = why
                     if agree is not None:

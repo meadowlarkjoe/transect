@@ -318,6 +318,9 @@ input[type=range]:focus{box-shadow:none;border:0}
   font:500 8.5px/1 var(--mono);letter-spacing:.14em;color:var(--accent-hi);
   padding:6px 0 2px}
 
+/* The water parent's children are indented like browse's — same `sub` mechanism, so
+   nothing new is needed here; this note exists only to say that is deliberate. */
+
 /* Season filter — sits directly under the layers pill, same door-beside-the-sidebar
    idiom, because it answers the same kind of question: what am I looking at? Hidden
    outright on a single-window run; a filter that filters nothing reads as broken. */
