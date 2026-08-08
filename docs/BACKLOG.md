@@ -1000,6 +1000,23 @@ areas, serve on demand by viewport, or vector-tile it — and it shares that dec
 T10.22, which needs a per-job asset route for the same reason. Neither should invent its
 own.
 
+**E11.7 — the disturbance vocabulary the engine still ignores.** Found while answering
+whether the queue reaches parity with the guide's map. Over 1908 stands on that sheet's
+ground the engine drops, silently:
+
+* `origine` **ES** (37 stands) — *épidémie sévère*. A stand-replacing insect outbreak.
+  It kills the canopy and flushes browse much as a burn does, and the guide's legend gives
+  it its own category. `BURN_ORIGINS` is `{"BR"}` alone, so this reads as undisturbed.
+* `origine` **CBA** (18) — *coupe par bandes*, strip cutting. Not in `CUT_ORIGINS`.
+* `perturb` **EL** (112), **EPC** (76), **EPR** (8), **EPC_SYS** (7) — light outbreak and
+  precommercial thinning. **203 stands, 10.6% of the ground.** EPC matters in the opposite
+  direction to everything else here: thinning REMOVES competing hardwood, so it should
+  *lower* browse, and the engine cannot currently know that.
+
+**Done when:** severe outbreak is treated as the stand-replacing disturbance it is, strip
+cuts are cuts, thinning is a browse penalty rather than nothing, and the map legend can
+render the same disturbance classes the guide's sheet does.
+
 **The standing risk across all of it.** Écoforestière thins out north of ~52°N and stops.
 Every model that starts reading these fields has to degrade to the satellite path outside
 the coverage, and the manifest has to say which one answered — or a northern box will
