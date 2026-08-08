@@ -3861,6 +3861,42 @@ function windowTag(a){
   if(methods.size>1 && w.method) return w.method;
   return String(w.start||'').slice(5);      // MM-DD — the year is the same for all of them
 }
+/* READING A STAND THE WAY THE SURVEY WROTE IT (E11.6).
+   A guide's sheet labels every polygon `R ENML 75% 10m` — cover type, species
+   composition, density, height — and that label IS the product a hunter pays for,
+   because you can check it against what you see. We hold all four fields, so the hover
+   card says the same sentence, and then translates it.
+
+   The species table is deliberately NOT the engine's browse weights repeated. Those live
+   in acquire/ecoforestiere.py and score what a stand is worth to eat; this is what the
+   two letters MEAN. Duplicating the weights here is how the two drift apart. */
+const ESS_NAME={
+  EN:'black spruce', EB:'white spruce', EP:'spruce', EU:'Norway spruce', EV:'red spruce',
+  SB:'balsam fir', SE:'fir & white spruce', ML:'larch', ME:'European larch',
+  PG:'jack pine', PB:'white pine', PI:'pine', PS:'Scots pine', PR:'red pine',
+  TO:'white cedar', PU:'hemlock', RX:'unspecified conifer',
+  BP:'white birch', BG:'grey birch', BJ:'yellow birch',
+  PT:'trembling aspen', PE:'poplar', PA:'balsam poplar',
+  ER:'maple', ES:'sugar maple', EA:'silver maple', EO:'red maple',
+  FN:'ash', FA:'ash', FX:'unspecified hardwood', FI:'intolerant hardwood',
+  FT:'tolerant hardwood', FH:'high-grade hardwood', SO:'mountain-ash',
+  CT:'cherry', CR:'red oak', CB:'oak', OA:'elm', TA:'basswood'};
+const COVER_NAME={R:'Conifer', M:'Mixed', F:'Hardwood'};
+/* The sheet's own label, rebuilt from the fields the engine stores. */
+function standLabel(p){
+  const bits=[(p.type_couv||''), (p.gr_ess||'')].filter(Boolean).join(' ');
+  const den=p.closure?Math.round(p.closure*100)+'%':'';
+  const h=p.height_m?Math.round(p.height_m)+' m':'';
+  return [bits, den, h].filter(Boolean).join(' · ') || 'Stand';
+}
+/* ...and what those two-letter pairs actually are, dominant first. */
+function standSpecies(g){
+  const s=String(g||'').toUpperCase();
+  const codes=[]; for(let i=0;i+2<=s.length;i+=2){ const c=s.slice(i,i+2); if(!codes.includes(c)) codes.push(c); }
+  if(!codes.length) return '';
+  return codes.map(c=>ESS_NAME[c]||c).join(', ');
+}
+
 /* THE FOREST SURVEY LAYER (E11.6).
    Fetched separately from the plan document because it does not fit in one: 2.78 MB of
    GeoJSON for an 8 km box against a plan blob averaging 586 KB. It lives in the per-plan
@@ -5345,6 +5381,35 @@ const IDENTIFY = [
   // would label a lake "Water" — the least specific name available for the thing.
   {lyr:'rivers',       row:'openwater',title:p=>p.name||'Watercourse',sub:()=>'mapped hydrography (OSM)'},
   {lyr:'lakes',        row:'openwater',title:p=>p.name||'Waterbody', sub:()=>'mapped hydrography (OSM)'},
+  // THE SURVEY, second-to-last. It covers essentially the whole box, so ordering it any
+  // higher would mean every hover on a stand reported the forest type and buried the
+  // funnel or the stand you were actually pointing at. Above the huntability band only
+  // because "what is growing here" beats "the model liked this" when neither is specific.
+  {lyr:'stands',       row:'stands',
+                       title:p=>standLabel(p),
+                       sub:p=>{
+                         const bits=[];
+                         const sp=standSpecies(p.gr_ess);
+                         if(sp) bits.push(sp);
+                         if(p.age_yr) bits.push(`~${p.age_yr} yr`);
+                         if(p.cut_year) bits.push(`cut/burn ${p.cut_year}`);
+                         return bits.join(' · ');
+                       },
+                       body:p=>{
+                         const out=[];
+                         if(p.type_couv) out.push(`${COVER_NAME[p.type_couv]||p.type_couv} stand as the forest survey mapped it.`);
+                         if(p.ess_browse!=null){
+                           const v=+p.ess_browse;
+                           out.push(v>=0.7?'These species are prime moose browse.'
+                                   :v>=0.35?'Some browse value in the mix.'
+                                   :v>0?'Little to eat here — this is cover, not food.'
+                                        :'Nothing here a moose eats.');
+                         }
+                         if(p.height_m && p.height_m>3)
+                           out.push('Taller than a moose reaches, so its own foliage is not the food — anything growing under it is.');
+                         if(String(p.dep_sur||'').charAt(0)==='7') out.push('Organic ground — peat.');
+                         return out.join(' ');
+                       }},
   // LAST ON PURPOSE — see the note above.
   {lyr:'huntZones',    row:null,       title:p=>(HUNT_CLS[p.cls]||{}).label||'Likelihood band',
                        sub:p=>`${p.area_km2} km² · model band, no surveyed edge`,
