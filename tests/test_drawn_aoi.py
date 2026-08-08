@@ -275,3 +275,34 @@ def test_the_request_carries_the_ring_and_still_carries_a_radius():
     assert "ring:_ring||null," in src
     i = src.index("ring:_ring||null,")
     assert "radius_km:" in src[i - 200:i]
+
+
+def test_drawing_a_boundary_from_setup_comes_back_with_it_selected():
+    """The flow died one step after the tab started working. Nothing re-rendered Setup
+    when a drawing was committed, so you drew the boundary, returned, and the panel still
+    said "nothing drawn yet" — with the shape sitting in `drawSaved` the whole time."""
+    src = _code()
+    assert "window._aoiDrawPending=true" in src.replace(" ", ""), \
+        "arming from Setup does not record why"
+    i = src.index("if(window._aoiDrawPending){")
+    seg = src[i:i + 300].replace(" ", "")
+    assert "draft.aoiMode='drawn'" in seg
+    assert "draft.ringId=feat.properties.id" in seg
+    assert "setTab('setup')" in seg
+
+
+def test_an_area_drawn_for_a_note_does_not_hijack_the_tab():
+    """The flag is what keeps this narrow. Every area drawing yanking the hunter into
+    Setup would be worse than the bug it fixes."""
+    src = _code()
+    i = src.index("if(window._aoiDrawPending){")
+    assert "window._aoiDrawPending=false" in src[i:i + 200].replace(" ", ""), \
+        "the flag is not cleared, so the next area drawn also jumps to Setup"
+
+
+def test_setup_is_rebuilt_when_you_arrive_at_it():
+    """It lists things that change while you are on the MAP."""
+    src = _code()
+    i = src.index("function setTab(")
+    body = src[i:src.index("\n}", i)]
+    assert "if(name==='setup') renderSetup();" in body

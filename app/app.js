@@ -2414,7 +2414,16 @@ function onDrawClick(e){
 function finishDraw(){
   if(drawPts.length>=2){
     if(drawTool==='area'){ const ring=drawPts.concat([drawPts[0]]);
-      drawSaved.push(_drawFeat({type:'Polygon',coordinates:[ring]},'area',areaFmt(ringKm2(drawPts))));}
+      const feat=_drawFeat({type:'Polygon',coordinates:[ring]},'area',areaFmt(ringKm2(drawPts)));
+      drawSaved.push(feat);
+      // DRAWN FOR THE ANALYSIS: select it and go back, because the alternative is the
+      // hunter finishing a polygon and having to work out for themselves that Setup now
+      // has a list with it in. It is one shape and one obvious intent.
+      if(window._aoiDrawPending){
+        window._aoiDrawPending=false;
+        draft.aoiMode='drawn'; draft.ringId=feat.properties.id;
+        markDirtySoft(); setTab('setup');
+      }}
     else { const dt=drawTool==='route'?'route':(drawTool==='dist'?'dist':'line');
       drawSaved.push(_drawFeat({type:'LineString',coordinates:drawPts.slice()},dt,(dt==='route'?'Route ':'')+km(polyKm(drawPts))));}
   }
@@ -3122,7 +3131,14 @@ function renderSetup(){
   el.querySelectorAll('[data-ring]').forEach(b=>b.onclick=e=>{
     e.preventDefault(); draft.ringId=+b.dataset.ring; markDirtySoft(); renderSetup(); });
   const _adb=document.getElementById('aoiDrawBtn');
-  if(_adb) _adb.onclick=e=>{ e.preventDefault(); setTab('overview'); setDrawTool('area'); };
+  if(_adb) _adb.onclick=e=>{
+    e.preventDefault();
+    // Remember that this drawing is FOR the analysis boundary. Without it, finishing the
+    // polygon leaves you on the map with no idea the form is waiting for you — and
+    // drawing an area for a note would yank you into Setup, which is worse.
+    window._aoiDrawPending=true;
+    setTab('overview'); setDrawTool('area');
+  };
   // THE RADIUS SLIDER ONLY EXISTS IN RADIUS MODE. Everything from here to the end of
   // this block reads it, and `rad.oninput` on null throws — which would kill every
   // handler wired AFTER it, silently, the moment you switched to a drawn area.
@@ -4105,6 +4121,11 @@ function setTab(name){
     if(tr&&tr.on){ tr.on=false; setVis(LYR_MAP.thermal,false); }
   }
   if(name==='brief') renderBrief();   // scope the brief to the currently chosen area
+  // ...and Setup is rebuilt on arrival for the same reason: things it lists can change
+  // while you are on the MAP. Draw an analysis boundary, come back, and without this the
+  // panel still says "nothing drawn yet" — which is how the drawn-area flow died one step
+  // after the tab itself started working.
+  if(name==='setup') renderSetup();
   syncDocks(name);
   try{ localStorage.setItem('transect_tab',name); }catch(e){}
   setTimeout(()=>map.resize(),60);
