@@ -99,10 +99,21 @@ def build_ctx(name: str, req: dict, method: str | None = None):
     lat, lon = float(req["lat"]), float(req["lon"])
     tr = req.get("transport") or {}
     sites = req.get("sites") or None
+    # A DRAWN BOUNDARY (T10.8). [[lon, lat], ...] — the same winding the app's draw tool
+    # produces. Rejected quietly rather than loudly if it is not a real ring: a malformed
+    # shape must fall back to the radius, not fail the run.
+    ring = None
+    _r = req.get("ring")
+    if isinstance(_r, list) and len(_r) >= 4:
+        try:
+            ring = [(float(x), float(y)) for x, y in (pt[:2] for pt in _r)]
+        except Exception:
+            ring = None
     aoi = AOI(
         name=name, title=f"{lat:.3f}, {lon:.3f}", species=species,
         center=LatLon(lat=lat, lon=lon),
         bbox_halfwidth_km=max(3.0, min(120.0, float(req.get("radius_km", 35.0)))),
+        ring=ring,
         zone_hint=req.get("zone_hint"),
         season=SeasonCfg(year=2026,
                          target_dates=req.get("target_dates") or ["2026-09-25", "2026-10-05"]),
@@ -131,10 +142,14 @@ def build_ctx(name: str, req: dict, method: str | None = None):
     # a 120 km radius at 40 m is 6000² = 36 M cells per raster.
     model = load_model()
     TARGET_PX = 2400
+    # `effective_halfwidth_km`, not `bbox_halfwidth_km`: a drawn AOI's extent comes from
+    # its padded ring, and sizing the grid from a stored radius it is not using would put
+    # a 35 km box's resolution on a 3 km parcel — or, worse, the reverse.
+    _hw = aoi.effective_halfwidth_km()
     auto_res = max(float(model.raster_resolution_m),
-                   math.ceil(2 * aoi.bbox_halfwidth_km * 1000 / TARGET_PX))
+                   math.ceil(2 * _hw * 1000 / TARGET_PX))
     if req.get("resolution_m"):
-        finest = max(20.0, math.ceil(2 * aoi.bbox_halfwidth_km * 1000 / 3200))
+        finest = max(20.0, math.ceil(2 * _hw * 1000 / 3200))
         res = max(finest, min(500.0, float(req["resolution_m"])))
     else:
         res = auto_res
