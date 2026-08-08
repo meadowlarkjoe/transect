@@ -35,7 +35,7 @@ The instruments are now written down rather than reconstructed (`focus_pool.tif`
 |---|--------|----------------|
 | 1 | **T9.10b** Decide the fine-grid neck detector | `blocked` — the A/B now runs and the 7→3 collapse is fixed (it was two cell-denominated constants). What is left is ground truth Joe has to supply, plus a separate worker-memory call on `FINE_BUDGET_PX`. |
 | 2 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
-| 3 | **T10.23** Stand map read for cover class only | Cross-referencing a guide's Cartes Xperts sheet showed the source carries `gr_ess` (species), height, age and drainage, and the engine reads `type_couv` alone — 46% of that ground is pure black spruce scoring as generic conifer. Corrects a false claim T10.4 shipped. |
+| 3 | **E11** Forest survey read at a fraction of its resolution | Cross-referencing a guide's Cartes Xperts sheet showed the source carries species, height, age, drainage and slope; the engine reads cover class and density. Peatland landed (rev 32); the rest touches browse, thermal, refuge, travel, routes and wants a map layer. |
 | 4 | **T10.22** Serve the LiDAR hillshade as a basemap | Split out of T10.12, which established that the coverage is real. Needs a per-job asset route and a RETENTION answer before any rendering — a hillshade served from the pruned geography cache 404s on a reopened plan. |
 
 **T10.4 + T10.9 done 2026-08-07** (engine rev 31). Water became one parent over beaver
@@ -920,40 +920,72 @@ is the T10.10 mistake. Nearly shipped reading `DOC.data_manifest`; the field is
 returns undefined and the row degrades to "no reading", which looks exactly like an old
 plan.
 
-### T10.23 — The stand map is read for its cover CLASS and nothing else · `ready`
-**Found by cross-referencing a guide's map, and it corrects a claim T10.4 shipped.** Joe
-supplied a Cartes Xperts écoforestière sheet centred 47.983333, −77.817500 — essentially
-the T9.10b box — rendered from the same MFFP source this engine pulls. Every polygon on
-it is labelled with its species composition. T10.4's browse row said the stand map "has
-classes, not species". That is false, and the falsehood was ours: the WFS returns
-`gr_ess`, and `acquire/ecoforestiere.py::_classify` reads `type_couv` only.
+### E11 — The forest survey is read at a fraction of its resolution · `ready`
+Joe supplied a Cartes Xperts écoforestière sheet for 47.983333, −77.817500 — the T9.10b
+box — to cross-reference. It renders the same MFFP source this engine pulls, and it is
+carrying detail per polygon that the engine throws away at the door. His read of it:
 
-Measured over that sheet's ground, 599 stands:
+> "All of this additional resolution on the forest should be exposed visually on the map
+> and I feel like this gives us a whole new level of detail that should be accounted for
+> in the engine as it relates to moose behaviour for feeding and the areas that they want
+> to take refuge, etc. This probably impacts the models for browse/feeding, thermal,
+> refuge, travel, routes, etc."
 
-| field | engine | what it carries |
-|---|---|---|
-| `type_couv` | **used** | R 418 · M 113 · F 17 · none 51 — the whole vocabulary the model has |
-| `gr_ess` | discarded | ENEN 45.9% · RXRX 8.3% · ENML 5.8% · MLEN 4.2% · BPBPSB 3.7% · ENENBP 3.5% · BPBPEN 3.0% · SBSBBP 2.8% … |
-| `cl_haut` | discarded | height class — whether browse is at reachable height, stated rather than inferred from cut age |
-| `cl_age` | discarded | 50 · 30 · JIN · JIR · VIR · VIN — stand age WITHOUT needing a cut record |
-| `cl_drai` | discarded | drainage class — wet ground, which is where the alder is |
-| `dep_sur` | discarded | surface deposit — 7E/7T organic is peatland |
+That is right, and it is why this is an epic rather than a browse fix. `_classify` reads
+`type_couv` and `cl_dens` and discards the rest. Measured over that sheet, 599 stands:
 
-**Why it matters more than a nicety.** Nearly half this ground is ENEN — pure black
-spruce — and the engine's own methodology says "in black-spruce country the unburned
-matrix is close to a food desert". The field that identifies it is right there and
-ignored, so ENEN scores as "résineux" exactly like ENENBP, which is spruce carrying
-birch. Inside `M`, birch-dominant BPBPSB (prime browse) is indistinguishable from
-fir-dominant SBSBBP.
+| field | state | what it is | what it should reach |
+|---|---|---|---|
+| `type_couv` | **used** | R 418 · M 113 · F 17 | the model's whole vocabulary today |
+| `cl_dens` | **used** | density A–D → closure | cover, thermal refuge |
+| `dep_sur` + `cl_drai` | **used (T10.23.1)** | organic + hydric = peatland | browse, wet, walk cost |
+| `gr_ess` | discarded | ENEN 45.9% · BPBPSB 3.7% · ENENBP 3.5% … | browse quality, thermal cover |
+| `cl_haut` | discarded | height class | **whether browse is reachable at all** |
+| `cl_age` | discarded | 50 · 30 · JIN · JIR · VIR | stand age with no cut record needed |
+| `cl_pent` | discarded | slope class | travel cost, glassing |
 
-**And 39 of 599 stands (6.5%) are dropped entirely** — `_classify` returns None — almost
-all of them `dep_sur` 7E/7T, organic deposits. That is peatland and alder ground, left to
-WorldCover, which `terrain.py` already documents as barely seeing boreal peatland (0.4%
-of one test AOI against 7.5% from GRHQ). A third source for it was in hand and discarded.
+**T10.23.1 — peatland · `done` (2026-08-08, rev 32).** Organic deposit on hydric drainage
+is now `T_TOURBIERE`. Dropped stands 39 → 11; the 11 that remain are glacial and alluvial
+barren, which is correct — `non_boise` scores browse −0.30, and calling rock a bog would
+be an invention in the hunter's favour. Peat is deliberately not conifer closure: a
+thermal refuge on open bog would send someone to sit in one on a warm afternoon.
 
-**Done when:** `gr_ess`, `cl_haut` and `cl_drai` are ingested; browse quality is
-species-aware rather than class-aware; the non-forest organic classes stop being dropped
-on the floor; and the browse legend can finally name what T10.4 asked for.
+**T10.23.2 — ingest the rest of the attributes.** `gr_ess`, `cl_haut`, `cl_age`,
+`cl_pent` onto the working grid. Prerequisite for everything below, and worth doing as
+one pass because they arrive in the same WFS response the engine already pays for.
+*Done when:* the rasters exist, are covered by the geocache artifact allowlist, and a
+box with no écoforestière coverage still runs.
+
+**T10.23.3 — species-aware browse, gated on HEIGHT.** The reason this is one ticket and
+not two: species alone over-claims. Mature paper birch is prime browse *by species* and
+out of reach *by height*, and `feuillus` currently scores 0.20 precisely because the class
+constant is absorbing that. Browse has to be `species value × reachability(cl_haut)`, or
+it will confidently promote 20 m hardwood.
+*Done when:* ENENBP outscores ENEN for browse; a tall feuillus stand does not outscore a
+short one; and the T10.4 legend can finally name what was asked for.
+
+**T10.23.4 — thermal refuge and cover by species, not "any conifer".** Closure is already
+used; which conifer is not. Larch drops its needles.
+*Done when:* refuge prefers dense SB/EN closure over an equally dense larch stand.
+
+**T10.23.5 — travel and routes from drainage, deposit and slope.** `cl_drai` and
+`dep_sur` say where the ground is wet and soft, and `cl_pent` says where it is steep —
+all three are walk cost, and all three are currently guessed from land cover. This is also
+what would stop a route being drawn straight across a bog.
+*Done when:* walk cost reads them where the survey covers the box, and the route legs
+change measurably on ground where drainage and land cover disagree.
+
+**T10.23.6 — show it. A forest layer on the map.** The guide's sheet is valuable to Joe
+*because you can look at it* — species, height, density, cut year, per polygon. The engine
+will hold all of that and the map shows none of it.
+*Done when:* a Forest group renders stands by species and stage with the survey's own
+labels available on the hover card, and it reads as one system with the browse kinds
+rather than a second opinion beside them.
+
+**The standing risk across all of it.** Écoforestière thins out north of ~52°N and stops.
+Every model that starts reading these fields has to degrade to the satellite path outside
+the coverage, and the manifest has to say which one answered — or a northern box will
+quietly get a worse model with no sign that it did.
 
 ### T10.22 — Serve the LiDAR hillshade as a basemap · `ready`
 T10.12 established that HRDEM coverage is real and measured per box. What is missing is a
