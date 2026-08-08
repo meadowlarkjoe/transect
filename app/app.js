@@ -875,6 +875,18 @@ function init(){
   // over the dot erased it. The wick positions are the whole point of the scent layer —
   // where the bull cuts cow scent BEFORE he reaches the shooter — so they win the overlap.
   ['scentArc','scent','scent-label'].forEach(id=>{ if(map.getLayer(id)) map.moveLayer(id); });
+  // SPECIFIC DRAWS OVER GENERAL (T10.4). "Data of higher specificity (ex beaver pond)
+  // should out rank general data (ex. waterbody)" — and the draw order said the exact
+  // opposite: wetlands and beaver ponds went in first, then the generic lake FILL went in
+  // over the top of both. A flowage the model calls a rut hub was painted over by the
+  // waterbody that merely contains it.
+  //
+  // Open water is pushed DOWN under the wetlands rather than the wetlands lifted up: a
+  // bare moveLayer() raises to the very top, which would have put lake fill over the
+  // camps, staging pins, crossings and area badges that are all added before this point.
+  ['lakes','lakes-line','rivers'].forEach(id=>{
+    if(map.getLayer(id)&&map.getLayer('wetlandZones')) map.moveLayer(id,'wetlandZones');
+  });
   map.addLayer({id:'staging',type:'symbol',source:'staging',
     layout:{'icon-image':'parking','icon-size':['interpolate',['linear'],['zoom'],8,0.8,11,1.15,15,2],'icon-allow-overlap':true}});
   // `text-optional` IS THE WHOLE TICKET. A MapLibre symbol carrying both an icon and a
@@ -1398,7 +1410,7 @@ function buildLegend(){ /* the separate legend is gone — colour meaning now li
 function setVis(ids,on){(ids||[]).forEach(id=>map.getLayer(id)&&map.setLayoutProperty(id,'visibility',on?'visible':'none'));}
 const LYR_MAP={feedEdge:['feedEdgeZones','feedEdgeZones-line'],areas:['areas-fill','areas-line','area-badges'],sites:['sites','sites-wind'],
   camps2:['camps'],staging:['staging'],routes:['route-best','route-hot'],access:['route-access'],
-  water:['lakes','lakes-line','rivers'],crossings:['crossings'],
+  openwater:['lakes','lakes-line','rivers'],crossings:['crossings'],
   roads:['roads','roads-case','roads-track','rail','trans'],
   trails:['trails'],
   boundaries:['boundaries'],
@@ -1578,15 +1590,23 @@ const LAYERS=[
   count:()=>(DOC.routes||[]).filter(r=>(r.km_by_mode||{}).portage).length},
  {k:'boundaries', group:'ACCESS & HYDRO', kind:'outline', edge:'dashed', name:'Borders & places',
   note:'Reference geography', hex:'#CBD5DA', on:true, lyr:'boundaries', count:()=>'—'},
- {k:'water', group:'ACCESS & HYDRO', kind:'line', edge:'solid', name:'Rivers & lakes',
-  note:'Mapped hydrography (OSM)', hex:'#7FC4E8', icon:'waves', on:true, lyr:'water',
-  count:()=>'—'},
- {k:'wetland', group:'ACCESS & HYDRO', kind:'stipple', edge:'solid', name:'Wetlands',
-  note:'GRHQ marsh / bog / fen — a travel barrier that shapes funnels; slow on foot.',
-  hex:'#3E8E7E', icon:'waves', on:false, lyr:'wetland', count:()=>(DOC.wetland_zones||[]).length},
- {k:'beaver', group:'SITES & FEATURES', kind:'point', edge:'none', name:'Beaver ponds',
+ // WATER IS A PARENT CLASS (T10.4). It used to be three unrelated rows — Rivers & lakes
+ // and Wetlands under ACCESS & HYDRO, Beaver ponds stranded over in SITES & FEATURES —
+ // which asked the hunter to know that a flowage, a bog and a lake are the same subject.
+ // The parent draws nothing of its own; it is a master switch over its three kinds, each
+ // still independently toggleable. `parent:true` is what makes the toggle cascade.
+ {k:'water', group:'ACCESS & HYDRO', kind:'line', edge:'solid', name:'Water',
+  note:'Everything wet, most specific first: a beaver pond is a beaver pond, not a generic waterbody.',
+  hex:'#7FC4E8', icon:'waves', on:true, parent:true, count:()=>'—'},
+ {k:'beaver', group:'ACCESS & HYDRO', sub:'water', kind:'point', edge:'none', name:'Beaver ponds',
   note:'GRHQ flowages — a rut hub: bulls scent-mark the wet edge, cows follow. Worth a stand.',
   hex:'#2FB5C4', icon:'droplets', on:false, lyr:'beaver', count:()=>(DOC.beaver_ponds||[]).length},
+ {k:'wetland', group:'ACCESS & HYDRO', sub:'water', kind:'stipple', edge:'solid', name:'Wetlands',
+  note:'GRHQ marsh / bog / fen — a travel barrier that shapes funnels; slow on foot.',
+  hex:'#3E8E7E', icon:'waves', on:false, lyr:'wetland', count:()=>(DOC.wetland_zones||[]).length},
+ {k:'openwater', group:'ACCESS & HYDRO', sub:'water', kind:'line', edge:'solid', name:'Rivers & lakes',
+  note:'Mapped hydrography (OSM) — the general case, and the one the other two outrank.',
+  hex:'#7FC4E8', icon:'waves', on:true, lyr:'openwater', count:()=>'—'},
  {k:'crossings', group:'ACCESS & HYDRO', kind:'point', edge:'none', name:'River crossings',
   note:'On the access legs. Green = a mapped bridge · amber = fordable · red = assume a boat',
   hex:CROSS_BODY, icon:'waves',
@@ -1788,7 +1808,18 @@ function refreshLayerHeader(){
 function applyLayer(r){
   if(r.hz){ applyHuntZoneFilter(); return; }
   if(r.site){ applySiteFilter(); return; }
+  // A PARENT ROW DRAWS NOTHING OF ITS OWN (T10.4) — it is the subject, and its children
+  // are the kinds of it. Toggling it carries every child with it; the children stay
+  // independently toggleable, which is the whole point of grouping them rather than
+  // merging them.
+  if(r.parent){
+    LAYERS.filter(x=>x.sub===r.k).forEach(x=>{ x.on=r.on; applyLayer(x); });
+    return;
+  }
   if(!r.lyr) return;
+  // ...and a child switching on switches its parent on, or the parent would read "off"
+  // while its own ground is drawn.
+  if(r.on && r.sub){ const par=LAYERS.find(x=>x.k===r.sub&&x.parent); if(par) par.on=true; }
   setVis(LYR_MAP[r.lyr], r.on);
   if(r.lyr==='browse') showBrowse=r.on;
   if(r.lyr==='thermal'&&r.on){const hr=document.getElementById('hour');updateThermal(hr?+hr.value:12);}

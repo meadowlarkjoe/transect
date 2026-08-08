@@ -39,16 +39,59 @@ def _lyr_map(src):
     return out
 
 
+def _rows(block):
+    """(key, body) per LAYERS row, COMMENTS STRIPPED.
+
+    Both matter, and both were learned the hard way here. A regex spanning rows runs off
+    the end of one and into the next; and a row's body runs up to the following row's
+    marker, so it swallows the comment written above that row. The comment introducing
+    the Water parent contains the literal text `parent:true`, which is exactly the field
+    the caller is looking for — so `boundaries` was twice diagnosed as a parent row that
+    draws its own geometry. Strip the prose before reading the data.
+    """
+    import re
+    block = re.sub(r"//[^\n]*", "", block)
+    marks = [(m.start(), m.group(1)) for m in re.finditer(r"\{k:'([a-zA-Z0-9_-]+)'", block)]
+    out = []
+    for n, (i, k) in enumerate(marks):
+        j = marks[n + 1][0] if n + 1 < len(marks) else len(block)
+        out.append((k, block[i:j]))
+    return out
+
+
 def test_layer_rows_and_toggles_agree():
     """A LAYERS row whose key is missing from LYR_MAP draws a switch that controls
     nothing: it looks live and does nothing when clicked. The reverse — a LYR_MAP entry
-    with no row — is dead wiring nobody can reach."""
+    with no row — is dead wiring nobody can reach.
+
+    PARENT ROWS ARE THE ONE EXEMPTION (T10.4). A parent names a SUBJECT — Water — and
+    draws nothing itself; giving it an `lyr` would double-draw its children. Its switch
+    is not dead: `applyLayer` cascades it. So the exemption is narrow and it is paid for
+    by the next test, which insists a parent actually has children."""
     import re
     src = open(APP).read()
     start = src.index("const LAYERS=[")
-    rows = set(re.findall(r"\{k:'([a-zA-Z0-9_]+)'", src[start:src.index("\n];", start)]))
+    block = src[start:src.index("\n];", start)]
+    rows = set(re.findall(r"\{k:'([a-zA-Z0-9_]+)'", block))
+    parents = {k for k, body in _rows(block) if "parent:true" in body}
     lyr = set(_lyr_map(src))
-    assert not (rows - lyr), f"LAYERS rows with no LYR_MAP entry: {sorted(rows - lyr)}"
+    missing = rows - lyr - parents
+    assert not missing, f"LAYERS rows with no LYR_MAP entry: {sorted(missing)}"
+
+
+def test_every_parent_row_has_children_and_no_layer_of_its_own():
+    """The exemption above, paid for. A parent with no children is a switch that really
+    does control nothing; a parent WITH a layer double-draws its own children."""
+    import re
+    src = open(APP).read()
+    start = src.index("const LAYERS=[")
+    block = src[start:src.index("\n];", start)]
+    rows = dict(_rows(block))
+    parents = {k for k, body in rows.items() if "parent:true" in body}
+    assert parents, "no parent rows — this test and its exemption are both dead"
+    for k in parents:
+        assert "lyr:" not in rows[k], f"parent row {k} draws its own geometry"
+        assert any(f"sub:'{k}'" in b for b in rows.values()), f"parent row {k} has no children"
 
 
 def test_toggled_layer_ids_exist():
