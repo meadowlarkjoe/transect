@@ -234,7 +234,6 @@
       /* T9.2 — extra seasons compared */
       'setup.winAdd': '+ Compare another season (bow, muzzleloader…)',
       'setup.removeWindow': 'Remove this season',
-      'setup.methodnote': 'A bow needs the bull inside ~35 m, so the shooter sits closer to the caller, the scent wicks come in with him, and a glassing knob is worth much less than a neck he already walks through.',
       'setup.winNote': 'Each season is analysed separately — the model weights habitat differently before, during and after the rut, so the same ground scores differently. Expect the run to take about this many times longer.',
       'setup.sCampWhere': 'Camp location',
       'setup.campPh': "Search a place or paste your camp's lat, lon",
@@ -468,7 +467,6 @@
       'dlg.offlineBody': 'Rien n’a été perdu — votre configuration est intacte. LANCER L’ANALYSE exige que le moteur soit en ligne ; réessayez dans un instant.',
       'setup.winAdd': '+ Comparer une autre saison (arc, poudre noire…)',
       'setup.removeWindow': 'Retirer cette saison',
-      'setup.methodnote': 'À l’arc, l’orignal doit venir à ~35 m : le tireur se place plus près de l’appelant, les mèches de senteur avancent avec lui, et un promontoire d’observation vaut bien moins qu’un goulot qu’il emprunte déjà.',
       'setup.winNote': 'Chaque saison est analysée séparément — le modèle pondère l’habitat différemment avant, pendant et après le rut, donc le même terrain n’obtient pas le même score. Prévoyez un calcul d’autant plus long.',
       'setup.sCampWhere': 'Emplacement du camp',
       'setup.campPh': 'Cherchez un lieu ou collez la latitude, longitude de votre camp',

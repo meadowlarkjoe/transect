@@ -2720,6 +2720,16 @@ function lockSetupWhileRunning(){
   note.innerHTML=`<span class="mark">◷</span><div class="body"><b>${t('lock.title')}</b>${t('lock.body')}</div>`;
   el.insertBefore(note, el.firstChild);
 }
+/* NO EXPLAINER UNDER METHOD OF TAKE. There used to be a hardcoded sentence here about
+   what a bow needs — shown under every method including rifle, quoting a distance carried
+   by hand from scent.METHOD_GEOMETRY. The first fix was to serve those numbers from the
+   engine and write the note per method; the right fix is that the note should not exist.
+   "none of that needs explaining on the input form. that needs to be in the engine but
+   any hunter filling this out is going to understand that."
+
+   The method still changes the model — shooter offset, wick distances, what a glassing
+   knob is worth — and the BRIEF is where that shows up, on ground, where it is a finding
+   rather than a lecture. */
 function renderSetup(){
   const el=document.getElementById('setup');
   const hs=hstyleOf();
@@ -2761,14 +2771,15 @@ function renderSetup(){
         <select id="methodPrimary" class="btn btn--secondary btn--sm" style="margin-left:auto;padding:2px 6px">
           ${['rifle','bow','muzzleloader'].map(m=>`<option value="${m}" ${draft.method===m?'selected':''}>${m}</option>`).join('')}
         </select></div>
-      <div class="s" style="margin-top:4px">${t('setup.methodnote','A bow needs the bull inside ~35 m, so the shooter sits closer to the caller, the scent wicks come in with him, and a glassing knob is worth much less than a neck he already walks through.')}</div>
       <!-- EXTRA SEASONS (T9.2). Each one is a FULL analysis, so the cost is stated up
            front rather than discovered on the progress bar. -->
-      ${draft.windows.map((w,i)=>`<div class="numrow" style="border:1px solid var(--line,#2a343a);border-radius:8px;padding:4px 8px;margin-top:8px">
-        <input data-win="${i}" data-end="0" type="date" value="${w[0]||''}" style="border:none;background:none">
-        <span>→</span>
-        <input data-win="${i}" data-end="1" type="date" value="${w[1]||''}" style="border:none;background:none">
-        <select data-winm="${i}" class="btn btn--secondary btn--sm" style="padding:2px 6px">${['rifle','bow','muzzleloader'].map(m=>`<option value="${m}" ${(w[2]||'rifle')===m?'selected':''}>${m==='muzzleloader'?'muzzle':m}</option>`).join('')}</select>
+      ${draft.windows.map((w,i)=>`<div class="winrow">
+        <div class="winrow__dates">
+          <input data-win="${i}" data-end="0" type="date" required value="${w[0]||''}">
+          <span>→</span>
+          <input data-win="${i}" data-end="1" type="date" required value="${w[1]||''}">
+        </div>
+        <select data-winm="${i}" class="btn btn--secondary btn--sm">${['rifle','bow','muzzleloader'].map(m=>`<option value="${m}" ${(w[2]||'rifle')===m?'selected':''}>${m==='muzzleloader'?'muzzle':m}</option>`).join('')}</select>
         <button data-delwin="${i}" class="btn btn--secondary btn--sm" title="${t('setup.removeWindow','Remove this season')}">×</button></div>`).join('')}
       ${draft.windows.length<3?`<button id="winAdd" class="btn btn--secondary btn--block" style="margin-top:8px">${t('setup.winAdd','+ Compare another season (bow, muzzleloader…)')}</button>`:''}
       ${draft.windows.length?`<div class="s" style="margin-top:6px">${t('setup.winNote','Each season is analysed separately — the model weights habitat differently before, during and after the rut, so the same ground scores differently. Expect the run to take about this many times longer.')}</div>`:''}
@@ -2883,7 +2894,17 @@ function renderSetup(){
   document.getElementById('dateStart').onchange=e=>{if(e.target.value)draft.dates[0]=e.target.value;clearErr();};
   document.getElementById('dateEnd').onchange=e=>{if(e.target.value)draft.dates[1]=e.target.value;clearErr();};
   const _wa=document.getElementById('winAdd');
-  if(_wa) _wa.onclick=()=>{ draft.windows.push(['','','rifle']); renderSetup(); };
+  if(_wa) _wa.onclick=()=>{
+    // SEED IT FROM THE PRIMARY WINDOW, don't start blank. Reported as "i can now add a
+    // different method of take but i can't add a different date range" — the two date
+    // inputs were there and EMPTY, and an empty type=date with no border reads as no
+    // field at all. Seeded, it is visibly a date range you can edit; and seeding with
+    // the primary dates rather than inventing a season is the honest default, because
+    // the app does not know when bow season opens in this zone.
+    const d=draft.dates||[];
+    draft.windows.push([d[0]||'', d[1]||'', draft.method==='bow'?'rifle':'bow']);
+    renderSetup();
+  };
   el.querySelectorAll('input[data-win]').forEach(inp=>inp.onchange=e=>{
     const i=+e.target.dataset.win, j=+e.target.dataset.end;
     if(draft.windows[i]) draft.windows[i][j]=e.target.value; markDirtySoft(); });
@@ -3167,6 +3188,16 @@ function missingSetup(){
     miss.push('hunt dates');
   else if(new Date(draft.dates[1]) < new Date(draft.dates[0]))
     miss.push('an end date after the start date');
+  // EXTRA SEASONS GET THE SAME CHECK. Submit filters them with `w[0]&&w[1]`, so an
+  // incomplete one was SILENTLY DROPPED — you added a season, ran, and got a
+  // single-window result with nothing anywhere saying why. That was half of "i can now
+  // add a different method of take but i can't add a different date range".
+  (draft.windows||[]).forEach((w,i)=>{
+    if(!w) return;
+    const n=i+2;                              // the primary window is season 1
+    if(!(w[0]&&w[1])) miss.push(`both dates for season ${n}`);
+    else if(new Date(w[1]) < new Date(w[0])) miss.push(`an end date after the start date for season ${n}`);
+  });
   return miss;
 }
 /* A completed analysis cost 3–5 minutes; don't let it evaporate on a stray click.
@@ -3194,9 +3225,9 @@ function _runAnalysis(){
   if(miss.length){
     const box=document.getElementById('setupErr');
     if(box){ box.className='callout'; box.dataset.kind='warn';
-      box.innerHTML=`<span class="mark">!</span><div class="body"><b>Set your ${miss[0]} first</b>
-        Hunt dates drive rut phase, weather and which behaviour the model weights — without them
-        the result would be for dates you never chose.</div>`; }
+      box.innerHTML=`<span class="mark">!</span><div class="body"><b>Set ${miss[0]} first</b>
+        Every season is a separate analysis, so each one needs its own dates. Without them
+        the result would be for dates you never chose — or would quietly leave a season out.</div>`; }
     setTab('setup');
     const d=document.getElementById('dateStart'); if(d) d.focus();
     return;

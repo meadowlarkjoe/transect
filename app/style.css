@@ -321,6 +321,22 @@ input[type=range]:focus{box-shadow:none;border:0}
 /* The water parent's children are indented like browse's — same `sub` mechanism, so
    nothing new is needed here; this note exists only to say that is deliberate. */
 
+/* AN EXTRA SEASON ROW. It used to be a `.numrow` holding two date inputs, an arrow, a
+   method select and a delete button on ONE flex line — 326 px of children in a 289 px
+   row. The select was crushed to 14 px and the dates were pushed out of sight on a
+   narrow panel, which is why it read as "i can't add a different date range": the
+   fields were there and invisible.
+
+   The dates now own their own line and the method sits under them, so nothing competes
+   for width and nothing has to shrink. */
+.winrow{border:1px solid var(--line,#2a343a);border-radius:8px;padding:6px 8px;margin-top:8px;
+  display:grid;grid-template-columns:1fr auto;gap:6px 8px;align-items:center}
+.winrow__dates{grid-column:1 / -1;display:flex;align-items:center;gap:8px}
+.winrow__dates input[type=date]{flex:1 1 0;min-width:0;border:none;background:none;
+  color:var(--text);font:inherit}
+.winrow > select{grid-column:1;width:100%}
+.winrow > button{grid-column:2}
+
 /* Season filter — sits directly under the layers pill, same door-beside-the-sidebar
    idiom, because it answers the same kind of question: what am I looking at? Hidden
    outright on a single-window run; a filter that filters nothing reads as broken. */
