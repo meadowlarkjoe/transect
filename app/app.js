@@ -2775,8 +2775,24 @@ function lockSetupWhileRunning(){
    rather than a lecture. */
 /* WHICH KIND OF AOI IS SET (T10.8). Derived, never stored twice: a `drawn` mode with no
    shape selected is not a mode, it is a broken form, so it collapses back to radius. */
+/* TWO QUESTIONS, AND CONFLATING THEM MADE THE MODE UNREACHABLE.
+
+   `aoiModeUI` is which panel you are LOOKING at, and it follows what you picked.
+   `aoiMode` is which mode is SATISFIED, and it needs a shape.
+
+   They were one function requiring a drawn area to return 'drawn' — while the panel
+   holding the "Draw an area on the map" button was gated on that same answer. So you
+   needed an area to reach the button that lets you draw one, and clicking "Drawn area"
+   appeared to do nothing. Reported as exactly that: "i cannot select Drawn area".
+
+   The guard it was trying to be is still here and still right — a drawn run with no ring
+   must not quietly become a radius run — but that belongs at SUBMIT (`missingSetup`),
+   not on the door. */
+function aoiModeUI(){
+  return draft.aoiMode==='drawn' ? 'drawn' : 'radius';
+}
 function aoiMode(){
-  return (draft.aoiMode==='drawn' && drawnAreas().length) ? 'drawn' : 'radius';
+  return (aoiModeUI()==='drawn' && drawnAreas().length) ? 'drawn' : 'radius';
 }
 function drawnAreas(){
   return (drawSaved||[]).filter(f=>f&&f.properties&&f.properties.dtype==='area'
@@ -2926,10 +2942,10 @@ function renderSetup(){
            I want to analyze." Radius stays the default because it is what most hunts
            are; a drawn parcel is the exception that needed to become possible. -->
       <div class="seg" id="aoiModeSeg" style="display:flex;margin-top:4px">
-        <button data-aoimode="radius" ${aoiMode()==='radius'?'aria-pressed="true"':''}>${t('setup.aoiRadius','Radius')}</button>
-        <button data-aoimode="drawn" ${aoiMode()==='drawn'?'aria-pressed="true"':''}>${t('setup.aoiDrawn','Drawn area')}</button>
+        <button data-aoimode="radius" ${aoiModeUI()==='radius'?'aria-pressed="true"':''}>${t('setup.aoiRadius','Radius')}</button>
+        <button data-aoimode="drawn" ${aoiModeUI()==='drawn'?'aria-pressed="true"':''}>${t('setup.aoiDrawn','Drawn area')}</button>
       </div>
-      ${aoiMode()==='radius'?`
+      ${aoiModeUI()==='radius'?`
         <label class="fld">${t('setup.radius','Radius')} — <b class="mono" id="radVal">${Math.round(toU(draft.radius))} ${unitBig()}</b></label>
         <input id="radius" type="range" min="${UNITS==='imperial'?3:5}" max="${UNITS==='imperial'?75:120}" step="1" value="${Math.round(toU(draft.radius))}">
         <div class="t-micro" style="display:flex;justify-content:space-between;margin-top:4px">
@@ -3298,6 +3314,10 @@ function missingSetup(){
   // incomplete one was SILENTLY DROPPED — you added a season, ran, and got a
   // single-window result with nothing anywhere saying why. That was half of "i can now
   // add a different method of take but i can't add a different date range".
+  // Chosen `drawn` with nothing drawn: the panel says so and offers the draw tool, but
+  // the run must not quietly fall back to a radius the hunter did not ask for.
+  if(aoiModeUI()==='drawn' && !selectedRing())
+    miss.push('an area to analyse — draw one on the map, or switch back to Radius');
   (draft.windows||[]).forEach((w,i)=>{
     if(!w) return;
     const n=i+2;                              // the primary window is season 1

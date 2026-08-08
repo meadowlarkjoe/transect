@@ -197,15 +197,40 @@ def _fn(name):
 def test_setup_offers_both_modes_with_radius_as_the_default():
     src = _code()
     assert 'data-aoimode="radius"' in src and 'data-aoimode="drawn"' in src
-    body = _fn("aoiMode")
+    body = _fn("aoiModeUI")
     assert "draft.aoiMode==='drawn'" in body.replace(" ", "")
 
 
-def test_drawn_mode_with_no_shape_collapses_back_to_radius():
-    """A mode you cannot satisfy is not a mode, it is a broken form — and it would send
-    `ring: null` while claiming to be a drawn run."""
+def test_you_can_select_drawn_mode_before_you_have_drawn_anything():
+    """THIS TEST PINNED THE BUG. It used to assert that `aoiMode` required a drawn area
+    to return 'drawn' — which is true and was also the whole problem, because the panel
+    holding the "Draw an area on the map" button was gated on that same answer. You
+    needed an area to reach the button that lets you draw one. Reported as "i cannot
+    select Drawn area".
+
+    Two questions, kept apart now: `aoiModeUI` is which panel you are LOOKING at and
+    follows what you picked; `aoiMode` is which mode is SATISFIED and needs a shape."""
+    ui = _fn("aoiModeUI")
+    assert "drawnAreas" not in ui, "the door is gated on having already gone through it"
+    assert "draft.aoiMode==='drawn'" in ui.replace(" ", "")
+    src = _code()
+    assert "aoiModeUI()==='drawn'" in src.replace(" ", ""), \
+        "the panel does not follow the user's choice"
+
+
+def test_the_effective_mode_still_requires_a_shape():
+    """The guard the old version was reaching for is still here — it just moved off the
+    door. A drawn run with no ring must never quietly become a radius run."""
     body = _fn("aoiMode")
     assert "drawnAreas().length" in body
+
+
+def test_choosing_drawn_with_nothing_drawn_blocks_the_run_by_name():
+    src = _APP.read_text()
+    i = src.index("function missingSetup(){")
+    body = src[i:src.index("\n}", i)]
+    assert "aoiModeUI()==='drawn'" in body.replace(" ", "")
+    assert "draw one on the map" in body
 
 
 def test_the_ring_comes_from_a_shape_actually_on_the_map():
