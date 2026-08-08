@@ -52,7 +52,7 @@ PER_PLAN_BYTES = int(os.environ.get("TRANSECT_ARTIFACT_PER_PLAN", str(400 * 1024
 # is actually one hunter's reachability verdict. A store that takes anything eventually
 # serves something it should not.
 PROMOTABLE = {
-    "stands.gpkg": "The forest survey's stand polygons with their attributes (E11.6).",
+    "stands.geojson": "The forest survey's stand polygons with their attributes (E11.6).",
     "stands.json": "How many stands that layer holds, and whether it was capped.",
     "hillshade_lidar.png": "AOI hillshade rendered from HRDEM (T10.22).",
     "hillshade_lidar.json": "Its bounds and which DEM produced it.",

@@ -52,7 +52,7 @@ ARTIFACTS = (
     "burn_year.tif",                                            # fire.py
     "cut_year.tif", "stand_closure.tif", "stand_type.tif",      # ecoforestiere.py
     "stand_height.tif", "stand_age.tif", "stand_slope.tif",     #   ↳ E11.2: the survey
-    "stand_ess_browse.tif", "stands.gpkg", "stands.json",                      #     attributes + polygons
+    "stand_ess_browse.tif", "stands.geojson", "stands.json",                      #     attributes + polygons
     "ecoforestiere_absent.flag",                                #   ↳ its coverage flag
     "roads.tif", "roads.gpkg", "trails.gpkg", "rail.gpkg",      # roads.py
     "waterbodies.gpkg", "waterways.gpkg",                       #   ↳ OSM hydrography

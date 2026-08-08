@@ -21,7 +21,7 @@ Writes (on the working grid; 0 / nodata where no stand):
   stand_age.tif      int16 stand age in years (0 = unknown; uneven-aged classes mapped)
   stand_slope.tif    float32 slope class as a percent grade (0 = unknown)
   stand_ess_browse.tif  float32 0..1 browse value of the SPECIES composition (E11.2)
-  stands.gpkg        the polygons with their survey attributes, for the map (E11.6)
+  stands.geojson     the polygons with their survey attributes, for the map (E11.6)
 """
 from __future__ import annotations
 
@@ -133,6 +133,27 @@ def ess_browse(gr_ess: str) -> float:
         wsum += w
         tot += w * ESS_BROWSE.get(c, 0.10)     # unknown code: assume near-nil, not average
     return round(tot / wsum, 4) if wsum else 0.0
+
+
+def _geojson_5dp(gdf) -> str:
+    """GeoJSON with coordinates rounded to 5 dp (~1.1 m). Rounding in the JSON rather
+    than in the geometry keeps the stored shape exact for anything that reads the file
+    with a GIS, while cutting what the browser downloads."""
+    import json as _json
+
+    def _rnd(o):
+        if isinstance(o, list):
+            return [_rnd(x) for x in o]
+        if isinstance(o, float):
+            return round(o, 5)
+        return o
+
+    doc = _json.loads(gdf.to_json())
+    for f in doc.get("features", []):
+        g = f.get("geometry") or {}
+        if "coordinates" in g:
+            g["coordinates"] = _rnd(g["coordinates"])
+    return _json.dumps(doc, separators=(",", ":"))
 
 
 def stand_age(cl_age: str) -> int:
@@ -420,7 +441,16 @@ def fetch(ctx: Context) -> None:
             gdf = gpd.GeoDataFrame(
                 [{k: v for k, v in row.items() if k != "geometry"} for row in vec],
                 geometry=[row["geometry"] for row in vec], crs=dst_crs)
-            gdf.to_file(cache / "stands.gpkg", driver="GPKG", layer="stands")
+            # GEOJSON, NOT GEOPACKAGE. A .gpkg is SQLite: MapLibre cannot read one, and
+            # getting a browser to would mean shipping a SQL engine to parse a map layer.
+            # GeoJSON is browser-native AND readable by every GIS, so one artefact serves
+            # the map (E11.6) and the print pipeline (E12) instead of storing both.
+            #
+            # 5 decimal places is ~1.1 m at this latitude, which is deliberately the same
+            # precision as the 1 m boundary de-duplication above — 4 dp would be 11 m and
+            # would throw away exactly what that decision protected. Measured on the
+            # sheet's box: 2.78 MB, 574 KB gzipped.
+            (cache / "stands.geojson").write_text(_geojson_5dp(gdf.to_crs("EPSG:4326")))
         # A CAP THAT TRUNCATES IN SILENCE reads as "this is all the forest there is".
         # Say so, in the log and in a sidecar the map can render as a caveat.
         if truncated:

@@ -29,7 +29,7 @@ def _store(tmp_path, monkeypatch):
     yield
 
 
-def _src(tmp_path, name="stands.gpkg", size=1024):
+def _src(tmp_path, name="stands.geojson", size=1024):
     p = tmp_path / name
     p.write_bytes(b"x" * size)
     return p
@@ -42,7 +42,7 @@ def test_a_missing_artifact_is_an_answer_not_a_hole():
     """THE WHOLE REASON THIS MODULE EXISTS. An empty layer and a swept layer look
     identical on a map, and a hunter reading the first concludes there is nothing on the
     ground. `state` must tell them apart."""
-    st = artifacts.state("plan1", "stands.gpkg")
+    st = artifacts.state("plan1", "stands.geojson")
     assert st["status"] == "absent"
     assert st["why"]
 
@@ -51,11 +51,11 @@ def test_evicted_is_distinguishable_from_never_had_one(tmp_path):
     """"We reclaimed it, re-run to rebuild" and "your run predates this layer" are
     different sentences and the app has to be able to say the right one."""
     artifacts.put("plan1", _src(tmp_path))
-    assert artifacts.state("plan1", "stands.gpkg")["status"] == "present"
+    assert artifacts.state("plan1", "stands.geojson")["status"] == "present"
     artifacts.forget_files = None  # noqa: B010 — guard against a helper appearing later
     import shutil
     shutil.rmtree(artifacts.root() / "plan1")          # simulate eviction
-    st = artifacts.state("plan1", "stands.gpkg")
+    st = artifacts.state("plan1", "stands.geojson")
     assert st["status"] == "evicted", st
     assert "re-run" in st["why"].lower()
 
@@ -76,7 +76,7 @@ def test_only_allowlisted_names_are_stored(tmp_path):
     geocache.ARTIFACTS is one: `access_unknown.flag` looks like source data and is
     actually one hunter's reachability verdict."""
     assert artifacts.put("plan1", _src(tmp_path, "access_unknown.flag")) is False
-    assert artifacts.put("plan1", _src(tmp_path, "stands.gpkg")) is True
+    assert artifacts.put("plan1", _src(tmp_path, "stands.geojson")) is True
 
 
 def test_a_plan_id_cannot_walk_out_of_the_store(tmp_path):
@@ -84,7 +84,7 @@ def test_a_plan_id_cannot_walk_out_of_the_store(tmp_path):
     than sanitised — sanitising invites an argument about whether it is complete."""
     for bad in ("../etc", "a/b", "", ".", "x" * 200):
         assert artifacts.put(bad, _src(tmp_path)) is False
-        assert artifacts.path(bad, "stands.gpkg") is None
+        assert artifacts.path(bad, "stands.geojson") is None
 
 
 def test_storing_never_raises(tmp_path):
@@ -96,7 +96,7 @@ def test_reading_touches_the_plan_so_eviction_is_least_RECENTLY_used(tmp_path):
     """A plan reopened every autumn is in use, even if it was written years ago."""
     artifacts.put("plan1", _src(tmp_path))
     before = json.loads((artifacts.root() / "_ledger.json").read_text())["plan1"]["used"]
-    artifacts.path("plan1", "stands.gpkg")
+    artifacts.path("plan1", "stands.geojson")
     after = json.loads((artifacts.root() / "_ledger.json").read_text())["plan1"]["used"]
     assert after >= before
 
@@ -120,7 +120,7 @@ def test_deleting_a_plan_takes_its_artifacts(tmp_path):
     """An artefact outliving its plan is a leak with someone's hunting ground in it."""
     artifacts.put("plan1", _src(tmp_path))
     artifacts.forget("plan1")
-    assert artifacts.path("plan1", "stands.gpkg") is None
+    assert artifacts.path("plan1", "stands.geojson") is None
     assert "plan1" not in json.loads((artifacts.root() / "_ledger.json").read_text())
 
 

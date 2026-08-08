@@ -25,6 +25,7 @@ import os
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel
 
 # Optional shared-key guard: if TRANSECT_API_KEY is set, /scout requires it. Keeps a
@@ -46,6 +47,11 @@ from .config import (AOI, Context, HunterCfg, LatLon, SeasonCfg, _walk, cache_di
                      load_model, load_species, outputs_dir)
 
 app = FastAPI(title="Transect Scout API")
+# COMPRESS THE BIG RESPONSES. Measured: the forest layer is 2.8 MB of GeoJSON that
+# gzips to 574 KB for an 8 km box — a 5x saving on the single largest thing this API
+# sends. Plan documents benefit too (586 KB average, 1.5 MB peak, all JSON). 1500 bytes
+# is roughly one packet: below that compression costs more than it saves.
+app.add_middleware(GZipMiddleware, minimum_size=1500)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
                    allow_headers=["*"])
 
@@ -648,7 +654,7 @@ def put_plan(p: PlanIn, authorization: str = Header(default=None)):
     # costs a map layer and never the plan.
     try:
         jid = ((p.data or {}).get("meta") or {}).get("job_id")
-        if jid and artifacts.state(p.id, "stands.gpkg").get("status") != "present":
+        if jid and artifacts.state(p.id, "stands.geojson").get("status") != "present":
             got = artifacts.promote_job(p.id, cache_dir(f"job_{jid}"))
             if got:
                 print(f"[artifacts] plan {p.id}: promoted {', '.join(got)}")

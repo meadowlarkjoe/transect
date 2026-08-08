@@ -155,6 +155,22 @@ def test_the_polygon_cap_is_not_silent():
     assert "the map layer is partial" in src
 
 
+def test_the_layer_is_browser_native():
+    """A .gpkg is SQLite — MapLibre cannot read one, and getting a browser to would mean
+    shipping a SQL engine to parse a map layer. GeoJSON is browser-native AND readable by
+    every GIS, so one artefact serves the map (E11.6) and the print pipeline (E12)."""
+    src = inspect.getsource(E.fetch)
+    assert "stands.geojson" in src and "stands.gpkg" not in src
+
+
+def test_coordinates_keep_the_precision_the_boundary_fight_won():
+    """5 dp is ~1.1 m at this latitude, deliberately the same precision as the 1 m
+    de-duplication. 4 dp would be 11 m and would throw away exactly what that protected.
+    Measured: 2.78 MB, 574 KB gzipped, for the sheet's box."""
+    src = inspect.getsource(E._geojson_5dp)
+    assert "round(o, 5)" in src
+
+
 def test_a_display_failure_cannot_cost_the_analysis():
     src = inspect.getsource(E.fetch)
     i = src.index("import geopandas")
@@ -168,7 +184,7 @@ def test_the_new_artifacts_are_shareable():
     re-downloads a dense WFS pull the cache exists to avoid."""
     from moose_scout import geocache
     for name in ("stand_height.tif", "stand_age.tif", "stand_slope.tif",
-                 "stand_ess_browse.tif", "stands.gpkg", "stands.json"):
+                 "stand_ess_browse.tif", "stands.geojson", "stands.json"):
         assert name in geocache.ARTIFACTS, name
 
 
