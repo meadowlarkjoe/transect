@@ -34,9 +34,9 @@ The instruments are now written down rather than reconstructed (`focus_pool.tif`
 | # | Ticket | Why it is here |
 |---|--------|----------------|
 | 1 | **T9.10b** Decide the fine-grid neck detector | `blocked` — the A/B now runs and the 7→3 collapse is fixed (it was two cell-denominated constants). What is left is ground truth Joe has to supply, plus a separate worker-memory call on `FINE_BUDGET_PX`. |
-| 2 | **T10.12** Relief mislabelled; LiDAR now deliverable | The row names the wrong source. HRDEM hillshade became real in T9.10. |
-| 3 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
-| 4 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
+| 2 | **T10.8** Draw the area to analyse | Needs padded-box analysis + clipped output, which is also what retires the 5 km floor. |
+| 3 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
+| 4 | **T10.22** Serve the LiDAR hillshade as a basemap | Split out of T10.12, which established that the coverage is real. Needs a per-job asset route and a RETENTION answer before any rendering — a hillshade served from the pruned geography cache 404s on a reopened plan. |
 
 **T10.4 + T10.9 done 2026-08-07** (engine rev 31). Water became one parent over beaver
 ponds · wetlands · rivers & lakes, and the DRAW ORDER was inverted to match the rule —
@@ -860,7 +860,7 @@ which is exactly the "3D that isn't 3D" being described.
 exaggeration slider works whenever the map is pitched, and dropping back to 0° releases
 terrain. One state, not two.
 
-### T10.12 — Relief is mislabelled, and LiDAR is now genuinely available · `ready`
+### T10.12 — Relief is mislabelled, and LiDAR is now genuinely available · `done` (2026-08-07)
 Asked: "Is releif and Lidar not the same? Should we remove lidar from below?"
 **No, and no — keep it.** They are different by ~30x and the panel is currently lying
 about one of them:
@@ -879,6 +879,37 @@ consistent with how every other engine raster reaches the app — rendering an A
 hillshade at analysis time.
 **Done when:** Relief states its real source and why it stops at z14; the LiDAR row is
 enabled exactly when HRDEM covers the box, and says what fraction.
+
+**Done, except the serving half — which is now T10.22.** Relief says `ESRI WORLD
+HILLSHADE · MIXED RES` and carries the reason it goes soft at z14 (the elevation under a
+hillshade cannot carry honest detail past it), tied to `RELIEF_MAXZ` rather than a
+hardcoded number. The LiDAR row reads `coverage_frac` from the coverage manifest and
+gives a per-AOI answer: the measured percentage where HRDEM covers the box, "NOT FLOWN
+HERE" where it does not, and "run predates the HRDEM mosaic" for an old plan — which is
+not the same as 0%, and reporting it as 0% would be inventing a measurement.
+
+It is deliberately still not SELECTABLE, and the row says so. A switch that does nothing
+is the T10.10 mistake. Nearly shipped reading `DOC.data_manifest`; the field is
+`coverage_manifest`, and the failure would have been silent — `.find` on an empty array
+returns undefined and the row degrades to "no reading", which looks exactly like an old
+plan.
+
+### T10.22 — Serve the LiDAR hillshade as a basemap · `ready`
+T10.12 established that HRDEM coverage is real and measured per box. What is missing is a
+way to LOOK at it. The COGs are not tiles, so this means rendering an AOI-sized hillshade
+at analysis time — the HRDEM mosaic publishes `<tile>-mosaic-1m-dtm_hillshade.tif` beside
+the DTM the engine already reads.
+
+**The part that makes this more than an afternoon,** and the reason it was split out
+rather than rushed at the end of a long session: there is no per-job asset route on the
+API today, and the geography cache is pruned. A hillshade served straight out of that
+cache would work for an hour and then quietly 404 for anyone reopening a saved plan —
+the silent-breakage pattern this codebase keeps getting bitten by. Retention has to be
+decided BEFORE the render, not after.
+
+**Done when:** selecting LiDAR shows the 1 m hillshade over the covered part of the box,
+a plan reopened after the cache is pruned either still renders it or says plainly why it
+cannot, and the basemap row becomes selectable exactly when there is something to select.
 
 ### T10.13 — Leaf-off and "recent imagery" are placeholders; the season picker was never built · `ready`
 Asked: "Can we find a source for leaf off imagery?... Same with recent imagery. We

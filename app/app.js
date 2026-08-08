@@ -1810,16 +1810,51 @@ function applyHuntZoneFilter(){
 /* Each basemap states its actual SOURCE and resolution — you should be able to see
    what you're looking at without leaving the app. Options we don't have are shown
    as unavailable rather than hidden: same rule as the NO DATA layer row. */
+// RELIEF IS NOT CDEM (T10.12). It was labelled `CDEM HILLSHADE` and is actually Esri's
+// global World_Hillshade — mixed resolution, not a Canadian product at all. Asked: "Is
+// releif and Lidar not the same?" No: they differ by about 30x, and the row was naming
+// the wrong source, which is the only reason the question is hard to answer from the app.
 const BASE_SPEC={satellite:'ESRI WORLD IMAGERY · 0.5 M', hybrid:'IMAGERY + LABELS',
-  topo:'CANVEC · 20 M CONTOURS', relief:'CDEM HILLSHADE'};
+  topo:'CANVEC · 20 M CONTOURS', relief:'ESRI WORLD HILLSHADE · MIXED RES'};
+// ...and why it goes soft before the imagery does. The ceiling is ours, not Esri's: see
+// RELIEF_MAXZ. A row that blurs earlier than its neighbour with no explanation reads as
+// a broken layer.
+const BASE_WHY={relief:'Stops sharpening at z'+RELIEF_MAXZ+' — the elevation data under a '
+  +'hillshade cannot carry honest detail past that, so beyond it you would be reading '
+  +'interpolation, not ground.'};
 const BASE_SWATCH={satellite:'linear-gradient(135deg,#3d4a2c,#6b7a4a)',
   hybrid:'linear-gradient(135deg,#3d4a2c,#7f8fa0)', topo:'linear-gradient(135deg,#d8d2c4,#a8b09a)',
   relief:'linear-gradient(135deg,#4a4a4a,#9a9a9a)'};
-const BASE_ADDS=[
-  {name:'LiDAR (HD topo)', note:'NOT AVAILABLE FOR THIS AOI', ok:false},
-  {name:'Leaf-off imagery', note:'NOT WIRED — WOULD SHOW STRUCTURE UNDER CANOPY', ok:false},
-  {name:'Recent imagery', note:'NOT WIRED — LESS DETAIL · UPDATED OFTEN', ok:false},
-];
+/* THE LiDAR ROW IS A PER-AOI ANSWER NOW, NOT A BLANKET NO (T10.12).
+   It said "NOT AVAILABLE FOR THIS AOI" on every box, which stopped being true at T9.10:
+   the HRDEM mosaic is read for real and `dem_source.json` records the MEASURED coverage
+   fraction, which reaches the app in the data manifest. Over Rouyn that is 92.7%. Saying
+   "not available" there is the same class of lie as labelling Esri's hillshade CDEM.
+
+   It is still not SELECTABLE, and the note says so rather than offering a switch that
+   does nothing — the HRDEM COGs are not tiles, so serving them needs an AOI-sized
+   hillshade rendered at analysis time and a way to keep serving it after the geography
+   cache is pruned. That is T10.22, and it is the part with real work in it. */
+function hrdemEntry(){
+  // `coverage_manifest`, not `data_manifest`. Getting this wrong is silent: `.find` on
+  // an empty array returns undefined and the row falls back to "no coverage reading",
+  // which looks exactly like an old plan.
+  return ((DOC.coverage_manifest||[]).find(e=>e.id==='hrdem')) || null;
+}
+function baseAdds(){
+  const h=hrdemEntry();
+  const f=h&&h.coverage_frac!=null?+h.coverage_frac:null;
+  const lidar = f===null
+    ? {name:'LiDAR (HD topo)', note:'NO COVERAGE READING FOR THIS PLAN — RUN PREDATES THE HRDEM MOSAIC', ok:false}
+    : f<=0
+      ? {name:'LiDAR (HD topo)', note:'NOT FLOWN HERE — THE 30 M NATIONAL DEM IS THE BEST THERE IS FOR THIS BOX', ok:false}
+      : {name:'LiDAR (HD topo)',
+         note:`${(h.native_res_m||1)} M BARE EARTH OVER ${Math.round(f*100)}% OF THIS BOX`
+              +' — USED BY THE ANALYSIS, NOT YET SERVED AS A BASEMAP', ok:false};
+  return [lidar,
+    {name:'Leaf-off imagery', note:'NOT WIRED — WOULD SHOW STRUCTURE UNDER CANOPY', ok:false},
+    {name:'Recent imagery', note:'NOT WIRED — LESS DETAIL · UPDATED OFTEN', ok:false}];
+}
 let baseOpacity=1, terrOn=false, terrExag=1.4;
 /* TERRAIN IS DERIVED FROM PITCH — one state, not two (T10.11).
    Two independent things used to wear the name "3D": the camera, which right-drag
@@ -1868,7 +1903,8 @@ function buildBaseDock(){
     h+=`<div class="baserow ${on?'on':''}" data-base="${b}">
       <span class="bthumb" style="background:${BASE_SWATCH[b]}"></span>
       <span class="bmeta"><span class="bname">${BASE_LABEL[b]}</span>
-        <span class="bspec">${BASE_SPEC[b]||''}</span></span>
+        <span class="bspec">${BASE_SPEC[b]||''}</span>${
+          BASE_WHY[b]?`<span class="note">${BASE_WHY[b]}</span>`:''}</span>
       ${on?'<span class="btag">ACTIVE</span>':''}</div>`;
   });
   h+=`<div class="drow"><span class="t-micro">${t('base.opacity')}</span>
@@ -1879,12 +1915,12 @@ function buildBaseDock(){
       <div class="drow"><span class="t-micro">Exaggeration <b class="mono" id="exagVal">${terrExag.toFixed(1)}×</b></span>
         <input id="terrExag" type="range" min="1" max="3" step="0.1" value="${terrExag}" style="width:120px"></div>`;
   h+=`<div class="grouplabel">${t('base.more')}</div>`;
-  BASE_ADDS.forEach(a=>{
+  baseAdds().forEach(a=>{
     h+=`<div class="layer-row" data-state="${a.ok?'off':'nodata'}">
       <input type="checkbox" ${a.ok?'':'disabled'}>
       <span class="lp lp--outline" style="--c:var(--text-4)"></span>
       <span><span class="name">${a.name}</span><span class="note">${a.note}</span></span>
-      <span class="count">${a.ok?'':'NO DATA'}</span></div>`;
+      <span class="count">${a.ok?'':(a.note.indexOf('OF THIS BOX')>0?'HAVE IT':'NO DATA')}</span></div>`;
   });
   d.innerHTML=h+`</div>`;
   d.querySelector('.dclose').onclick=()=>closeDocks();
