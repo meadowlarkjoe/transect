@@ -220,9 +220,12 @@ def test_you_can_select_drawn_mode_before_you_have_drawn_anything():
 
 def test_the_effective_mode_still_requires_a_shape():
     """The guard the old version was reaching for is still here — it just moved off the
-    door. A drawn run with no ring must never quietly become a radius run."""
+    door. A drawn run with no ring must never quietly become a radius run.
+
+    It reads `selectedRing()` rather than the drawings list now: the boundary stopped
+    being an annotation and moved onto the draft, so there is no list to count."""
     body = _fn("aoiMode")
-    assert "drawnAreas().length" in body
+    assert "selectedRing()" in body
 
 
 def test_choosing_drawn_with_nothing_drawn_blocks_the_run_by_name():
@@ -282,18 +285,21 @@ def test_the_request_carries_the_ring_and_still_carries_a_radius():
     assert "radius_km:" in src[i - 200:i]
 
 
-def test_drawing_a_boundary_from_setup_comes_back_with_it_selected():
-    """The flow died one step after the tab started working. Nothing re-rendered Setup
-    when a drawing was committed, so you drew the boundary, returned, and the panel still
-    said "nothing drawn yet" — with the shape sitting in `drawSaved` the whole time."""
+def test_drawing_a_boundary_from_setup_never_leaves_setup():
+    """This started as a round trip — jump to Overview to arm, jump back on close — and
+    the return leg was broken because nothing re-rendered Setup. Reported as confusing in
+    both directions, so the trip is gone: the map is beside the panel the whole time.
+
+    What survives is the FLAG, which is what tells a finished polygon it was drawn for
+    the analysis rather than as a note."""
     src = _code()
     assert "window._aoiDrawPending=true" in src.replace(" ", ""), \
         "arming from Setup does not record why"
     i = src.index("if(window._aoiDrawPending){")
-    seg = src[i:i + 300].replace(" ", "")
+    seg = src[i:src.index("} else {", i)].replace(" ", "")
     assert "draft.aoiMode='drawn'" in seg
-    assert "draft.ringId=feat.properties.id" in seg
-    assert "setTab('setup')" in seg
+    assert "draft.aoiRing=ring" in seg
+    assert "setTab(" not in seg, "it still moves the hunter between tabs"
 
 
 def test_an_area_drawn_for_a_note_does_not_hijack_the_tab():
@@ -325,11 +331,14 @@ def test_the_pending_flag_is_set_after_the_tool_is_armed_not_before():
         "the flag is set before arming again, where finishDraw eats it"
 
 
-def test_the_ring_fallback_does_not_pretend_to_be_a_choice():
-    """`selectedRing` falls back to the first shape when the chosen one is gone, which is
-    right for a deleted shape and was ALSO masking the ordering bug above: nothing had
-    selected a ring and this quietly picked the only one there was. With several drawn it
-    would have quietly picked the wrong one."""
+def test_there_is_nothing_left_to_choose_between():
+    """`selectedRing` used to pick from a LIST and fall back to the first entry, which
+    once masked an ordering bug — nothing had selected a ring and the fallback quietly
+    picked the only shape there was.
+
+    The whole class of bug is gone rather than guarded: there is exactly ONE boundary, it
+    lives on the draft, and redrawing replaces it. A fallback cannot pick wrong when
+    there is nothing to pick from."""
     body = _fn("selectedRing")
-    assert "draft.ringId=f.properties.id" in body.replace(" ", ""), \
-        "the fallback does not write back, so the selection stays a guess"
+    assert "draft.aoiRing" in body
+    assert "find(" not in body and "list[0]" not in body

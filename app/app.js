@@ -2273,7 +2273,22 @@ function _vertsOf(f){ const g=f.geometry;
   if(g.type==='LineString') return g.coordinates.slice();
   if(g.type==='Polygon') return (g.coordinates[0]||[]).slice(0,-1);   // drop the closing dup
   return []; }
-function _drawById(id){ return drawSaved.find(f=>f.properties&&f.properties.id===id); }
+/* The analysis boundary is edited through the SAME machinery as a drawing, without
+   living in the drawings list. `_AOI_EDIT_ID` is a sentinel that hands the editor a
+   feature backed by `draft.aoiRing`, so drag / add / remove all work on it and write
+   straight through — rather than the boundary becoming the one shape you cannot reshape
+   the moment it stopped being an annotation. */
+const _AOI_EDIT_ID=-1;
+function _aoiFeature(){
+  const r=(draft&&Array.isArray(draft.aoiRing))?draft.aoiRing:null;
+  if(!r||r.length<4) return null;
+  return {type:'Feature',geometry:{type:'Polygon',coordinates:[r]},
+          properties:{id:_AOI_EDIT_ID,dtype:'area',aoi:1,
+                      label:areaFmt(ringKm2(r.slice(0,-1)))}};
+}
+function _drawById(id){
+  if(id===_AOI_EDIT_ID) return _aoiFeature();
+  return drawSaved.find(f=>f.properties&&f.properties.id===id); }
 function polyKm(pts){let d=0;for(let i=1;i<pts.length;i++)d+=hav(pts[i-1],pts[i]);return d;}
 function ringKm2(ring){ // spherical polygon area
   if(ring.length<3)return 0; const R=6371,d2r=Math.PI/180; let s=0;
@@ -2437,15 +2452,15 @@ function onDrawClick(e){
 function finishDraw(){
   if(drawPts.length>=2){
     if(drawTool==='area'){ const ring=drawPts.concat([drawPts[0]]);
-      const feat=_drawFeat({type:'Polygon',coordinates:[ring]},'area',areaFmt(ringKm2(drawPts)));
-      drawSaved.push(feat);
-      // DRAWN FOR THE ANALYSIS: select it and go back, because the alternative is the
-      // hunter finishing a polygon and having to work out for themselves that Setup now
-      // has a list with it in. It is one shape and one obvious intent.
       if(window._aoiDrawPending){
+        // THE ANALYSIS BOUNDARY. Straight onto the draft — never into drawSaved, or it
+        // shows up under MY DRAWINGS as a note the hunter has to manage. One shape,
+        // replaced when redrawn, and no tab change because we never left Setup.
         window._aoiDrawPending=false;
-        draft.aoiMode='drawn'; draft.ringId=feat.properties.id;
-        markDirtySoft(); setTab('setup');
+        draft.aoiMode='drawn'; draft.aoiRing=ring;
+        markDirtySoft(); renderSetup(); drawDraft();
+      } else {
+        drawSaved.push(_drawFeat({type:'Polygon',coordinates:[ring]},'area',areaFmt(ringKm2(drawPts))));
       }}
     else { const dt=drawTool==='route'?'route':(drawTool==='dist'?'dist':'line');
       drawSaved.push(_drawFeat({type:'LineString',coordinates:drawPts.slice()},dt,(dt==='route'?'Route ':'')+km(polyKm(drawPts))));}
@@ -2625,9 +2640,18 @@ function openDrawEditor(id){
     +`<div style="display:flex;gap:6px;margin-top:6px">`
     +`<button id="deEdit" style="flex:1;background:${drawEditId===id?'#2a4d1c':'#1c2429'};border:1px solid #2a343a;color:#cde;border-radius:6px;padding:5px;cursor:pointer">${drawEditId===id?'Done editing':'Edit points'}</button>`
     +`<button id="deDel" style="background:#2a1416;border:1px solid #4a2226;color:#e58;border-radius:6px;padding:5px 9px;cursor:pointer">Delete</button></div>`
-    +(drawEditId===id?`<div style="margin-top:6px;color:#8fae6a;font-size:11px">Drag the points to reshape · click Done when finished.</div>`:'');
+    +(drawEditId===id?`<div style="display:flex;gap:6px;margin-top:6px">`
+      +`<button id="deAdd" style="flex:1;background:${_vertMode==='add'?'#2a4d1c':'#1c2429'};border:1px solid #2a343a;color:#cde;border-radius:6px;padding:5px;cursor:pointer">Add points</button>`
+      +`<button id="deRm" style="flex:1;background:${_vertMode==='remove'?'#4a2226':'#1c2429'};border:1px solid #2a343a;color:#cde;border-radius:6px;padding:5px;cursor:pointer">Remove points</button></div>`
+      +`<div id="drawHint" style="margin-top:6px;color:#8fae6a;font-size:11px">${
+          _vertMode==='add'?'Click the outline to drop a new point in.'
+          :_vertMode==='remove'?'Click a point to delete it.'
+          :'Drag the points to reshape · click Done when finished.'}</div>`:'');
   const set=(k,v)=>{ p[k]=v; renderAnnot(); };
   el.querySelector('#deClose').onclick=()=>{ el.remove(); if(drawEditId===id) exitDrawEdit(); };
+  const _a=el.querySelector('#deAdd'), _r=el.querySelector('#deRm');
+  if(_a) _a.onclick=()=>setVertMode('add');
+  if(_r) _r.onclick=()=>setVertMode('remove');
   // Name/notes only touch the list + hover tip — no map re-render per keystroke.
   el.querySelector('#deName').oninput=e=>{ p.name=e.target.value; renderDrawManager(); };
   el.querySelector('#deNote').oninput=e=>{ p.note=e.target.value; renderDrawManager(); };
@@ -2642,18 +2666,111 @@ function openDrawEditor(id){
 }
 // Vertex-drag editing of the selected drawing.
 let _dragVert=null;
-function enterDrawEdit(id){ drawEditId=id; map.getCanvas().style.cursor='grab'; renderAnnot(); map.on('mousedown','annot-pt',_vertDown); }
-function exitDrawEdit(){ drawEditId=null; _dragVert=null; map.getCanvas().style.cursor=''; try{map.off('mousedown','annot-pt',_vertDown);}catch(e){} renderAnnot(); }
+function enterDrawEdit(id){ drawEditId=id; _vertMode='move'; map.getCanvas().style.cursor='grab';
+  renderAnnot(); map.on('mousedown','annot-pt',_vertDown); map.on('click',_editMapClick); }
+function _editMapClick(e){
+  if(drawEditId==null||_vertMode!=='add') return;
+  const f=_drawById(drawEditId); if(!f) return;
+  _addVertAt(f, e.lngLat);
+}
+function exitDrawEdit(){ drawEditId=null; _dragVert=null; _vertMode='move'; map.getCanvas().style.cursor='';
+  try{map.off('mousedown','annot-pt',_vertDown);}catch(e){}
+  try{map.off('click',_editMapClick);}catch(e){}
+  renderAnnot(); }
+/* RESHAPING IS THREE VERBS, NOT ONE. Dragging a point was the only one that existed:
+   "if i click on a line when editing any area, i should be able to add new verticies. I
+   should be able to click on a vertices to delete it."
+
+   The two new ones are MODAL rather than clever, because a bare click on a shape you are
+   editing is ambiguous — is that a new point, or the start of a drag? A mode makes the
+   answer visible before you click instead of surprising you after. */
+let _vertMode='move';                    // move | add | remove
+function setVertMode(m){
+  _vertMode=(_vertMode===m)?'move':m;
+  map.getCanvas().style.cursor=_vertMode==='move'?'grab':'crosshair';
+  const de=document.getElementById('drawEdit'); if(de&&drawEditId!=null) openDrawEditor(drawEditId);
+}
+/* Where along the outline a click falls — the segment it is nearest, and how far. Screen
+   space, not degrees: a longitude degree is 0.67 of a latitude one at this latitude, so a
+   degree-space distance quietly favours north-south edges. */
+function _nearestSeg(f, pt){
+  const verts=_vertsOf(f); if(verts.length<2) return null;
+  const P=map.project(pt);
+  let best=null;
+  const closed=f.geometry.type==='Polygon';
+  const n=closed?verts.length-1:verts.length-1;
+  for(let i=0;i<n;i++){
+    const A=map.project(verts[i]), B=map.project(verts[i+1]);
+    const vx=B.x-A.x, vy=B.y-A.y, L=vx*vx+vy*vy;
+    let s=L?(((P.x-A.x)*vx+(P.y-A.y)*vy)/L):0; s=Math.max(0,Math.min(1,s));
+    const dx=A.x+s*vx-P.x, dy=A.y+s*vy-P.y, d=Math.hypot(dx,dy);
+    if(!best||d<best.d) best={i,s,d};
+  }
+  return best;
+}
+function _vertIndexNear(f, pt, maxPx){
+  const verts=_vertsOf(f); const P=map.project(pt);
+  let bi=-1,bd=1e9;
+  verts.forEach((v,i)=>{ const q=map.project(v); const d=Math.hypot(q.x-P.x,q.y-P.y);
+                         if(d<bd){bd=d;bi=i;} });
+  return (bd<=(maxPx||12))?bi:-1;
+}
 function _vertDown(e){ if(!drawEditId)return; const f=_drawById(drawEditId); if(!f)return;
   const cl=e.lngLat, verts=_vertsOf(f); let bi=-1,bd=1e9;
   verts.forEach((v,i)=>{const d=(v[0]-cl.lng)**2+(v[1]-cl.lat)**2; if(d<bd){bd=d;bi=i;}});
-  if(bi<0)return; _dragVert=bi; e.preventDefault(); map.dragPan.disable();
+  if(bi<0)return;
+  if(_vertMode==='remove'){ e.preventDefault(); _removeVert(f,bi); return; }
+  if(_vertMode==='add') return;          // the map-level handler owns this one
+  _dragVert=bi; e.preventDefault(); map.dragPan.disable();
   map.on('mousemove',_vertMove); map.once('mouseup',_vertUp); }
+/* A ring needs three real corners; a line needs two. Refusing beats silently producing a
+   degenerate shape whose area is nonsense. */
+function _minVerts(f){ return f.geometry.type==='Polygon'?4:2; }   // ring repeats its first
+function _removeVert(f, i){
+  const g=f.geometry;
+  if(g.type==='Polygon'){
+    const r=g.coordinates[0];
+    if(r.length<=_minVerts(f)+0){ toastDraw(t('draw.minVerts','A shape needs at least three corners.')); return; }
+    if(i===0||i===r.length-1){ r.shift(); r[r.length-1]=r[0].slice(); }
+    else r.splice(i,1);
+  } else if(g.type==='LineString'){
+    if(g.coordinates.length<=2){ toastDraw(t('draw.minVerts2','A line needs at least two points.')); return; }
+    g.coordinates.splice(i,1);
+  } else return;
+  _relabel(f); renderAnnot();
+  _aoiWriteBack(f);
+  const de=document.getElementById('drawEdit'); if(de&&drawEditId!=null) openDrawEditor(drawEditId);
+}
+/* `_aoiFeature` builds a NEW object every lookup, so an edit to it is thrown away unless
+   it is copied back. This is that copy — and the reason it is one named function is that
+   forgetting it in one of the three verbs would make exactly one of drag/add/remove
+   silently do nothing. */
+function _aoiWriteBack(f){
+  if(!f||f.properties.id!==_AOI_EDIT_ID) return;
+  draft.aoiRing=f.geometry.coordinates[0];
+  markDirtySoft(); drawDraft(); renderSetup();
+}
+function _addVertAt(f, lngLat){
+  const seg=_nearestSeg(f,[lngLat.lng,lngLat.lat]);
+  if(!seg||seg.d>24) return false;       // not on the outline — ignore rather than guess
+  const g=f.geometry;
+  const arr=(g.type==='Polygon')?g.coordinates[0]:g.coordinates;
+  arr.splice(seg.i+1,0,[lngLat.lng,lngLat.lat]);
+  _relabel(f); renderAnnot();
+  _aoiWriteBack(f);
+  const de=document.getElementById('drawEdit'); if(de&&drawEditId!=null) openDrawEditor(drawEditId);
+  return true;
+}
+function toastDraw(msg){
+  const el=document.getElementById('drawHint'); if(!el) return;
+  el.textContent=msg; el.dataset.warn='1';
+  setTimeout(()=>{ if(el.dataset.warn==='1'){ el.dataset.warn=''; } }, 2200);
+}
 function _vertMove(e){ if(_dragVert==null)return; const f=_drawById(drawEditId); if(!f)return; const g=f.geometry, ll=[e.lngLat.lng,e.lngLat.lat];
   if(g.type==='Point') g.coordinates=ll;
   else if(g.type==='LineString') g.coordinates[_dragVert]=ll;
   else if(g.type==='Polygon'){ const r=g.coordinates[0]; r[_dragVert]=ll; if(_dragVert===0) r[r.length-1]=ll; }
-  _relabel(f); renderAnnot(); }
+  _relabel(f); renderAnnot(); _aoiWriteBack(f); }
 function _vertUp(){ _dragVert=null; map.off('mousemove',_vertMove); map.dragPan.enable(); const de=document.getElementById('drawEdit'); if(de&&drawEditId!=null) openDrawEditor(drawEditId); }
 function _relabel(f){ const g=f.geometry;
   if(g.type==='Polygon') f.properties.label=areaFmt(ringKm2((g.coordinates[0]||[]).slice(0,-1)));
@@ -2824,23 +2941,25 @@ function aoiModeUI(){
   return draft.aoiMode==='drawn' ? 'drawn' : 'radius';
 }
 function aoiMode(){
-  return (aoiModeUI()==='drawn' && drawnAreas().length) ? 'drawn' : 'radius';
+  return (aoiModeUI()==='drawn' && selectedRing()) ? 'drawn' : 'radius';
 }
+/* THE ANALYSIS BOUNDARY IS NOT AN ANNOTATION.
+   It first shipped stored in `drawSaved`, the notes-and-markup list, which meant it
+   appeared under MY DRAWINGS as "Areas · 1" and had to be picked out of a list. Wrong
+   model: "This shoudl also be seperate for the normal areas and not added to the
+   drawing list. Its a one-and-done thing."
+
+   There is exactly one, it belongs to the DRAFT the way the radius does, and redrawing
+   replaces it. `draft.aoiRing` is that. */
 function drawnAreas(){
   return (drawSaved||[]).filter(f=>f&&f.properties&&f.properties.dtype==='area'
     && f.geometry && f.geometry.type==='Polygon'
     && (f.geometry.coordinates[0]||[]).length>=4);
 }
 function selectedRing(){
-  if(aoiMode()!=='drawn') return null;
-  const list=drawnAreas();
-  // The fallback to list[0] is for a plan whose chosen shape was deleted — NOT a
-  // substitute for choosing. It masked an ordering bug once (the ring was never
-  // selected and this quietly picked the only shape there was), and with several
-  // drawn it would have quietly picked the wrong one.
-  const f=list.find(x=>x.properties.id===draft.ringId)||list[0];
-  if(f && draft.ringId!==f.properties.id) draft.ringId=f.properties.id;
-  return f?f.geometry.coordinates[0]:null;
+  if(aoiModeUI()!=='drawn') return null;
+  const r=draft.aoiRing;
+  return (Array.isArray(r) && r.length>=4) ? r : null;
 }
 /* The half-width of the box that will actually be ANALYSED, in km — the drawn ring's
    longer side plus the padding on both ends. The run estimate and the resolution panel
@@ -2988,15 +3107,17 @@ function renderSetup(){
         <div class="t-micro" style="display:flex;justify-content:space-between;margin-top:4px">
           <span>${UNITS==='imperial'?3:5}</span><span>${t('setup.radiushint','~20 km+ resolves focus areas')}</span></div>`
       :`
-        ${drawnAreas().length?`
-          <label class="fld">${t('setup.aoiPick','Which shape')}</label>
-          <div class="seg" id="ringPick" style="display:block">
-            ${drawnAreas().map(f=>`<button data-ring="${f.properties.id}" style="display:block;width:100%;text-align:left"
-              ${draft.ringId===f.properties.id?'aria-pressed="true"':''}>${escHtml(f.properties.label||'Area')} · ${areaFmt(ringKm2(f.geometry.coordinates[0]))}</button>`).join('')}
+        ${selectedRing()?`
+          <div class="numrow" style="border:1px solid var(--line,#2a343a);border-radius:8px;padding:8px 10px;margin-top:4px">
+            <span>${t('setup.aoiYours','Your boundary')}</span>
+            <b class="mono" style="margin-left:auto">${areaFmt(ringKm2(selectedRing().slice(0,-1)))}</b>
+            <button id="aoiEdit" class="btn btn--secondary btn--sm">${t('setup.aoiEdit','Edit')}</button>
+            <button id="aoiClear" class="btn btn--secondary btn--sm" title="${t('setup.aoiClear','Remove it')}">×</button>
           </div>`
         :`<div class="callout" data-kind="info"><span class="mark">i</span><div class="body">
-            ${t('setup.aoiNone','Nothing drawn yet. Use the Area tool to draw the boundary on the map, then come back — it will be listed here.')}</div></div>`}
-        <button id="aoiDrawBtn" class="btn btn--secondary btn--block" style="margin-top:8px">${t('setup.aoiDraw','Draw an area on the map')}</button>
+            ${t('setup.aoiNone2','Draw the boundary on the map — click each corner, double-click to close. You stay on this page while you do it.')}</div></div>`}
+        <button id="aoiDrawBtn" class="btn btn--secondary btn--block" style="margin-top:8px">${
+          selectedRing()?t('setup.aoiRedraw','Redraw the boundary'):t('setup.aoiDraw','Draw the boundary on the map')}</button>
         <div class="s" style="margin-top:6px">${t('setup.aoiPad','The model looks 2.5 km past your boundary — the road you get in on, and the lakes that make a funnel, are usually outside the line — and reports only what falls inside it.')}</div>`}
     </div>
 
@@ -3156,16 +3277,22 @@ function renderSetup(){
   const rad=document.getElementById('radius');
   el.querySelectorAll('[data-aoimode]').forEach(b=>b.onclick=e=>{
     e.preventDefault(); draft.aoiMode=b.dataset.aoimode; markDirtySoft(); renderSetup(); });
-  el.querySelectorAll('[data-ring]').forEach(b=>b.onclick=e=>{
-    e.preventDefault(); draft.ringId=+b.dataset.ring; markDirtySoft(); renderSetup(); });
+  const _ae=document.getElementById('aoiEdit');
+  if(_ae) _ae.onclick=e=>{ e.preventDefault(); enterDrawEdit(_AOI_EDIT_ID); openDrawEditor(_AOI_EDIT_ID); };
+  const _ac=document.getElementById('aoiClear');
+  if(_ac) _ac.onclick=e=>{ e.preventDefault(); draft.aoiRing=null; markDirtySoft();
+                           renderSetup(); drawDraft(); };
   const _adb=document.getElementById('aoiDrawBtn');
   if(_adb) _adb.onclick=e=>{
     e.preventDefault();
-    // ORDER MATTERS HERE. `setDrawTool` opens with `finishDraw()` to commit whatever was
-    // in progress — so setting the flag BEFORE it let that commit consume the flag, and
-    // the boundary the hunter then drew arrived with nothing waiting for it. Measured
-    // live: the flag read false the instant after arming.
-    setTab('overview'); setDrawTool('area');
+    // STAY ON SETUP. It used to jump to Overview to arm the tool and jump back when the
+    // polygon closed — "it pulls me to the overview tab instead of staying on Setup which
+    // is confusing". The map is beside the panel the whole time; there was never a reason
+    // to leave.
+    //
+    // ORDER STILL MATTERS: `setDrawTool` opens with `finishDraw()` to commit whatever was
+    // in progress, so setting the flag before it lets that commit consume the flag.
+    setDrawTool('area');
     // Remember that THIS drawing is for the analysis boundary. Without it, finishing the
     // polygon leaves you on the map with no idea the form is waiting for you — and every
     // area drawn for a note would yank you into Setup, which is worse.
@@ -3572,6 +3699,12 @@ function drawDraft(fit){
     });
     if(draft.fixedCampMode)
       feats.push({type:'Feature',geometry:{type:'Point',coordinates:draft.sites[0].ll.slice()},properties:{camp:1}});
+  } else if(aoiModeUI()==='drawn' && selectedRing()){
+    // The drawn boundary IS the draft box in this mode — same preview slot, so it moves,
+    // fits and hides with the rest of Setup's draft geometry.
+    feats.push({type:'Feature',geometry:{type:'Polygon',coordinates:[selectedRing()]},properties:{}});
+    if(draft.fixedCampMode && draft.center)
+      feats.push({type:'Feature',geometry:{type:'Point',coordinates:draft.center.slice()},properties:{camp:1}});
   } else {
     const box=draftBox();
     if(box) feats.push({type:'Feature',geometry:{type:'Polygon',coordinates:[box]},properties:{}});
