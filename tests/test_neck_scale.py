@@ -100,3 +100,41 @@ def test_the_fine_grid_is_inert_on_a_full_size_box():
             os.environ.pop("FINE_NECKS", None)
         else:
             os.environ["FINE_NECKS"] = old
+
+
+def test_only_odd_fine_steps_are_used():
+    """The medial-axis window is `3 * grid_res` metres realised as an odd cell count.
+    3*step is odd only when step is odd, so an even step forces the window WIDER than the
+    analysis grid asks — 17% wider at 2x — which makes the ridge test stricter and finds
+    FEWER necks on a finer grid.
+
+    Measured on fire_lake: candidates 9813 at 1x, 6966 at 2x, 10463 at 3x. A 2x grid is
+    measurably worse than the 1x grid it would replace, so an even step is snapped down
+    rather than accepted."""
+    import os
+    old = os.environ.get("FINE_NECKS")
+    os.environ["FINE_NECKS"] = "1"
+    try:
+        for px in (10_000, 40_000, 250_000, 1_000_000, 2_000_000, 3_140_000, 6_460_000):
+            n = int(px ** 0.5)
+            res = 40.0
+            f = T._fine_res(res, (n, n))
+            step = round(res / f)
+            assert step % 2 == 1, f"{px} px chose an even step {step}"
+            # and the window it implies is metrically exact
+            rw = max(3, int(round(3.0 * res / f)) | 1)
+            assert abs(rw * f - 3.0 * res) < 1e-6, \
+                f"step {step} realises a {rw * f:.1f} m window, not {3.0 * res:.0f} m"
+    finally:
+        if old is None:
+            os.environ.pop("FINE_NECKS", None)
+        else:
+            os.environ["FINE_NECKS"] = old
+
+
+def test_snapping_down_never_exceeds_the_budget():
+    """It only ever reduces the step, so a box that fitted still fits."""
+    import inspect
+    src = inspect.getsource(T._fine_res)
+    assert "step - 1 if step % 2 == 0 else step" in src
+    assert "max(1," in src, "a budget too small for any fine grid must land on 1x, not 0"

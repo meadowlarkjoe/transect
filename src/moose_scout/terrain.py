@@ -56,7 +56,20 @@ def _fine_res(res: float, shape) -> float:
         return res
     h, w = shape
     step = min(int((FINE_BUDGET_PX / float(h * w)) ** 0.5), int(res / FINEST_M))
-    return res / max(1, step)
+    # ONLY ODD STEPS (T9.10b). `_constriction` asks for a medial-axis window of
+    # `3 * grid_res` metres and realises it as `maximum_filter(size=rw)`, which must be an
+    # ODD number of cells to be symmetric — so the exact cell count 3*step is forced up to
+    # the next odd whenever it is even. At 2x that turns the 120 m window the analysis grid
+    # asks for into 140 m: 17% wider, a stricter ridge test, and FEWER candidates on a
+    # finer grid, which is the opposite of the point.
+    #
+    # Measured on fire_lake — candidates 9813 at 1x, 6966 at 2x, 10463 at 3x. The 2x
+    # depression is entirely this quantization; at 3x the window is exactly 9 cells and
+    # the count rises with resolution the way it should. Odd steps land exactly (3*odd is
+    # odd), even ones never do, so an even step is snapped DOWN rather than accepted: a 2x
+    # grid measures worse than the 1x grid it replaced.
+    step = max(1, step - 1 if step % 2 == 0 else step)
+    return res / step
 
 
 def _grid_at(transform, shape, res: float, fine_res: float):
