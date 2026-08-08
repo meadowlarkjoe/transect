@@ -2730,6 +2730,35 @@ function lockSetupWhileRunning(){
    The method still changes the model — shooter offset, wick distances, what a glassing
    knob is worth — and the BRIEF is where that shows up, on ground, where it is a finding
    rather than a lecture. */
+/* WHICH KIND OF AOI IS SET (T10.8). Derived, never stored twice: a `drawn` mode with no
+   shape selected is not a mode, it is a broken form, so it collapses back to radius. */
+function aoiMode(){
+  return (draft.aoiMode==='drawn' && drawnAreas().length) ? 'drawn' : 'radius';
+}
+function drawnAreas(){
+  return (drawSaved||[]).filter(f=>f&&f.properties&&f.properties.dtype==='area'
+    && f.geometry && f.geometry.type==='Polygon'
+    && (f.geometry.coordinates[0]||[]).length>=4);
+}
+function selectedRing(){
+  if(aoiMode()!=='drawn') return null;
+  const list=drawnAreas();
+  const f=list.find(x=>x.properties.id===draft.ringId)||list[0];
+  return f?f.geometry.coordinates[0]:null;
+}
+/* The half-width of the box that will actually be ANALYSED, in km — the drawn ring's
+   longer side plus the padding on both ends. The run estimate and the resolution panel
+   are sized from this, or they would quote a 35 km box for a 2 km parcel. */
+const AOI_PAD_KM=2.5;
+function aoiHalfwidthKm(){
+  const ring=selectedRing();
+  if(!ring) return draft.radius;
+  const lons=ring.map(p=>p[0]), lats=ring.map(p=>p[1]);
+  const mid=(Math.min(...lats)+Math.max(...lats))/2;
+  const kmLat=(Math.max(...lats)-Math.min(...lats))*111;
+  const kmLon=(Math.max(...lons)-Math.min(...lons))*111*Math.cos(mid*Math.PI/180);
+  return Math.max(kmLat,kmLon)/2 + AOI_PAD_KM;
+}
 function renderSetup(){
   const el=document.getElementById('setup');
   const hs=hstyleOf();
@@ -2805,8 +2834,6 @@ function renderSetup(){
       <label class="fld">${t('setup.party','Hunters in the party')}</label>
       <div class="numrow"><input id="partySize" type="number" min="1" max="12" step="1"
         value="${draft.party||2}"><span>${t('setup.partyU','hunters')}</span></div>
-      <div class="s" style="margin-top:6px">${t('setup.partyNote',
-        'Party size changes the analysis, not just the wording: focus areas are sized to hold the crew, and each area gets a calling stand per hunter plus glassing positions to pair up on.')}</div>
     </div>
 
     <!-- 03 TRANSPORTATION — multi-select; each one changes what the model can reach. -->
@@ -2851,10 +2878,30 @@ function renderSetup(){
         <div id="locRes" class="results"></div>
       </div>
 
-      <label class="fld">${t('setup.radius','Radius')} — <b class="mono" id="radVal">${Math.round(toU(draft.radius))} ${unitBig()}</b></label>
-      <input id="radius" type="range" min="${UNITS==='imperial'?3:5}" max="${UNITS==='imperial'?75:120}" step="1" value="${Math.round(toU(draft.radius))}">
-      <div class="t-micro" style="display:flex;justify-content:space-between;margin-top:4px">
-        <span>${UNITS==='imperial'?3:5}</span><span>${t('setup.radiushint','~20 km+ resolves focus areas')}</span></div>
+      <!-- RADIUS, OR A SHAPE YOU DREW (T10.8). "For a hunting camp we are currently
+           looking at buying, that area is too big. I have a smaller, specific area that
+           I want to analyze." Radius stays the default because it is what most hunts
+           are; a drawn parcel is the exception that needed to become possible. -->
+      <div class="seg" id="aoiModeSeg" style="display:flex;margin-top:4px">
+        <button data-aoimode="radius" ${aoiMode()==='radius'?'aria-pressed="true"':''}>${t('setup.aoiRadius','Radius')}</button>
+        <button data-aoimode="drawn" ${aoiMode()==='drawn'?'aria-pressed="true"':''}>${t('setup.aoiDrawn','Drawn area')}</button>
+      </div>
+      ${aoiMode()==='radius'?`
+        <label class="fld">${t('setup.radius','Radius')} — <b class="mono" id="radVal">${Math.round(toU(draft.radius))} ${unitBig()}</b></label>
+        <input id="radius" type="range" min="${UNITS==='imperial'?3:5}" max="${UNITS==='imperial'?75:120}" step="1" value="${Math.round(toU(draft.radius))}">
+        <div class="t-micro" style="display:flex;justify-content:space-between;margin-top:4px">
+          <span>${UNITS==='imperial'?3:5}</span><span>${t('setup.radiushint','~20 km+ resolves focus areas')}</span></div>`
+      :`
+        ${drawnAreas().length?`
+          <label class="fld">${t('setup.aoiPick','Which shape')}</label>
+          <div class="seg" id="ringPick" style="display:block">
+            ${drawnAreas().map(f=>`<button data-ring="${f.properties.id}" style="display:block;width:100%;text-align:left"
+              ${draft.ringId===f.properties.id?'aria-pressed="true"':''}>${escHtml(f.properties.label||'Area')} · ${areaFmt(ringKm2(f.geometry.coordinates[0]))}</button>`).join('')}
+          </div>`
+        :`<div class="callout" data-kind="info"><span class="mark">i</span><div class="body">
+            ${t('setup.aoiNone','Nothing drawn yet. Use the Area tool to draw the boundary on the map, then come back — it will be listed here.')}</div></div>`}
+        <button id="aoiDrawBtn" class="btn btn--secondary btn--block" style="margin-top:8px">${t('setup.aoiDraw','Draw an area on the map')}</button>
+        <div class="s" style="margin-top:6px">${t('setup.aoiPad','The model looks 2.5 km past your boundary — the road you get in on, and the lakes that make a funnel, are usually outside the line — and reports only what falls inside it.')}</div>`}
     </div>
 
     <!-- 05 PROCESSING DETAIL — the analysis grid. Auto-sized to the area; the hunter can
@@ -3011,6 +3058,16 @@ function renderSetup(){
       addSite([e.lngLat.lng,e.lngLat.lat],null); }); }
 
   const rad=document.getElementById('radius');
+  el.querySelectorAll('[data-aoimode]').forEach(b=>b.onclick=e=>{
+    e.preventDefault(); draft.aoiMode=b.dataset.aoimode; markDirtySoft(); renderSetup(); });
+  el.querySelectorAll('[data-ring]').forEach(b=>b.onclick=e=>{
+    e.preventDefault(); draft.ringId=+b.dataset.ring; markDirtySoft(); renderSetup(); });
+  const _adb=document.getElementById('aoiDrawBtn');
+  if(_adb) _adb.onclick=e=>{ e.preventDefault(); setTab('overview'); setDrawTool('area'); };
+  // THE RADIUS SLIDER ONLY EXISTS IN RADIUS MODE. Everything from here to the end of
+  // this block reads it, and `rad.oninput` on null throws — which would kill every
+  // handler wired AFTER it, silently, the moment you switched to a drawn area.
+  if(rad){
   rad.oninput=()=>{draft.radius=fromU(+rad.value);document.getElementById('radVal').textContent=(+rad.value)+' '+unitBig();
     // Area changed: a manually-chosen resolution is KEPT (clamped into the new bounds);
     // only auto mode re-derives. The res slider's bounds follow the new area.
@@ -3018,10 +3075,11 @@ function renderSetup(){
       draft.resM=Math.max(b.fine,Math.min(b.coarse,draft.resM)); }
     _syncResUI();
     drawDraft();};
+  }
   // processing-detail slider — RIGHT = more detail (finer grid). The slider carries an
   // inverted value so the metre number falls as the thumb moves right.
   const rsl=document.getElementById('resSlider');
-  rsl.oninput=()=>{ const b=resBounds(draft.radius), a=autoResM(draft.radius);
+  if(rsl) rsl.oninput=()=>{ const hw=aoiHalfwidthKm(), b=resBounds(hw), a=autoResM(hw);
     const res=b.fine+b.coarse-(+rsl.value);
     draft.resM=(Math.abs(res-a)<=2)?null:res;    // snap back to auto near the default
     _syncResUI(); _syncRadiusBounds(); };
@@ -3037,14 +3095,18 @@ function renderSetup(){
    ceiling (the server clamps at ~3200 px/side regardless — that's the hard limit). */
 function _syncResUI(){
   const sl=document.getElementById('resSlider'); if(!sl) return;
-  const b=resBounds(draft.radius), auto=autoResM(draft.radius);
+  // `aoiHalfwidthKm()`, not `draft.radius` (T10.8). A drawn parcel carries whatever the
+  // slider last held, so quoting the radius here would offer a 35 km box's grid — and a
+  // 35 km box's run estimate — for a 2 km parcel.
+  const hw=aoiHalfwidthKm();
+  const b=resBounds(hw), auto=autoResM(hw);
   sl.min=b.fine; sl.max=b.coarse;
   const res=Math.max(b.fine,Math.min(b.coarse,draft.resM||auto));
   sl.value=b.fine+b.coarse-res;              // inverted: thumb RIGHT = finer grid = more detail
-  const pxSide=Math.round(2*Math.max(3,draft.radius)*1000/res);
+  const pxSide=Math.round(2*Math.max(3,hw)*1000/res);
   const vEl=document.getElementById('resVal');
   if(vEl) vEl.textContent=res+' m'+(draft.resM==null?' · '+t('setup.resAuto','auto'):'');
-  const est=estimateMinutes(draft.radius,res);
+  const est=estimateMinutes(hw,res);
   const note=document.getElementById('resNote');
   if(note){
     let html=t('setup.resEst','Estimated processing')+` <b>~${est.lo}–${est.hi} min</b> · ${pxSide}×${pxSide} px`;
@@ -3205,7 +3267,7 @@ function missingSetup(){
    lives in _runAnalysis and is unchanged. */
 async function runAnalysis(){
   if(hasResult()){
-    const est=estimateMinutes(draft.radius,draft.resM);
+    const est=estimateMinutes(aoiHalfwidthKm(),draft.resM);
     const a=await askModal({kind:'warn', title:t('dlg.rerunTitle'),
       body:`The areas, zones, sites and brief on screen now will be cleared and recomputed
         for the box you have set. About ${est.lo}–${est.hi} min.
@@ -3234,8 +3296,8 @@ function _runAnalysis(){
   }
   const btn=document.getElementById('runBtn');
   const setBtn=(t,dis)=>{if(btn){btn.textContent=t;btn.disabled=!!dis;}};
-  const est=estimateMinutes(draft.radius,draft.resM), t0=Date.now();
-  const line=(head)=>`${head}\n${fmtElapsed(Date.now()-t0)} elapsed · ~${est.lo}–${est.hi} min for this ${Math.round(draft.radius)} km box`;
+  const est=estimateMinutes(aoiHalfwidthKm(),draft.resM), t0=Date.now();
+  const line=(head)=>`${head}\n${fmtElapsed(Date.now()-t0)} elapsed · ~${est.lo}–${est.hi} min for this ${Math.round(aoiHalfwidthKm())} km box`;
   // THE HUNT STYLE HAS ONE SOURCE OF TRUTH, AND IT IS hstyleOf().
   // It used to be read off two independent fields — draft.fixedCampMode for the camp
   // pin and SETUP.huntStyle for everything else — which can and did disagree: a stored
@@ -3245,8 +3307,14 @@ function _runAnalysis(){
   // Deriving both from hstyleOf() makes the contradictory pair unrepresentable.
   const hs=hstyleOf();                       // 'camp' | 'vehicle' | 'spike'
   const camping=(hs==='camp');
+  // A DRAWN AOI SENDS ITS RING (T10.8). `radius_km` still goes with it: the engine
+  // ignores it while a ring is set, and keeping it means a plan reopened by an older
+  // client — or a ring the engine rejects as malformed — falls back to a sane box rather
+  // than to nothing.
+  const _ring=selectedRing();
   const req={species:'moose',lat:draft.center[1],lon:draft.center[0],
     radius_km:Math.max(3,Math.min(120,draft.radius)),
+    ring:_ring||null,
     target_dates:(draft.dates&&draft.dates.length===2)?draft.dates:['2026-09-25','2026-10-05'],
     // EXTRA SEASONS (T9.2). Each window is a full model run — the habitat surface is
     // phase-weighted, so bow in September and rifle in October are different answers on
@@ -4266,7 +4334,7 @@ function applyPlan(p){
     map.flyTo({center:draft.center,zoom:9.5}); drawDraft();
     setPlanName(p.name||planTitle(), true);
     setTab('setup');
-    const est=estimateMinutes(draft.radius,draft.resM);
+    const est=estimateMinutes(aoiHalfwidthKm(),draft.resM);
     askModal({title:tf('dlg.readyTitle',{name:escHtml(p.name||'This plan')}),
       body:`${t('dlg.readyBody')}
         <ul><li><b>${t('dlg.readyRun')}</b> — ~${est.lo}–${est.hi} min · ${Math.round(draft.radius)} km</li>
@@ -4915,7 +4983,7 @@ async function checkEngineRevision(){
     if(LIVE_REVISION==null || LIVE_REVISION<=was) return;
     const note=(await (await fetch(API_URL+'/health',{cache:'no-store'})).json()).revision_notes||'';
     const lines=String(note).split('\n').map(s=>s.replace(/^[-•*]\s*/,'').trim()).filter(Boolean);
-    const est=estimateMinutes(draft.radius,draft.resM);
+    const est=estimateMinutes(aoiHalfwidthKm(),draft.resM);
     const a=await askModal({kind:'warn',
       title:t('dlg.revTitle'),
       body:`${t('dlg.revBody')}

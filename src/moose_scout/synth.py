@@ -303,6 +303,28 @@ def extract_focus_areas(ctx, hunt, prof):
     return feats, masks
 
 
+def _mode_caveats(ctx) -> list:
+    """Say out loud that a drawn AOI was analysed WIDER than it is reported (T10.8).
+
+    This one leads the caveats rather than trailing them, because it changes how every
+    number below it should be read: the scores are relative within the PADDED box, and
+    features have been removed from the answer for being outside a boundary rather than
+    for being poor ground. A hunter who does not know that would read an empty corner of
+    their parcel as "nothing here".
+    """
+    aoi = ctx.aoi
+    if not getattr(aoi, "drawn", False):
+        return []
+    pad = float(getattr(aoi, "pad_km", 0.0))
+    return [
+        f"You drew this area rather than setting a radius. The model looked {pad:g} km "
+        f"BEYOND your boundary — it has to, because the road you reach it from, the lakes "
+        f"that form a funnel and the pressure from nearby access all sit outside a parcel "
+        f"line — and then reported only what falls inside it. Routes are the exception and "
+        f"are drawn in full, because the way in starts outside.",
+    ]
+
+
 def methodology(ctx) -> dict:
     """Plain-language statement of what terrain we're hunting for and the factors
     weighted — derived from the species config so it stays in sync with the model."""
@@ -330,7 +352,7 @@ def methodology(ctx) -> dict:
                  "and go where the cows are; in the seeking phase it leans toward bull travel "
                  "corridors), then multiplied by extraction ease and reduced by road-based "
                  "hunter pressure."),
-        "caveats": [
+        "caveats": _mode_caveats(ctx) + [
             "Every site is a hypothesis to ground-truth on foot (à valider sur le terrain).",
             "Vegetation comes from 10 m satellite land cover plus mapped burn perimeters — "
             "NOT stand-level forestry inventory. Cutblock age is not modelled (only fire), "

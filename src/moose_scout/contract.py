@@ -916,6 +916,118 @@ def _recommendations(ctx, cache, rut, areas):
     return recs
 
 
+
+# ------------------------------------------------------------------ drawn AOIs (T10.8)
+# Reported: "For a hunting camp we are currently looking at buying, that area is too big.
+# I have a smaller, specific area that I want to analyze."
+#
+# The engine ANALYSES a padded box (see config.DRAW_PAD_KM — it cannot answer about a
+# parcel using only the parcel) and REPORTS the drawing. These clip the second thing back
+# to the first.
+
+# Polygon features are kept when they genuinely overlap the ring, not when they merely
+# graze it. A zone sharing a metre of edge is not a finding about this parcel.
+CLIP_MIN_OVERLAP = 0.10
+
+# Everything that is a CLAIM ABOUT GROUND. `routes` is deliberately absent: the road you
+# drive in on starts outside the parcel, and clipping it would amputate the approach and
+# then report the stump as the way in. `camps` and `waypoints` are points, handled below.
+_CLIP_RING_KEYS = ("hunt_zones", "browse_zones", "refuge_zones", "funnel_zones",
+                   "feed_edge_zones", "burn_zones", "cut_zones", "wetland_zones",
+                   "tenure_zones")
+
+
+def _clip_to_ring(doc: dict, aoi) -> dict:
+    """Clip the reported features to the drawn ring. No-op for a radius AOI.
+
+    Never raises: a clipping failure must not lose the analysis. If shapely is missing or
+    a geometry is malformed the feature is KEPT — over-reporting is recoverable by looking
+    at the map, silently dropping a focus area is not.
+    """
+    if not getattr(aoi, "drawn", False):
+        return doc
+    try:
+        from shapely.geometry import Point, Polygon, shape as shp_shape
+    except Exception:
+        return doc
+    try:
+        ring = Polygon(aoi.ring)
+        if not ring.is_valid:
+            ring = ring.buffer(0)
+        if ring.is_empty or ring.area <= 0:
+            return doc
+    except Exception:
+        return doc
+
+    def _overlaps(poly) -> bool:
+        try:
+            if poly.is_empty or poly.area <= 0:
+                return True             # cannot judge it — keep it
+            return (poly.intersection(ring).area / poly.area) >= CLIP_MIN_OVERLAP
+        except Exception:
+            return True
+
+    kept, dropped = 0, 0
+    for k in _CLIP_RING_KEYS:
+        rows = doc.get(k) or []
+        if not rows:
+            continue
+        out = []
+        for z in rows:
+            try:
+                g = (shp_shape(z["geometry"]) if z.get("geometry")
+                     else Polygon(z["ll"]) if z.get("ll") else None)
+            except Exception:
+                g = None
+            if g is None or _overlaps(g):
+                out.append(z); kept += 1
+            else:
+                dropped += 1
+        doc[k] = out
+
+    # Focus areas carry a real GeoJSON geometry and a centroid.
+    areas = []
+    for a in (doc.get("areas") or []):
+        try:
+            g = shp_shape(a["geometry"])
+        except Exception:
+            areas.append(a); continue
+        if _overlaps(g):
+            areas.append(a); kept += 1
+        else:
+            dropped += 1
+    for n, a in enumerate(areas, start=1):
+        a["rank"] = n                   # ranks must stay contiguous after a drop
+    doc["areas"] = areas
+    _live = {a.get("camp") for a in areas}
+
+    # Points are in or they are not. A stand outside the parcel is not yours to hunt.
+    wps = []
+    for w in (doc.get("waypoints") or []):
+        try:
+            inside = ring.covers(Point(float(w["lon"]), float(w["lat"])))
+        except Exception:
+            inside = True
+        # A staging point is where you LEAVE THE TRUCK, which is on a road and therefore
+        # usually outside a parcel boundary. Dropping it would leave the routes starting
+        # from nowhere.
+        if inside or w.get("type") == "parking":
+            wps.append(w); kept += 1
+        else:
+            dropped += 1
+    doc["waypoints"] = wps
+    # A camp survives if any area still points at it — the camp itself is often outside.
+    doc["camps"] = [c for c in (doc.get("camps") or []) if c.get("id") in _live] \
+        or (doc.get("camps") or [])
+
+    doc["aoi_mode"] = "drawn"
+    doc["aoi_ring"] = [[round(float(x), 6), round(float(y), 6)] for x, y in aoi.ring]
+    doc["aoi_pad_km"] = float(getattr(aoi, "pad_km", 0.0))
+    doc["aoi_clip"] = {"kept": kept, "dropped": dropped,
+                       "min_overlap": CLIP_MIN_OVERLAP}
+    return doc
+
+
 def build(ctx: Context) -> dict:
     cache = cache_dir(ctx.aoi.name)
     fc = json.loads((cache / "features.geojson").read_text())
@@ -1767,6 +1879,14 @@ def build(ctx: Context) -> dict:
         doc["engine_revision"] = ENGINE_REVISION
     except Exception:
         pass
+
+    # A DRAWN AOI REPORTS THE DRAWING (T10.8). Last, so everything above computed with
+    # the full padded context it needs and only the OUTPUT narrows.
+    try:
+        doc = _clip_to_ring(doc, ctx.aoi)
+    except Exception as _e:              # a clip must never lose an analysis
+        print(f"[contract] ring clip skipped: {_e}")
+    doc.setdefault("aoi_mode", "radius")
 
     out = outputs_dir(ctx.aoi.name) / "transect.json"
     out.write_text(json.dumps(doc, indent=2))

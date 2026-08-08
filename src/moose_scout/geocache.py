@@ -76,15 +76,25 @@ def store_root() -> Path:
 
 
 def key(ctx) -> str:
-    """The five numbers that decide what stage 1 produces. Rounded so that a box
-    nudged by centimetres still hits — but not so coarse that a genuinely different
-    box collides: 4 dp is ~11 m, well under any resolution we analyse at."""
-    lat = round(float(ctx.aoi.center.lat), 4)
-    lon = round(float(ctx.aoi.center.lon), 4)
-    rad = round(float(ctx.aoi.bbox_halfwidth_km), 3)
+    """What stage 1 produces is decided by the ANALYSIS BOX, so that is what this keys on.
+
+    It used to be centre + `bbox_halfwidth_km`, which describes the box only in radius
+    mode. A drawn AOI (T10.8) takes its extent from its padded ring and can carry any
+    stored radius at all, so two different parcels could key the same and the same parcel
+    could key differently after a slider nudge. `bbox_wgs84()` is the single source of
+    truth for the extent in both modes, and this reads it.
+
+    Rounded so a box nudged by centimetres still hits — but NOT loosely, however tempting
+    "a redrawn parcel should still hit a warm cache" sounds. `restore` hardlinks the
+    cached rasters in with no shape check, so a key that matched a box we did not analyse
+    would silently hand the run a misaligned grid. 4 dp is ~11 m, well under any
+    resolution we analyse at; a parcel redrawn by hand further out than that pays for a
+    re-fetch, and that is the correct trade.
+    """
+    box = tuple(round(float(v), 4) for v in ctx.aoi.bbox_wgs84())
     res = round(float(ctx.model.raster_resolution_m), 2)
     crs = str(ctx.model.working_crs)
-    raw = f"{lat}|{lon}|{rad}|{crs}|{res}"
+    raw = "|".join(str(v) for v in box) + f"|{crs}|{res}"
     return hashlib.sha1(raw.encode()).hexdigest()[:16]
 
 

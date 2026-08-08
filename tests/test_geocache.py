@@ -10,15 +10,16 @@ from pathlib import Path
 from moose_scout import geocache
 
 
-class _Center:
-    def __init__(self, lat, lon):
-        self.lat, self.lon = lat, lon
+# THE REAL AOI, NOT A STUB. The stub used to carry `center` and `bbox_halfwidth_km` and
+# nothing else, which was fine right up until the key started reading `bbox_wgs84()` —
+# then every test here failed on a test double that had quietly stopped resembling the
+# thing it doubled. A cache key is exactly the wrong place to be testing a lookalike.
+from moose_scout.config import AOI, LatLon, SeasonCfg  # noqa: E402
 
 
-class _AOI:
-    def __init__(self, lat=47.815, lon=-78.456, rad=14.0):
-        self.center = _Center(lat, lon)
-        self.bbox_halfwidth_km = rad
+def _aoi(lat=47.815, lon=-78.456, rad=14.0, ring=None):
+    return AOI(name="t", center=LatLon(lat=lat, lon=lon), bbox_halfwidth_km=rad,
+               ring=ring, season=SeasonCfg(year=2026, target_dates=["2026-10-01", "2026-10-10"]))
 
 
 class _Model:
@@ -28,8 +29,9 @@ class _Model:
 
 
 class _Ctx:
-    def __init__(self, lat=47.815, lon=-78.456, rad=14.0, res=40.0, crs="EPSG:32198"):
-        self.aoi = _AOI(lat, lon, rad)
+    def __init__(self, lat=47.815, lon=-78.456, rad=14.0, res=40.0, crs="EPSG:32198",
+                 ring=None):
+        self.aoi = _aoi(lat, lon, rad, ring)
         self.model = _Model(res, crs)
 
 
@@ -148,3 +150,38 @@ def test_off_switch_disables_both_directions(tmp_path, monkeypatch):
     job2 = tmp_path / "job_b"
     job2.mkdir()
     assert geocache.restore(ctx, job2) == []
+
+
+# ---------------------------------------------------------------- drawn AOIs (T10.8)
+
+_RING = [(-78.50, 47.80), (-78.44, 47.80), (-78.44, 47.84), (-78.50, 47.84),
+         (-78.50, 47.80)]
+
+
+def test_a_drawn_aoi_keys_on_its_own_box_not_on_a_leftover_radius():
+    """THE BUG THE OLD KEY WOULD HAVE HAD. A drawn AOI takes its extent from its padded
+    ring and carries whatever `bbox_halfwidth_km` the slider happened to hold — so on the
+    old centre+radius key, two completely different parcels drawn from the same map view
+    would have collided, and `restore` hardlinks with NO shape check."""
+    a = geocache.key(_Ctx(ring=_RING))
+    b = geocache.key(_Ctx(ring=[(-77.50, 46.80), (-77.44, 46.80),
+                                (-77.44, 46.84), (-77.50, 46.84), (-77.50, 46.80)]))
+    assert a != b, "two different parcels share a cache slot"
+
+
+def test_a_drawn_aoi_ignores_the_radius_it_is_not_using():
+    """The converse: the same ring with a different stored radius is the same analysis
+    box, so it must HIT. Otherwise every slider nudge throws away a warm cache."""
+    assert geocache.key(_Ctx(rad=14.0, ring=_RING)) == geocache.key(_Ctx(rad=40.0, ring=_RING))
+
+
+def test_a_drawn_aoi_and_a_radius_aoi_never_collide():
+    assert geocache.key(_Ctx(ring=_RING)) != geocache.key(_Ctx())
+
+
+def test_the_padding_is_part_of_the_key():
+    """The cache holds rasters on the PADDED grid. Two runs that pad differently are not
+    looking at the same ground, however similar the drawing."""
+    c1, c2 = _Ctx(ring=_RING), _Ctx(ring=_RING)
+    c2.aoi = c2.aoi.model_copy(update={"pad_km": 5.0})
+    assert geocache.key(c1) != geocache.key(c2)
