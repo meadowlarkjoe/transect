@@ -3887,7 +3887,11 @@ function standLabel(p){
   const bits=[(p.type_couv||''), (p.gr_ess||'')].filter(Boolean).join(' ');
   const den=p.closure?Math.round(p.closure*100)+'%':'';
   const h=p.height_m?Math.round(p.height_m)+' m':'';
-  return [bits, den, h].filter(Boolean).join(' · ') || 'Stand';
+  const s=[bits, den, h].filter(Boolean).join(' · ');
+  if(s) return s;
+  // No cover type and no species means the survey mapped a DISTURBANCE here, not a
+  // stand. Calling it "Stand" was the label agreeing with itself and not with the map.
+  return p.cut_year?`Cut or burn · ${p.cut_year}`:'Unmapped ground';
 }
 /* ...and what those two-letter pairs actually are, dominant first. */
 function standSpecies(g){
@@ -5398,13 +5402,23 @@ const IDENTIFY = [
                        body:p=>{
                          const out=[];
                          if(p.type_couv) out.push(`${COVER_NAME[p.type_couv]||p.type_couv} stand as the forest survey mapped it.`);
-                         if(p.ess_browse!=null){
+                         // ONLY SPEAK ABOUT SPECIES WHEN THERE ARE SPECIES. A cut or a
+                         // burn carries no `gr_ess` — the stand was removed — so
+                         // `ess_browse` is 0, and reading that as "nothing to eat" made
+                         // this card call a 2015 cut a food desert while the browse
+                         // layer correctly scored it prime regen. Absence of a species
+                         // list is not evidence of absent food.
+                         if(p.gr_ess && p.ess_browse!=null){
                            const v=+p.ess_browse;
                            out.push(v>=0.7?'These species are prime moose browse.'
                                    :v>=0.35?'Some browse value in the mix.'
                                    :v>0?'Little to eat here — this is cover, not food.'
                                         :'Nothing here a moose eats.');
                          }
+                         if(!p.gr_ess && p.cut_year)
+                           out.push('Disturbed ground with no stand mapped on it yet — what it '
+                                    +'is worth is the REGENERATION, which the browse layer scores '
+                                    +'from its age rather than from species.');
                          if(p.height_m && p.height_m>3)
                            out.push('Taller than a moose reaches, so its own foliage is not the food — anything growing under it is.');
                          if(String(p.dep_sur||'').charAt(0)==='7') out.push('Organic ground — peat.');

@@ -65,9 +65,11 @@ def test_a_repeated_code_is_not_read_out_twice():
 def test_it_says_when_the_stand_is_out_of_reach():
     """The distinction species alone cannot make, and the one that stops this card
     contradicting the browse layer: 20 m birch is prime BY SPECIES and food for nobody."""
+    # Bounded by the NEXT entry rather than a character count — the block grows, and a
+    # fixed window just measures how much has been added since the test was written.
     src = APP.read_text()
     i = src.index("{lyr:'stands',")
-    seg = src[i:i + 1800]
+    seg = src[i:src.index("{lyr:'huntZones',", i)]
     assert "Taller than a moose reaches" in seg
 
 
@@ -81,3 +83,24 @@ def test_it_sits_below_the_specific_features_it_covers():
     assert ident.index("{lyr:'stands',") > ident.index("{lyr:'sites',")
     # ...but above the blanket huntability band, which is the least specific thing here
     assert ident.index("{lyr:'stands',") < ident.index("{lyr:'huntZones',")
+
+
+def test_a_cut_is_not_called_a_food_desert():
+    """CAUGHT LIVE. A cut or burn carries no `gr_ess` — the stand was removed — so
+    `ess_browse` is 0, and reading that as "nothing here a moose eats" had this card
+    calling a 2015 cut barren while the browse layer correctly scored it prime regen.
+    Absence of a species list is not evidence of absent food."""
+    src = APP.read_text()
+    i = src.index("{lyr:'stands',")
+    seg = src[i:src.index("{lyr:'huntZones',", i)]
+    assert "if(p.gr_ess && p.ess_browse!=null)" in seg, \
+        "the species verdict fires without species again"
+    assert "the REGENERATION" in seg, "a disturbance says nothing about what it is worth"
+
+
+def test_a_disturbance_is_not_labelled_stand():
+    """No cover type and no species means the survey mapped a DISTURBANCE, not a stand.
+    "Stand" was the label agreeing with itself rather than with the map."""
+    body = _fn("standLabel")
+    assert "'Stand'" not in body
+    assert "Cut or burn" in body
