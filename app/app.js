@@ -3619,10 +3619,16 @@ function buildWindowPill(){
   el.classList.remove('hidden');
   const chip=(sel,label,sub)=>`<button class="wchip${winSel===sel?' on':''}" data-win="${sel==null?'':sel}">
     <span class="wname">${escHtml(label)}</span>${sub?`<span class="wsub">${escHtml(sub)}</span>`:''}</button>`;
+  // Name the method on EVERY chip when the windows differ by weapon, not just the
+  // non-rifle one. Suppressing "rifle" as the default left one chip reading "bow" and
+  // the other reading nothing, which asks the hunter to know what the blank means — and
+  // the method is the thing they asked to see. When both windows use the same weapon it
+  // distinguishes nothing, so it goes.
+  const methods=new Set(W.map(w=>w.method||'rifle'));
   el.innerHTML=`<span class="pcap">${t('win.cap','SEASON')}</span>`
     + chip(null,t('win.all','All'),W.length+' windows')
     + W.map(w=>chip(w.window, `${w.start} → ${w.end}`,
-        w.method&&w.method!=='rifle'?w.method:'')).join('');
+        methods.size>1?(w.method||'rifle'):'')).join('');
   el.querySelectorAll('.wchip').forEach(b=>b.onclick=()=>{
     const v=b.dataset.win;
     winSel=(v==='')?null:+v;

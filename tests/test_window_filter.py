@@ -135,3 +135,14 @@ def test_the_filter_survives_an_unloaded_style():
     assert "if(!st||!st.layers)" in body.replace(" ", "")
     assert "map.once('idle',applyWindowFilter)" in body.replace(" ", "")
     assert "map.once('load'" not in body.replace(" ", "")
+
+
+def test_every_chip_names_its_method_when_the_windows_differ_by_weapon():
+    """Seen live: suppressing "rifle" as the default left one chip reading "bow" and the
+    other reading nothing, which asks the hunter to know what a blank means. The method
+    is the thing they asked to see — "we need to indicate what the method of take is for
+    each hunting date range"."""
+    body = _fn("buildWindowPill")
+    assert "methods.size>1?(w.method||'rifle'):''" in body.replace(" ", "")
+    assert "w.method!=='rifle'?w.method" not in body.replace(" ", ""), \
+        "rifle is being suppressed as an unlabelled default again"
