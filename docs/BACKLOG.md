@@ -36,7 +36,8 @@ The instruments are now written down rather than reconstructed (`focus_pool.tif`
 | 1 | **T9.10b** Decide the fine-grid neck detector | `blocked` — the A/B now runs and the 7→3 collapse is fixed (it was two cell-denominated constants). What is left is ground truth Joe has to supply, plus a separate worker-memory call on `FINE_BUDGET_PX`. |
 | 2 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
 | 3 | **E11** Forest survey read at a fraction of its resolution | Cross-referencing a guide's Cartes Xperts sheet showed the source carries species, height, age, drainage and slope; the engine reads cover class and density. Peatland landed (rev 32); the rest touches browse, thermal, refuge, travel, routes and wants a map layer. |
-| 4 | **T10.22** Serve the LiDAR hillshade as a basemap | Split out of T10.12, which established that the coverage is real. Needs a per-job asset route and a RETENTION answer before any rendering — a hillshade served from the pruned geography cache 404s on a reopened plan. |
+| 4 | **E12** A printed field sheet that replaces the bought map | `human` on scope — it is the largest epic here and it changes what the product IS. Shares one unsolved delivery problem with E11.6 and T10.22. |
+| 5 | **T10.22** Serve the LiDAR hillshade as a basemap | Split out of T10.12, which established that the coverage is real. Needs a per-job asset route and a RETENTION answer before any rendering — a hillshade served from the pruned geography cache 404s on a reopened plan. |
 
 **T10.4 + T10.9 done 2026-08-07** (engine rev 31). Water became one parent over beaver
 ponds · wetlands · rivers & lakes, and the DRAW ORDER was inverted to match the rule —
@@ -95,22 +96,22 @@ the view framed on the areas. A plate with no plan layers on it now says so.
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 5 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
-| 6 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
+| 6 | **T10.7** PDF layout is browser print chrome | Timestamp, "Page 1 of 11" and the raw URL on every page. |
+| 7 | **T10.14** Basemap rows are CSS gradients, not previews | A grey ramp standing in for hillshade tells you nothing about your ground. |
 
 ### Band 4 — PLATFORM (nobody sees it; it decides how fast the rest goes)
 
 | # | Ticket | Why it is here |
 |---|--------|----------------|
-| 7 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
-| 8 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
-| 9 | **T4.1 → T4.2** Extract the Québec legal adapter, then make `UNRESOLVED` loud | The most province-locked file. T4.2 is blocked on it and has to be queued WITH it, not left as prose in this cell. |
-| 10 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
-| 11 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
-| 12 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
-| 13 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
-| 14 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
-| 15 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
+| 8 | **T0.3** Contract snapshot harness | Every refactor below needs a before/after diff to be safe. |
+| 9 | **#84** Workers in their own container | Root cause of both deploy jams; a run still dies with the API. |
+| 10 | **T4.1 → T4.2** Extract the Québec legal adapter, then make `UNRESOLVED` loud | The most province-locked file. T4.2 is blocked on it and has to be queued WITH it, not left as prose in this cell. |
+| 11 | **T3.1 → T3.2 → T3.3** Species plug-ins | `whitetail_deer.yaml` is drafted and has never been run. |
+| 12 | **T1.3 · T1.4 · T2.2 · T2.4** Generality | Layer groups, species prose, CRS, global fallback — all now unblocked. |
+| 13 | **T6.2** Backtest against harvest density | Blocked by T6.1. |
+| 14 | **T5.1 · T5.2 · T5.3** Research sweeps | Québec-wide, Ontario, Maine/NH. |
+| 15 | **T8.1 → T8.2** Autonomous night shift | T8.2 is `human` — cadence is Joe's call. |
+| 16 | **E7** Mobile | `human` — gated on a design AND on the field-vs-couch product answer. |
 
 ---
 
@@ -1021,6 +1022,67 @@ render the same disturbance classes the guide's sheet does.
 Every model that starts reading these fields has to degrade to the satellite path outside
 the coverage, and the manifest has to say which one answered — or a northern box will
 quietly get a worse model with no sign that it did.
+
+### E12 — A printed field sheet that replaces the bought map · `ready`
+Asked directly: if the queue is finished, does that remove the need to buy Cartes Xperts?
+Answered honestly: no, and not because the model is behind — because they sell a
+different KIND of thing. E11 makes the analysis better. This epic is about the artefact.
+
+**What they actually sell, measured rather than assumed.** One sheet, 2160 × 1728 pt =
+**30 × 24 inches at 1:11,000**, covering **8.38 × 6.71 km (56 km²)** centred on the
+hunter's ground. (Recorded because the first read of it was wrong: the file was described
+as 285 pages — that was a size estimate, `pdfinfo` says one.) On it: the écoforestière
+stands rendered and LABELLED with the survey's own codes, harvest and perturbation
+polygons with years, classified roads, hydrography, contours, place names, a full legend
+of ~60 species codes plus harvest/disturbance/deposit vocabulary, a graticule in both
+lat/lon and Lambert, a scale bar, and the data currency stamped.
+
+**What Transect has that the sheet cannot.** The model — ranked focus areas, rut phase,
+routing and pack-out, staging, wind and scent geometry, pressure, the legal gate. None of
+that is in question here.
+
+**What Transect does NOT have, and this epic is the list.**
+
+**E12.1 — render at a TRUE SCALE, not a screenshot.** T10.6/T10.7 produce plates of the
+app. A field sheet is a different artefact: a stated scale (1:11,000 default), a scale
+bar, a graticule, north, and a margin that carries the legend. *Done when:* the export
+states its scale and a measured distance on the paper matches the ground.
+
+**E12.2 — the stands, labelled the way the survey labels them.** E11.2 already fetches
+`gr_ess`, height, density and age per polygon. The sheet's value is that every stand
+carries `R ENML 75% 10m` where you can read it. *Done when:* a printed stand carries its
+own code, and the map legend explains the vocabulary rather than assuming it.
+
+**E12.3 — contours, and ours should be better than theirs.** There are none anywhere in
+this codebase — checked. Theirs come from a national 10 m product. We already fetch HRDEM
+1 m LiDAR and record its coverage per box (T10.12), so we can generate contours from a
+surface 10× finer where it is flown, and fall back to MRDEM-30 where it is not. *Done
+when:* contours render at a sensible interval for the scale, say which DEM produced them,
+and never imply LiDAR precision on ground that only had the 30 m fallback.
+
+**E12.4 — the full disturbance and deposit vocabulary.** Shares its data work with E11.7
+(ES severe outbreak, CBA strip cut, EL/EPC thinning — 10.6% of the sampled ground) and
+E11.2's `dep_sur`. The engine ingests it; here it has to be legible on paper.
+
+**E12.5 — tile an AOI across sheets.** One sheet is 56 km². A 4 km drawn parcel fits
+inside one; **a 35 km radius box is 88 of them.** So this needs an index sheet and a tiling
+scheme, or a deliberate answer that the field sheet covers the focus areas rather than the
+whole box. *Done when:* an AOI of any size produces a coherent, numbered set with an index.
+
+**E12.6 — a file you own.** They sell an artefact that keeps working with no battery, no
+signal and no subscription. Ours is a hosted service over a pruned cache. *Done when:* the
+export is a self-contained file — GeoPDF or equivalent — plus GPX of the plan, and it
+does not stop working when the job cache is swept.
+
+**The honest cost.** E12.1–E12.4 are a rendering pipeline the app does not have today:
+print-scale cartography is not the screen map with a bigger viewport, and 88-sheet tiling
+is a real piece of work. This is the largest epic in the file. It is also the one that
+changes what the product IS — from a thing you consult to a thing you carry.
+
+**And the sequencing that matters:** E12.2 depends on E11.2 (done) and shares its delivery
+problem with E11.6 and T10.22. All three want the same missing piece — a way to get a
+large per-job artefact to the hunter and keep it working afterwards. That should be
+decided once, for all three, before any of them builds its own.
 
 ### T10.22 — Serve the LiDAR hillshade as a basemap · `ready`
 T10.12 established that HRDEM coverage is real and measured per box. What is missing is a
