@@ -1293,6 +1293,10 @@ def build(ctx: Context) -> dict:
     # abris sommaires in your box" is a fact a hunter can act on (and argue with), and
     # a number buried inside a raster is neither. Points are carried so the map can
     # show them; the layer is PRESSURE and never limits where you may hunt.
+    #
+    # How many POINTS reach the map. The pressure surface is computed from every lease in
+    # the box regardless — this bounds the drawing, not the model.
+    LEASE_POINT_CAP = 400
     try:
         _bx = json.loads((cache / "baux.json").read_text())
         _fc = json.loads((cache / "baux.geojson").read_text())
@@ -1307,8 +1311,14 @@ def build(ctx: Context) -> dict:
                         "lat": f["geometry"]["coordinates"][1],
                         "kind": f["properties"].get("kind"),
                         "label": f["properties"].get("label_en")}
-                       for f in (_fc.get("features") or [])[:400]],
+                       for f in (_fc.get("features") or [])[:LEASE_POINT_CAP]],
         }
+        # A CAP THAT REPORTS ITSELF AS COMPLETE IS THE BUG, not the cap. `count` is how
+        # many leases are really in the box; `points` is how many we ship to the map.
+        # On lease-dense ground those differ, and the legend was reading the second while
+        # sounding like the first.
+        doc["leases"]["shown"] = len(doc["leases"]["points"])
+        doc["leases"]["truncated"] = bool(doc["leases"]["count"] > doc["leases"]["shown"])
     except Exception:
         doc["leases"] = None
 

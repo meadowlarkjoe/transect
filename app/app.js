@@ -667,6 +667,28 @@ function init(){
   // Recent LOGGING CUTS (écoforestière), coloured by age — a surveyed cutblock edge, so
   // it earns a stroke. Green family (it's about browse), distinct from the ember burns:
   // fresh = pale (open, browse not up yet), regen = bright (prime), closing = dark.
+  /* THE FOREST SURVEY ITSELF (E11.6). Not a model output — the MFFP écoforestière
+     polygons the engine reads, drawn the way a guide's sheet draws them, so the hunter
+     can look at the ground the model is reasoning about instead of taking its word.
+
+     Loaded separately from the plan document because it is far too big to live in it:
+     2.78 MB for an 8 km box, 574 KB gzipped, against a plan blob averaging 586 KB. It
+     arrives from the per-plan artifact store (T0.6) once a plan is saved. */
+  map.addSource('stands',{type:'geojson',data:fc([])});
+  // Fill by BROWSE VALUE OF THE SPECIES, which is the thing a moose hunter is reading
+  // the forest for. Black spruce reads as cover, birch and aspen as food, and the ramp
+  // between them is the survey's own gr_ess rather than our guess at it.
+  map.addLayer({id:'stands',type:'fill',source:'stands',layout:{visibility:'none'},
+    paint:{'fill-color':['interpolate',['linear'],['coalesce',['get','ess_browse'],0],
+             0,'#2F4F4F', 0.2,'#3E6B4A', 0.45,'#5FA83C', 0.7,'#8FD44A', 1,'#C9F06B'],
+           'fill-opacity':0.55}});
+  map.addLayer({id:'stands-line',type:'line',source:'stands',layout:{visibility:'none'},
+    paint:{'line-color':'#0b0f0d','line-width':0.6,'line-opacity':0.55}});
+  // Cuts and burns carry a YEAR, which is the one thing on the guide's sheet that a
+  // hunter navigates by. Outlined rather than filled so it reads over the species ramp.
+  map.addLayer({id:'stands-cut',type:'line',source:'stands',
+    filter:['in',['get','cls'],['literal',[4,5,6]]],layout:{visibility:'none'},
+    paint:{'line-color':'#E2A03F','line-width':1.6,'line-opacity':0.9}});
   map.addSource('wetlandZones',{type:'geojson',data:S.wetlandZones});
   map.addLayer({id:'wetlandZones',type:'fill',source:'wetlandZones',
     layout:{visibility:'none'},paint:{'fill-color':'#3E8E7E','fill-opacity':0.22}});
@@ -1357,6 +1379,7 @@ const LYR_MAP={feedEdge:['feedEdgeZones','feedEdgeZones-line'],areas:['areas-fil
   refuge:['refugeZones'],
   funnel:['funnelZones'],
   browse:['browseZones'],
+  stands:['stands','stands-line','stands-cut'],
   brRegenPrime:['brRegenPrime','brRegenPrime-line'],
   brAquatic:['brAquatic','brAquatic-line'],
   brRegenClosing:['brRegenClosing','brRegenClosing-line'],
@@ -1443,6 +1466,18 @@ const LAYERS=[
   note:'Scores as browse, but nothing dated or surveyed says what stage it is at — a land-cover read.',
   hex:'#9CA86B', on:false, lyr:'brOther',
   count:()=>(DOC.browse_zones||[]).filter(z=>!z.kind||z.kind==='other').length},
+ // THE SURVEY, not the model. Deliberately its own row rather than a browse sublayer:
+ // the browse kinds are what the ENGINE concluded, and this is what the FOREST INVENTORY
+ // says. Showing them as the same kind of thing would blur a distinction the hunter
+ // needs — one is evidence, the other is an opinion built on it.
+ {k:'stands', group:'MODEL ZONES', kind:'solid', edge:'solid', name:'Forest survey',
+  note:'Every mapped stand, shaded by what its species are worth to a moose. Dark = conifer cover, bright = birch and aspen. Amber outline = a dated cut or burn.',
+  hex:'#5FA83C', icon:'leaf', on:false, lyr:'stands',
+  count:()=>(window._standCount!=null?window._standCount
+             :(STANDS_STATE&&STANDS_STATE.status!=='present'?'NO DATA':'—')),
+  // Not a dash. A layer that is off because it was never fetched, one that was swept,
+  // and one on ground the survey does not cover are three different answers.
+  why:()=>(STANDS_STATE&&STANDS_STATE.status!=='present')?STANDS_STATE.why:''},
  {k:'burns', group:'MODEL ZONES', kind:'hatch', edge:'solid', name:'Burn regeneration',
   note:'Fire perimeters by age — browse peaks 15–22 yr after a burn. Strongest single predictor here.',
   hex:'#C97A2B', icon:'flame', on:false, lyr:'burns', count:()=>(DOC.burn_zones||[]).length},
@@ -1525,9 +1560,13 @@ const LAYERS=[
  // "who else is". A lease covers the building, not the country — the note says so,
  // because a red pin beside a "Closed to you" row would read as a closure.
  {k:'leases', group:'ACCESS & HYDRO', kind:'point', edge:'none', name:'Leased shelters',
-  note:'Abris sommaires, chalets de villégiature and outfitter camps leased on crown land. Somebody hunts this ground every season — and thought it worth building on. Does NOT restrict where you may hunt.',
+  note:'Crown-land leases. Rust = a rustic hunting shelter (the real hunting signal), dark rust = an outfitter camp, grey = a cottage or residence. Somebody is here every season — but it does NOT restrict where you may hunt.',
   hex:'#B8734A', icon:'home', on:false, lyr:'leases',
-  count:()=>((DOC.leases||{}).points||[]).length},
+  // The count is what is in the BOX, not what fits on the map. It used to read
+  // `points.length`, which is capped at 400 — so dense ground reported "400" and
+  // sounded complete. `truncated` is what makes the difference visible.
+  count:()=>{const L=DOC.leases||{}; const n=L.count!=null?L.count:((L.points||[]).length);
+    return L.truncated?`${n} (${L.shown} shown)`:n;}},
  // TRAVEL MODE (T10.20). Reported: "I indicated on setup i had an ATV/SXS. On the
  // analysis, i can't see any difference between routes to be travelled on ATV vs things
  // to be walked." The engine now routes mode-aware and these name what it drew.
@@ -3196,6 +3235,7 @@ function applyDoc(newDoc){        // re-bind the whole map + panels to fresh eng
   setD('staging',S.staging); setD('packin',fc(S.packin)); setD('sites',fc(window._sites));
   setD('routes',S.routes);
   buildWindowPill(); applyWindowFilter();      // T10.3 — reassert the filter on new data
+  loadStands();                                // E11.6 — the forest survey, if this plan has one
   setVis(LYR_MAP.roads,true); setVis(LYR_MAP.boundaries,true);   // keep roads + borders visible after a recompute too
   window._aoi={huntZones:S.huntZones,browseZones:S.browseZones,rivers:S.rivers,lakes:S.lakes,
     refugeZones:S.refugeZones,funnelZones:S.funnelZones};
@@ -3775,6 +3815,45 @@ function windowTag(a){
   const methods=new Set(W.map(x=>x.method||'rifle'));
   if(methods.size>1 && w.method) return w.method;
   return String(w.start||'').slice(5);      // MM-DD — the year is the same for all of them
+}
+/* THE FOREST SURVEY LAYER (E11.6).
+   Fetched separately from the plan document because it does not fit in one: 2.78 MB of
+   GeoJSON for an 8 km box against a plan blob averaging 586 KB. It lives in the per-plan
+   artifact store (T0.6) and arrives once a plan is SAVED.
+
+   THE PART THAT MATTERS IS THE FAILURE PATH. An empty forest layer and a missing one
+   look identical on a map, and a hunter reading the first concludes the ground is bare.
+   So a layer that is not here says WHY — and 410 (swept, re-runnable) is a different
+   sentence from 404 (this plan never had one). Neither is silence. */
+let STANDS_STATE=null;
+async function loadStands(){
+  const row=LAYERS.find(r=>r.k==='stands');
+  window._standCount=null; STANDS_STATE=null;
+  const src=map.getSource&&map.getSource('stands');
+  if(src) src.setData(fc([]));
+  if(!CUR_PLAN_ID){
+    STANDS_STATE={status:'unsaved',
+      why:t('stands.unsaved','Save this plan and the forest survey loads with it — it is too big to carry inside the plan itself.')};
+    if(row) buildLayersDock&&null; return;
+  }
+  try{
+    const res=await apiF(`/plans/${encodeURIComponent(CUR_PLAN_ID)}/artifacts/stands.geojson`);
+    if(res.status===410 || res.status===404){
+      let why='';
+      try{ why=(await res.json()).detail||''; }catch(e){}
+      STANDS_STATE={status:res.status===410?'evicted':'absent', why:why||'Not available for this plan.'};
+      return;
+    }
+    if(!res.ok){ STANDS_STATE={status:'error', why:'Could not load the forest survey.'}; return; }
+    const gj=await res.json();
+    const s=map.getSource('stands');
+    if(s) s.setData(gj);
+    window._standCount=(gj.features||[]).length;
+    STANDS_STATE={status:'present'};
+  }catch(e){
+    STANDS_STATE={status:'error', why:'Could not load the forest survey.'};
+  }
+  try{ if(!document.getElementById('layersDock').classList.contains('hidden')) buildLayersDock(); }catch(e){}
 }
 function windowOf(a){
   const W=DOC.windows||[];
@@ -5111,6 +5190,17 @@ const IDENTIFY = [
                          return cad ? `${geo} · ${tf('scent.refresh',{h:cad.refresh_hours})}`
                            + (cad.rain_reset?' · '+t('scent.rain'):'') : geo;
                        }},
+  // A DOT YOU CANNOT NAME. Leases were drawn in three colours the model genuinely
+  // distinguishes — an abri sommaire is a hunting camp, a villégiature is a summer
+  // cottage — and nothing on the map said which was which (T9.8 shipped without this).
+  {lyr:'leases',       row:'leases',   title:p=>p.label||'Leased shelter',
+                       sub:p=>({abri_sommaire:'Rustic hunting shelter — somebody hunts this ground every season',
+                                pourvoirie_camp:'Outfitter camp on crown land',
+                                villegiature:'Cottage lease — mostly a summer presence',
+                                residence:'Principal residence'}[p.kind]
+                               || 'Leased on crown land'),
+                       body:()=>'This is PRESSURE, not permission: a lease says somebody '
+                                +'else is likely here, and it does not restrict where you may hunt.'},
   {lyr:'crossings',    row:'crossings',
                        title:p=>CROSS_LABEL[p.kind]||CROSS_LABEL.boat,
                        chip:p=>CROSS_CHIP[p.kind]||CROSS_CHIP.boat,
