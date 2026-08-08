@@ -3581,10 +3581,17 @@ let winSel=null;                 // null = all windows
 const WIN_SOURCES=['areas','areaLabels','sites','camps','staging','routes'];
 let _winBaseFilter=null;         // each layer's own filter, captured once
 function applyWindowFilter(){
-  if(!map||!map.getStyle) return;
+  // `getStyle()` returns UNDEFINED before the style is loaded — not an empty style — and
+  // this runs from the source refresh, which can land first. Guarding on the method
+  // existing is not enough; it is the RETURN that is missing. An exception here would
+  // abort the rest of the refresh, so it is worth more than a silent skip: retry on
+  // `idle` (never `load`, which fires once — see applyTerrain) so the filter is actually
+  // applied rather than quietly dropped.
+  const st=(map&&map.getStyle)?map.getStyle():null;
+  if(!st||!st.layers){ if(map&&map.once) map.once('idle',applyWindowFilter); return; }
   if(!_winBaseFilter){
     _winBaseFilter={};
-    (map.getStyle().layers||[]).forEach(l=>{
+    st.layers.forEach(l=>{
       if(WIN_SOURCES.includes(l.source)) _winBaseFilter[l.id]=map.getFilter(l.id)||null;
     });
   }

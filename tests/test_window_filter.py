@@ -120,3 +120,18 @@ def test_both_languages_have_the_strings():
     for k in ("win.cap", "win.all"):
         assert len(re.findall(rf"'{re.escape(k)}'\s*:", i18n)) == 2, \
             f"{k} is not defined in both en and fr"
+
+
+def test_the_filter_survives_an_unloaded_style():
+    """`getStyle()` returns UNDEFINED before load, not an empty style, and this runs from
+    the source refresh — which can land first. Caught by driving the live map; the static
+    tests above all passed with the broken guard, because they never called it.
+
+    It retries on `idle` rather than skipping, and never on `load`: `load` fires once,
+    but the style is momentarily unavailable during ordinary updates too. Exactly the
+    mistake made and corrected in `applyTerrain` an hour earlier."""
+    body = _fn("applyWindowFilter")
+    assert "const st=(map&&map.getStyle)?map.getStyle():null" in body.replace(" ", "")
+    assert "if(!st||!st.layers)" in body.replace(" ", "")
+    assert "map.once('idle',applyWindowFilter)" in body.replace(" ", "")
+    assert "map.once('load'" not in body.replace(" ", "")
