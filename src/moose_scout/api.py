@@ -23,6 +23,7 @@ import uuid
 import os
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -40,7 +41,7 @@ def _require_key(x_api_key):
     if API_KEY and x_api_key != API_KEY:
         raise HTTPException(status_code=401, detail="invalid or missing API key")
 
-from . import pipeline
+from . import artifacts, pipeline
 from .config import (AOI, Context, HunterCfg, LatLon, SeasonCfg, _walk, cache_dir,
                      load_model, load_species, outputs_dir)
 
@@ -638,6 +639,21 @@ def put_plan(p: PlanIn, authorization: str = Header(default=None)):
     ver = con.execute("SELECT version FROM plans WHERE id=?", (p.id,)).fetchone()[0]
     con.commit()
     con.close()
+    # PROMOTE THE BIG LAYERS OUT OF THE JOB CACHE AND INTO THE PLAN. Saving is the moment
+    # a run stops being an event and becomes something someone comes back to — and the
+    # job cache it currently lives in prunes at 48 h. Doing this at save rather than at
+    # run means an unsaved experiment costs no disk.
+    #
+    # Best-effort by construction: the plan is already committed above, so a failure here
+    # costs a map layer and never the plan.
+    try:
+        jid = ((p.data or {}).get("meta") or {}).get("job_id")
+        if jid and artifacts.state(p.id, "stands.gpkg").get("status") != "present":
+            got = artifacts.promote_job(p.id, cache_dir(f"job_{jid}"))
+            if got:
+                print(f"[artifacts] plan {p.id}: promoted {', '.join(got)}")
+    except Exception as e:  # noqa: BLE001
+        print(f"[artifacts] promote skipped for {p.id}: {e}")
     return {"ok": True, "version": ver}
 
 
@@ -654,12 +670,60 @@ def del_plan(pid: str, authorization: str = Header(default=None)):
     con.execute("DELETE FROM plan_shares WHERE plan_id=? AND ? IN "
                 "(SELECT uid FROM plans WHERE id=?)", (pid, uid, pid))
     con.commit(); con.close()
+    # An artefact outliving its plan is a leak with someone's hunting ground in it.
+    artifacts.forget(pid)
     return {"ok": True}
 
 
 class ShareIn(BaseModel):
     email: str
     role: str = "edit"
+
+
+@app.get("/plans/{pid}/artifacts/{name}")
+def get_artifact(pid: str, name: str, authorization: str = Header(default=None)):
+    """Serve a large per-plan artefact — the forest layer, the LiDAR hillshade.
+
+    ONE ROUTE FOR ALL OF THEM, because E11.6, T10.22 and E12.2 each needed a way to get a
+    big file to the hunter and each would otherwise have grown its own. See
+    `artifacts.py` for why the store is keyed to the PLAN rather than the job.
+
+    A MISSING ARTEFACT IS NOT A 404. That is the whole reason this is not a static mount:
+    the app has to be able to tell "swept, re-run to rebuild" from "your plan never had
+    this", and a bare 404 collapses both into an empty map — which is exactly how a
+    hunter concludes there is nothing on the ground. 410 carries the reason.
+    """
+    uid = _uid(authorization)
+    if not uid:
+        raise HTTPException(401, "sign in first")
+    con = _db()
+    # The SAME access check the plan itself uses, so a shared plan's party sees the
+    # layers with it. Anything else would be a second, quietly divergent ACL.
+    if _plan_access(con, pid, uid) is None:
+        con.close(); raise HTTPException(403, "not your plan")
+    con.close()
+    if name not in artifacts.PROMOTABLE:
+        raise HTTPException(404, "no such artifact")
+    p = artifacts.path(pid, name)
+    if p is None:
+        st = artifacts.state(pid, name)
+        raise HTTPException(410, st.get("why") or "not available")
+    return FileResponse(str(p), filename=name)
+
+
+@app.get("/plans/{pid}/artifacts")
+def list_artifacts(pid: str, authorization: str = Header(default=None)):
+    """What this plan has, and for anything it does not have, WHY. The app renders the
+    reason; it must never be left inferring one from an empty layer."""
+    uid = _uid(authorization)
+    if not uid:
+        raise HTTPException(401, "sign in first")
+    con = _db()
+    if _plan_access(con, pid, uid) is None:
+        con.close(); raise HTTPException(403, "not your plan")
+    con.close()
+    return {"artifacts": {n: dict(artifacts.state(pid, n), what=desc)
+                          for n, desc in artifacts.PROMOTABLE.items()}}
 
 
 @app.get("/plans/{pid}/shares")

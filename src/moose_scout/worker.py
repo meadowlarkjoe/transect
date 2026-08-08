@@ -413,6 +413,15 @@ def run(jid: str) -> int:
             docs.append(json.loads(sub_out.read_text()))
 
         merged = _merge(docs, plans)
+        # STAMP THE JOB ONTO THE DOC. A saved plan needs to know which run produced it,
+        # or the API cannot find the cache to promote its big layers out of when the plan
+        # is saved (see artifacts.py). The app tracks this client-side today, which is
+        # fine until a plan is reopened on another device — the doc is the thing that
+        # travels.
+        try:
+            merged.setdefault("meta", {})["job_id"] = jid
+        except Exception:
+            pass
         out = outputs_dir(name) / "transect.json"
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(merged))
