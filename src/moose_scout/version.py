@@ -13,11 +13,12 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 30
+ENGINE_REVISION = 31
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    31: "Browse is now described by what there is to EAT and what stage it is at — aquatic and riparian feeding, regeneration that is new, prime or closing in, and deciduous stands — instead of by which dataset found it. Where a logging cut or a fire dates the ground, the map says how many years ago it was disturbed. The \"Recent cuts\" layer is gone because it drew the same cutblocks twice: an aged cut IS the regeneration layer.",
     30: "Focus areas stop growing into ground that is only good by association. The "
         "engine works out where an area reaches using a smoothed version of the map, "
         "which is right for getting a sensible SHAPE and wrong for judging quality — a "
