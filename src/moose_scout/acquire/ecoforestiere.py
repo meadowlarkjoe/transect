@@ -13,7 +13,8 @@ not an error, so the pipeline falls back to WorldCover + Sentinel-2 there.
 
 Writes (on the working grid; 0 / nodata where no stand):
   stand_type.tif     int16 cover-type code — 1 résineux · 2 mélangé · 3 feuillu ·
-                     4 recent cut/regen · 5 partial cut · 6 burn · 0 none/non-forest
+                     4 recent cut/regen · 5 partial cut · 6 burn · 7 tourbière ·
+                     0 none/non-forest
   stand_closure.tif  float32 canopy closure 0..1 (from density class A–D)
   cut_year.tif       int16 year of the most recent CUT origin (0 = none) → browse age
 """
@@ -42,6 +43,19 @@ PARTIAL_CUTS = {"CP", "CJ", "CJB", "CJG", "CJPG", "CPS", "CPR_T", "CPR_U", "CEA"
 
 # cover-type code the raster carries
 T_RESINEUX, T_MELANGE, T_FEUILLU, T_CUT, T_PARTIAL, T_BURN = 1, 2, 3, 4, 5, 6
+# PEATLAND, which used to be dropped on the floor (T10.23). A stand with no `type_couv`
+# is not forest, and `_classify` returned None for all of them — 39 of 599 polygons over
+# the 47.98, -77.82 sheet, 6.5% of the ground. Almost every one carries `dep_sur` 7x
+# (organic deposit) with hydric drainage: peat bog and wet barren.
+#
+# That is not nothing. `config/species/moose.yaml` has carried a `tourbiere` class with
+# browse 0.35 and wet 1.0 the whole time, and habitat.py's own comment said it was "only
+# reachable through land cover" — while terrain.py documents that WorldCover barely sees
+# boreal peatland (0.4% of one test AOI against 7.5% from GRHQ). A third source for it
+# was in hand and thrown away.
+T_TOURBIERE = 7
+ORGANIC_DEPOSITS = ("7",)          # dep_sur 7E / 7T — organique épais / mince
+HYDRIC_DRAINAGE = ("4", "5", "6")  # imparfait / mauvais / très mauvais
 # density class A–D → mid canopy-closure fraction (A 80–100, B 60–80, C 40–60, D 25–40)
 CLOSURE = {"A": 0.90, "B": 0.70, "C": 0.50, "D": 0.32}
 
@@ -90,6 +104,14 @@ def _classify(props):
         return T_MELANGE, 0
     if tc == "F":
         return T_FEUILLU, 0
+    # NOT FOREST — but not nothing either (T10.23). An organic deposit on hydric ground
+    # is peatland, and the polygon says so even though it carries no cover type. Both
+    # conditions are required: an organic deposit on well-drained ground is not a bog,
+    # and hydric drainage under a forest cover was already handled above.
+    dep = (props.get("dep_sur") or "").strip()
+    drai = (props.get("cl_drai") or "").strip()
+    if dep[:1] in ORGANIC_DEPOSITS and drai[:1] in HYDRIC_DRAINAGE:
+        return T_TOURBIERE, 0
     return None, 0
 
 

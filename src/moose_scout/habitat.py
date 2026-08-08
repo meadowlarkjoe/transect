@@ -283,10 +283,16 @@ def run(ctx: Context) -> None:
         # The raster taxonomy and the config taxonomy are NOT the same list, so the map
         # between them is explicit. `regeneration` (the config's "money class") has no
         # stand code on purpose — regen is an aged cut, and the cut-age curve below is
-        # what expresses it, peaking at 1.00 around 18 years. `aulnaie` / `tourbiere` /
-        # `non_boise` are only reachable through land cover and are left to it.
+        # what expresses it, peaking at 1.00 around 18 years. `aulnaie` and `non_boise`
+        # are still only reachable through land cover.
+        #
+        # `tourbiere` NO LONGER IS (T10.23). This used to say the same about peatland,
+        # and that was a real loss: the stand map marks organic deposits on hydric ground
+        # and acquire dropped those polygons entirely — 6.5% of one real sheet — while
+        # terrain.py documents WorldCover barely seeing boreal peatland. Code 7 carries
+        # them now.
         STAND_CLASS = {1: "resineux", 2: "melange", 3: "feuillus",
-                       4: "coupe_recente", 5: "coupe_partielle"}
+                       4: "coupe_recente", 5: "coupe_partielle", 7: "tourbiere"}
         # Code 6 is burn; the DATED burn curve above is a better answer than any class
         # constant, so a stand-mapped burn defers to it rather than asserting a number.
         _ct = getattr(ctx.species, "cover_types", None) or {}
@@ -301,9 +307,9 @@ def run(ctx: Context) -> None:
             return float(np.clip(fallback if v is None else float(v), 0.0, 1.0))
 
         SP_COVER = {c: _sp(c, "cover", d) for c, d in
-                    {1: 0.85, 2: 0.55, 3: 0.25, 4: 0.05, 5: 0.35, 6: 0.10}.items()}
+                    {1: 0.85, 2: 0.55, 3: 0.25, 4: 0.05, 5: 0.35, 6: 0.10, 7: 0.00}.items()}
         SP_BROWSE = {c: _sp(c, "browse", d) for c, d in
-                     {1: 0.05, 2: 0.35, 3: 0.30, 4: 0.55, 5: 0.45, 6: 0.30}.items()}
+                     {1: 0.05, 2: 0.35, 3: 0.30, 4: 0.55, 5: 0.45, 6: 0.30, 7: 0.35}.items()}
         eco_cover = np.zeros(shape, "float32")
         eco_browse = np.zeros(shape, "float32")
         for k, v in SP_COVER.items():
