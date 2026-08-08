@@ -888,11 +888,17 @@ function init(){
   // over the top of both. A flowage the model calls a rut hub was painted over by the
   // waterbody that merely contains it.
   //
-  // Open water is pushed DOWN under the wetlands rather than the wetlands lifted up: a
-  // bare moveLayer() raises to the very top, which would have put lake fill over the
-  // camps, staging pins, crossings and area badges that are all added before this point.
-  ['lakes','lakes-line','rivers'].forEach(id=>{
-    if(map.getLayer(id)&&map.getLayer('wetlandZones')) map.moveLayer(id,'wetlandZones');
+  // WATER SITS UNDER THE MODEL. It is context — where the ground is wet and where you
+  // cannot walk — and it was being added ABOVE the huntability bands, the browse zones
+  // and the forest survey, so it painted over the things the hunter opened the map to
+  // read. "waterways should be low in the layer stack."
+  //
+  // Moved as a group, each before `huntZones`, which puts them directly beneath the
+  // lowest model layer in this exact order — so T10.4's rule survives intact: beaver
+  // pond over wetland over open water, specific above general. Beaver ponds are POINTS
+  // and stay up with the other markers; a dot does not hide anything.
+  ['lakes','lakes-line','rivers','wetlandZones','wetlandZones-line'].forEach(id=>{
+    if(map.getLayer(id)&&map.getLayer('huntZones')) map.moveLayer(id,'huntZones');
   });
   map.addLayer({id:'staging',type:'symbol',source:'staging',
     layout:{'icon-image':'parking','icon-size':['interpolate',['linear'],['zoom'],8,0.8,11,1.15,15,2],'icon-allow-overlap':true}});
@@ -1604,6 +1610,7 @@ const LAYERS=[
   note:'GRHQ flowages — a rut hub: bulls scent-mark the wet edge, cows follow. Worth a stand.',
   hex:'#2FB5C4', icon:'droplets', on:false, lyr:'beaver', count:()=>(DOC.beaver_ponds||[]).length},
  {k:'wetland', group:'ACCESS & HYDRO', sub:'water', kind:'stipple', edge:'solid', name:'Wetlands',
+  alpha:0.22,          // it is CONTEXT; at 0.9 it erased the model underneath it
   note:'GRHQ marsh / bog / fen — a travel barrier that shapes funnels; slow on foot.',
   hex:'#3E8E7E', icon:'waves', on:false, lyr:'wetland', count:()=>(DOC.wetland_zones||[]).length},
  {k:'openwater', group:'ACCESS & HYDRO', sub:'water', kind:'line', edge:'solid', name:'Rivers & lakes',
@@ -1831,7 +1838,12 @@ function applyLayer(r){
     if(!map.getLayer(id)) return;
     const ty=map.getLayer(id).type;
     try{
-      if(ty==='fill') map.setPaintProperty(id,'fill-opacity',(r.kind==='solid'?FILL_ALPHA:0.9)*op);
+      // A ROW MAY STATE ITS OWN ALPHA. This used to force every non-`solid` fill to 0.9,
+      // which quietly overrode the value the layer was declared with — wetland is added
+      // at 0.22 and was being painted at 0.9, so it covered the browse and huntability
+      // beneath it. Reported as "wetland is too opaque and blocks everything else".
+      if(ty==='fill') map.setPaintProperty(id,'fill-opacity',
+        (r.alpha!=null?r.alpha:(r.kind==='solid'?FILL_ALPHA:0.9))*op);
     }catch(e){}
   });
 }
