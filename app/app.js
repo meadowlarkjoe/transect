@@ -921,69 +921,19 @@ function init(){
   // nothing': the click selected the focus area instead). onFeat wraps every
   // feature handler with that guard in one place.
   const onFeat=(layer,fn)=>map.on('click',layer,e=>{ if(drawTool) return; fn(e); });
-  onFeat('huntZones',e=>{ const p=e.features[0].properties; const cl=HUNT_CLS[p.cls]||{};
-    new maplibregl.Popup().setLngLat(e.lngLat)
-      .setHTML(`<h4><span style="color:${cl.c}">●</span> ${cl.label||p.cls} · ${p.area_km2} km²</h4><div class="s">${HUNT_WHY[p.cls]||''}</div>`).addTo(map);});
-  onFeat('browseZones',e=>{ const p=e.features[0].properties;
-    // #96 — browse is a composite, so the card says which source decided this ground and
-    // whether the others backed it up. A number with no history is what made this layer
-    // hard to trust. Older plans carry no provenance; the block simply does not render.
-    let prov='';
-    if(p.src){
-      const sh=p.srcShare!=null?` (${Math.round(p.srcShare*100)}% of it)`:'';
-      const ag=p.agree==null?'' : (p.agree>=0.8?'the other sources agree'
-              : p.agree>=0.5?'the other sources partly agree'
-              : '<b>the other sources disagree here</b>');
-      prov=`<div class="s" style="margin-top:6px"><b>Why:</b> mostly the ${p.src}${sh}${ag?' — '+ag:''}.</div>`;
-    }
-    const sc=(p.score!=null)?`<div class="s" style="margin-top:4px"><b>Score:</b> ${p.score}</div>`:'';
-    new maplibregl.Popup().setLngLat(e.lngLat)
-      .setHTML(`<h4>${p.type} · ${p.area_km2} km²</h4><div class="s">${p.what}</div><div class="s" style="margin-top:4px"><b>When:</b> ${p.when}</div>${sc}${prov}`).addTo(map);});
-  ['browse_cut_zones','browse_burn_zones','browse_stand_zones','browse_lc_zones'].forEach(k=>{
-    onFeat(k,e=>{ const p=e.features[0].properties;
-      new maplibregl.Popup().setLngLat(e.lngLat)
-        .setHTML(`<h4>${p.name} · ${p.area_km2} km²</h4><div class="s">${p.note}</div>`+
-                 `<div class="s" style="margin-top:4px"><b>Score from this source alone:</b> ${p.score}</div>`).addTo(map);});
-  });
-  onFeat('refugeZones',e=>{ new maplibregl.Popup().setLngLat(e.lngLat)
-    .setHTML(`<h4><span style="color:${REFUGE_COL}">▨</span> Thermal refuge · ${e.features[0].properties.area_km2} km²</h4><div class="s">${ZONE_WHY.refuge}</div>`).addTo(map);});
-  ['tenureZones-line','tenureZones-line-ok'].forEach(id=>
-    onFeat(id,e=>{ const p=e.features[0].properties; tenurePopup(e.lngLat,p); }));
-  onFeat('tenureBlocked',e=>{ const p=e.features[0].properties; tenurePopup(e.lngLat,p); });
-  onFeat('burnZones',e=>{ const p=e.features[0].properties;
-    const prime=p.cls==='prime';
-    const bm=DOC.burn_meta||{};
-    new maplibregl.Popup().setLngLat(e.lngLat).setHTML(
-      `<h4><span style="color:${prime?'#E07B39':'#8A5A2B'}">▨</span> Burn regeneration · ${prime?'prime':'regen'} · ${p.area_km2} km²</h4>`+
-      `<div class="s">${prime
-        ? 'Peak browse window (~15–22 yr post-fire): willow, birch and aspen at reachable height with cover alongside. In this black-spruce country the unburned matrix is close to a food desert, so burns of this age are where the animals concentrate.'
-        : 'Regenerating burn, either side of the peak. Under ~8 yr the browse is below reachable height with no security cover; past ~30 yr the canopy closes and it grows out of reach.'}</div>`+
-      (bm.first_year?`<div class="s" style="margin-top:4px;opacity:.75">Mapped fires ${bm.first_year}–${bm.last_year} (NBAC) · ${bm.pct_of_aoi}% of this area burned.</div>`:'')).addTo(map);});
-  onFeat('funnelZones',e=>{ new maplibregl.Popup().setLngLat(e.lngLat)
-    .setHTML(`<h4><span style="color:${FUNNEL_COL}">▨</span> Funnel / pass · ${e.features[0].properties.area_km2} km²</h4><div class="s">${ZONE_WHY.funnel}</div>`).addTo(map);});
-  ['huntZones','browseZones','refugeZones','funnelZones','burnZones'].forEach(l=>{map.on('mouseenter',l,()=>map.getCanvas().style.cursor='pointer');map.on('mouseleave',l,()=>map.getCanvas().style.cursor='');});
-  onFeat('crossings',e=>{ const p=e.features[0].properties;
-    const noBoat=SETUP.watercraft==='none';
-    const msg = p.kind==='bridge'
-      ? 'A road bridge is mapped here, so this is not an obstacle — you drive or walk over it.'
-      : p.kind==='ford'
-        ? 'Mapped as a stream rather than a river — fordable on foot, but watch your footing and the water level.'
-        : (noBoat
-           ? '<b style="color:#f79">Treat as impassable on foot.</b> This is a mapped river, you have no boat, and nothing here tells us how wide it is — reroute or add a boat in Setup.'
-           : 'Take the '+(SETUP.watercraft==='motor'?'motorboat':'canoe')+' across here.');
-    // never let the popup imply more certainty than the data carries
-    const basis = p.basis==='measured'
-      ? '<div class="s" style="margin-top:6px;opacity:.8">Measured: a bridge is mapped at this point.</div>'
-      : '<div class="s" style="margin-top:6px;opacity:.8">Inferred from the OSM waterway class alone — no width, ford or riverbank data ships for this area. Verify on the ground.</div>';
-    new maplibregl.Popup().setLngLat(e.lngLat)
-      .setHTML('<h4>'+(CROSS_LABEL[p.kind]||CROSS_LABEL.boat)+'</h4><div class="s">'+msg+'</div>'+basis).addTo(map);});
+  // EVERY EXPLANATORY POPUP IS GONE (T10.9). There used to be ten of them — hunt zones,
+  // browse and its four sources, refuge, burns, funnels, crossings, tenure, sites — each
+  // saying something the hover card did not, about the same feature, in a panel you had
+  // to click to find. Reported as: "the explainability layer exists but it only appears
+  // on click, separate from tooltip. these should be combined."
+  //
+  // All of that prose now lives in IDENTIFY's `body`, so hover shows the whole
+  // explanation and click PINS it. What stays here is the one thing a click should still
+  // do, because it is an ACTION rather than an explanation: selecting a focus area.
   onFeat('areas-fill',e=>selectArea(e.features[0].properties.rank));
-  onFeat('sites',e=>{const p=e.features[0].properties;
-    const scent = p.type==='saline_blind'
-      ? '<div class="s" style="color:#e0a05a;margin-top:4px">⚠ Mineral/saline &amp; scents are regulated and may be prohibited in this zone — verify Zone '+((DOC.legal||{}).zone||'?')+' rules before using any attractant.</div>' : '';
-    new maplibregl.Popup().setLngLat(e.lngLat).setHTML(
-      `<h4>${LABELS[p.type]||p.type}</h4>${p.when?('<div class="s">'+p.when+'</div>'):''}`+
-      (p.windnote?('<div class="s">'+p.windnote+'</div>'):'')+scent).addTo(map);});
+  ['huntZones','browseZones','refugeZones','funnelZones','burnZones'].forEach(l=>{
+    map.on('mouseenter',l,()=>map.getCanvas().style.cursor='pointer');
+    map.on('mouseleave',l,()=>map.getCanvas().style.cursor='');});
   ['areas-fill','sites','camps','staging'].forEach(l=>{
     map.on('mouseenter',l,()=>map.getCanvas().style.cursor='pointer');
     map.on('mouseleave',l,()=>map.getCanvas().style.cursor='');});
@@ -1389,13 +1339,14 @@ const TENURE_WHY={
   zec:'ZEC — open to you, but you must register and pay at the gate on the way in and out.',
   reserve_faunique:'Réserve faunique (SEPAQ) — open only by draw or reservation; you cannot simply drive in and hunt.',
   crown:'Terres du domaine de l\'État — general crown land, open to a Québec resident DIY.'};
-function tenurePopup(lngLat,p){
+/* The tenure prose, separated from the popup that used to be its only home (T10.9).
+   A legal restriction is exactly the kind of thing that must not be click-to-discover. */
+function tenureBody(p){
   const closed=!(p.huntable===true||p.huntable==='true');
-  new maplibregl.Popup().setLngLat(lngLat).setHTML(
-    `<h4><span style="color:${closed?'#C9564A':'#E0A62E'}">${closed?'⃠':'▨'}</span> ${p.name||p.tenure}</h4>`+
-    `<div class="s"><b style="color:${closed?'#E58077':'#E0A62E'}">${closed?'CLOSED to you — masked out of the ranking':'Open with conditions'}</b></div>`+
-    `<div class="s" style="margin-top:4px">${TENURE_WHY[p.tenure]||p.tenure}</div>`+
-    `<div class="s" style="margin-top:4px;opacity:.7">Tenure boundaries are from the MRNF layer and can lag reality — verify before you hunt.</div>`).addTo(map);
+  return `<b style="color:${closed?'#E58077':'#E0A62E'}">${
+    closed?'CLOSED to you — masked out of the ranking':'Open with conditions'}</b> `
+    + (TENURE_WHY[p.tenure]||p.tenure||'')
+    + ' Tenure boundaries are from the MRNF layer and can lag reality — verify before you hunt.';
 }
 function buildLegend(){ /* the separate legend is gone — colour meaning now lives in
   the layer rows themselves (each swatch previews how that layer actually draws), so
@@ -4979,7 +4930,15 @@ const IDENTIFY = [
   // applied to the cursor.)
   // order matters: points first, so a site beats the polygon under it
   {lyr:'sites',        row:p=>SITE_ROW[p.type], title:p=>SITE_LABEL[p.type]||p.type||'Hunt site',
-                       sub:p=>p.when||''},
+                       sub:p=>p.when||'',
+                       // The wind note and the attractant warning used to be CLICK-ONLY, so
+                       // the hover named the stand and withheld the one thing that could
+                       // stop you using it (T10.9).
+                       body:p=>[p.windnote||'',
+                                p.type==='saline_blind'
+                                  ? '⚠ Mineral/saline &amp; scents are regulated and may be prohibited in this zone — verify Zone '
+                                    +((DOC.legal||{}).zone||'?')+' rules before using any attractant.'
+                                  : ''].filter(Boolean).join(' ')},
   {lyr:'camps',        row:'camps2',
                        title:p=>p.fixed?'Your camp':'Base camp',
                        sub:p=>p.fixed?'you placed this — the plan is built around it'
@@ -5010,7 +4969,8 @@ const IDENTIFY = [
                                                    :'Inferred from the waterway class alone — no width or ford data ships here.',
                                p.route?`On the ${p.route.replace('route_','')} leg.`:''
                               ].filter(Boolean).join(' ')},
-  {lyr:'refugeZones',  row:'refuge',   title:()=>'Thermal refuge',   sub:p=>`${p.area_km2} km²`},
+  {lyr:'refugeZones',  row:'refuge',   title:()=>'Thermal refuge',   sub:p=>`${p.area_km2} km²`,
+                       body:()=>ZONE_WHY.refuge},
   // SPECIFIC BEFORE BLANKET. IDENTIFY takes the FIRST match under the cursor, so with
   // browse listed first every hover on a cut reported "Browse / feeding, 140 km²" — the
   // least informative true statement available. Browse is a composite covering most of
@@ -5023,15 +4983,26 @@ const IDENTIFY = [
                          const age = p.ageMed!=null ? `~${p.ageMed} yr old` : '';
                          return [yr, age, `${p.area_km2} km²`].filter(Boolean).join(' · ');
                        }},
-  {lyr:'burnZones',    row:'burns',    title:p=>`Burn regeneration · ${p.cls||''}`, sub:p=>`${p.area_km2} km²`},
+  {lyr:'burnZones',    row:'burns',    title:p=>`Burn regeneration · ${p.cls||''}`, sub:p=>`${p.area_km2} km²`,
+                       body:p=>{
+                         const bm=DOC.burn_meta||{};
+                         return (p.cls==='prime'
+                           ? 'Peak browse window (~15–22 yr post-fire): willow, birch and aspen at reachable height with cover alongside. In this black-spruce country the unburned matrix is close to a food desert, so burns of this age are where the animals concentrate.'
+                           : 'Regenerating burn, either side of the peak. Under ~8 yr the browse is below reachable height with no security cover; past ~30 yr the canopy closes and it grows out of reach.')
+                           + (bm.first_year?` Mapped fires ${bm.first_year}–${bm.last_year} (NBAC) · ${bm.pct_of_aoi}% of this area burned.`:'');
+                       }},
   {lyr:'browse_cut_zones',   row:'browseCut',   title:()=>'Browse — from dated cuts',
-                       sub:p=>`${p.area_km2} km² · scores ${p.score} on this source alone`},
+                       sub:p=>`${p.area_km2} km² · scores ${p.score} on this source alone`,
+                       body:()=>(LAYERS.find(r=>r.k==='browseCut')||{}).note||''},
   {lyr:'browse_burn_zones',  row:'browseBurn',  title:()=>'Browse — from dated burns',
-                       sub:p=>`${p.area_km2} km² · scores ${p.score} on this source alone`},
+                       sub:p=>`${p.area_km2} km² · scores ${p.score} on this source alone`,
+                       body:()=>(LAYERS.find(r=>r.k==='browseBurn')||{}).note||''},
   {lyr:'browse_stand_zones', row:'browseStand', title:()=>'Browse — from the stand map',
-                       sub:p=>`${p.area_km2} km² · scores ${p.score} on this source alone`},
+                       sub:p=>`${p.area_km2} km² · scores ${p.score} on this source alone`,
+                       body:()=>(LAYERS.find(r=>r.k==='browseStand')||{}).note||''},
   {lyr:'browse_lc_zones',    row:'browseLc',    title:()=>'Browse — from satellite land cover',
-                       sub:p=>`${p.area_km2} km² · scores ${p.score} on this source alone`},
+                       sub:p=>`${p.area_km2} km² · scores ${p.score} on this source alone`,
+                       body:()=>(LAYERS.find(r=>r.k==='browseLc')||{}).note||''},
   // LAST of the browse family: the composite, which is what you get when nothing more
   // specific is under the cursor. It leads with WHERE ITS ANSWER CAME FROM.
   {lyr:'browseZones',  row:'browse',   title:()=>'Browse / feeding',
@@ -5044,8 +5015,13 @@ const IDENTIFY = [
                          if(p.score!=null) bits.push(`score ${p.score}`);
                          bits.push(`${p.area_km2} km²`);
                          return bits.join(' · ');
-                       }},
+                       },
+                       // WHAT IT IS AND WHEN TO HUNT IT — the click popup's whole reason to
+                       // exist, and the RICHER of the two panels, so the better answer was
+                       // the one you had to discover (T10.9).
+                       body:p=>[p.what||'', p.when?('When: '+p.when):''].filter(Boolean).join(' ')},
   {lyr:'funnelZones',  row:'funnel',   title:()=>'Funnel / pass',
+                       body:()=>ZONE_WHY.funnel,
                        // The NECK WIDTH is the claim this feature is making; area is not.
                        // "0.1 km²" is unfalsifiable — "a 180 m neck" is something you can
                        // check against the contours in front of you, and it is what makes a
@@ -5058,9 +5034,11 @@ const IDENTIFY = [
                        }},
   {lyr:'wetlandZones', row:'wetland',  title:()=>'Wetland',          sub:p=>`${p.area_km2} km² · marsh/bog — barrier + slow going`},
   {lyr:'beaverPonds',  row:'beaver',   title:()=>'Beaver pond',      sub:()=>'GRHQ flowage — a rut hub; hunt the wet edge beside cover'},
-  {lyr:'tenureBlocked',row:'tenure',   title:()=>'Closed to you',    sub:p=>p.name||'outfitter / reserve tenure'},
+  {lyr:'tenureBlocked',row:'tenure',   title:()=>'Closed to you',    sub:p=>p.name||'outfitter / reserve tenure',
+                       body:p=>tenureBody(p)},
   {lyr:'tenureZones-line-ok', row:'tenure-ok', title:()=>'Bookable — register first',
-                       sub:p=>(p.name?p.name+' — ':'')+'you may hunt here, but it is a ZEC or réserve faunique: daily registration or a reservation is required.'},
+                       sub:p=>(p.name?p.name+' — ':'')+'you may hunt here, but it is a ZEC or réserve faunique: daily registration or a reservation is required.',
+                       body:p=>tenureBody(p)},
   {lyr:'areas-fill',   row:'areas',    title:p=>`Focus area ${p.rank}`,
                        sub:p=>`${p.area_km2} km² · score ${p.mean_huntability}`},
   {lyr:'route-best',   row:'routes',   title:()=>'Hunt line',        sub:()=>'camp → stand, least-cost on foot'},
@@ -5076,11 +5054,14 @@ const IDENTIFY = [
                        sub:()=>'Gravel two-track — may be rough or seasonal; scout before you trust it'},
   {lyr:'trails',       row:'trails',   title:p=>p.name||'Foot trail',
                        sub:()=>'OSM path — walk-in only, not drivable'},
-  {lyr:'rivers',       row:'water',    title:p=>p.name||'Watercourse',sub:()=>'mapped hydrography (OSM)'},
-  {lyr:'lakes',        row:'water',    title:p=>p.name||'Waterbody', sub:()=>'mapped hydrography (OSM)'},
+  // `openwater`, not `water`: `water` is now the PARENT row (T10.4) and pointing at it
+  // would label a lake "Water" — the least specific name available for the thing.
+  {lyr:'rivers',       row:'openwater',title:p=>p.name||'Watercourse',sub:()=>'mapped hydrography (OSM)'},
+  {lyr:'lakes',        row:'openwater',title:p=>p.name||'Waterbody', sub:()=>'mapped hydrography (OSM)'},
   // LAST ON PURPOSE — see the note above.
   {lyr:'huntZones',    row:null,       title:p=>(HUNT_CLS[p.cls]||{}).label||'Likelihood band',
-                       sub:p=>`${p.area_km2} km² · model band, no surveyed edge`},
+                       sub:p=>`${p.area_km2} km² · model band, no surveyed edge`,
+                       body:p=>HUNT_WHY[p.cls]||''},
 ];
 // No validate_ground entry: the st-ground legend row is gone, and pointing at a row
 // that no longer exists is how a panel reconcile ends up with a dangling toggle.
@@ -5089,6 +5070,9 @@ const SITE_LABEL={rut_calling:'Calling position',thermal_refuge:'Thermal refuge'
   saline_blind:'Feeding edge',funnel:'Funnel / pass',glassing:'Glassing knob',
   validate_ground:'Ground-truth check',base_camp:'Base camp',parking:'Staging / parking'};
 let idHover=null;
+// Pinned = the hover card is held open by a click. It is the same card with the same
+// content — the whole point of T10.9 is that there is only ever one panel per feature.
+let idPinned=false, _idHasHit=false;
 /* ONE CARD PER FEATURE UNDER THE CURSOR (T9.4).
    It used to show only the FIRST match, so reading a spot where several layers overlap
    — which is most interesting ground, since that is what "interesting" means here —
@@ -5102,6 +5086,9 @@ function idCardHTML(def, f){
   const rk=typeof def.row==='function'?def.row(p):def.row;
   const row=rk?LAYERS.find(r=>r.k===rk):null;
   const sub=(def.sub&&def.sub(p))||'';
+  // A body that throws must not take the whole card down with it — one bad feature
+  // would otherwise blank the explanation for every layer under the cursor.
+  let body=''; try{ body=(def.body&&def.body(p))||''; }catch(e){ body=''; }
   // #71 — say WHY this is here and how sure we are. Modelled features carry a
   // confidence + plain-language reasons from the engine; layers that come straight
   // from an official dataset name the SOURCE instead of inventing a rationale, so a
@@ -5123,6 +5110,11 @@ function idCardHTML(def, f){
       <span>${def.title(p)}</span></div>`+
     (tag?`<div class="idsub" style="opacity:.7">${tag}</div>`:'')+
     (sub?`<div class="idsub">${sub}</div>`:'')+
+    // THE WHOLE EXPLANATION IN ONE PANEL (T10.9). This is the prose that used to be
+    // click-only, in a popup that said different things about the same feature — and the
+    // click one was the RICHER of the two, so the better answer was the one you had to
+    // discover.
+    (body?`<div class="idbody">${body}</div>`:'')+
     (conf!=null?`<div class="idsub" style="color:#e2c044">Confidence ${pct(conf)}${p.band?' · '+p.band:''}</div>`:'')+
     ((why&&why.length)?`<div class="idsub" style="opacity:.9">${
        why.map(w=>'· '+String(w)).join('<br>')}</div>`:'')+
@@ -5140,6 +5132,9 @@ function buildIdentify(){
     // A tool owns the cursor. Identifying features while someone is placing
     // measurement points fights them for the pointer and buries the readout.
     if(drawTool){ clearIdentify(); return; }
+    // PINNED MEANS PINNED (T10.9). Click no longer opens a DIFFERENT panel — it holds
+    // this one still so you can read it, reach it with the mouse, and select the text.
+    if(idPinned) return;
     const live=IDENTIFY.filter(d=>map.getLayer(d.lyr) &&
       map.getLayoutProperty(d.lyr,'visibility')!=='none');
     const hits=map.queryRenderedFeatures(
@@ -5166,16 +5161,31 @@ function buildIdentify(){
     if(y+r.height > innerHeight-8) y=cy-r.height-pad;
     el.style.left=Math.max(8,x)+'px'; el.style.top=Math.max(8,y)+'px';
     map.getCanvas().style.cursor='pointer';
+    _idHasHit=true;
     // Emphasis still follows the TOP card only — lighting up four layers at once is
     // the flashing this codebase has already been told off for.
     const top=shown[0].def.lyr;
     if(idHover!==top){ if(idHover) emphasiseMapLayer(idHover,false);
       emphasiseMapLayer(top,true); idHover=top; }
   });
-  map.on('mouseout',clearIdentify);
+  map.on('mouseout',()=>{ if(!idPinned) clearIdentify(); });
+  // CLICK PINS, it does not reveal. Clicking bare ground unpins, which is the only
+  // gesture anyone tries first. `areas-fill` keeps its own click handler because
+  // selecting an area is an ACTION, not an explanation — pinning happens as well.
+  map.on('click',e=>{
+    // A tool or an armed site-drop OWNS the click — the same rule `onFeat` applies. A
+    // click that is placing a site must not also pin an explanation of the ground it
+    // landed on.
+    if(drawTool||window._siteDropArm) return;
+    if(idPinned){ idPinned=false; el.classList.remove('pinned'); clearIdentify(); return; }
+    if(!_idHasHit || el.classList.contains('hidden')) return;
+    idPinned=true; el.classList.add('pinned');
+  });
 }
 function clearIdentify(){
-  const el=document.getElementById('idCard'); if(el) el.classList.add('hidden');
+  const el=document.getElementById('idCard');
+  if(el){ el.classList.add('hidden'); el.classList.remove('pinned'); }
+  idPinned=false; _idHasHit=false;
   if(idHover){ emphasiseMapLayer(idHover,false); idHover=null; }
   if(!drawTool) map.getCanvas().style.cursor='';
 }

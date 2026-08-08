@@ -106,3 +106,16 @@ def test_both_languages_name_the_parent_and_the_general_case():
     i18n = pathlib.Path("app/i18n.js").read_text()
     for k in ("lay.water", "lay.openwater", "lay.water.n", "lay.openwater.n"):
         assert len(re.findall(rf"'{re.escape(k)}'\s*:", i18n)) == 2, f"{k} missing a language"
+
+
+def test_every_identify_row_reference_resolves_to_a_legend_row():
+    """`rivers` and `lakes` pointed at `water`, which the parent row now occupies — so a
+    lake would have been labelled "Water", the least specific name available for it. A
+    dangling reference is the other failure: no badge, no row name, silently."""
+    src = APP.read_text()
+    block = src[src.index("const IDENTIFY = ["):]
+    block = block[:block.index("\n];")]
+    refs = set(re.findall(r"row:'([a-zA-Z0-9_-]+)'", block))
+    keys = set(re.findall(r"\{k:'([a-zA-Z0-9_-]+)'", _layers()))
+    assert refs <= keys, f"IDENTIFY points at rows that do not exist: {sorted(refs - keys)}"
+    assert "row:'openwater'" in block, "rivers/lakes point at the parent row again"

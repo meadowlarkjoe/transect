@@ -304,6 +304,20 @@ input[type=range]:focus{box-shadow:none;border:0}
 #layersPill .pname{display:block;font:600 13px/1.2 var(--sans);margin-top:3px}
 #layersPill .pcount{font:400 10px/1 var(--mono);color:var(--text-3);margin-left:2px}
 
+/* The identify card's BODY — the full explanation (T10.9). It used to be a separate
+   click popup saying different things about the same feature, and the click one was the
+   richer of the two, so the better answer was the one you had to discover. Sized to be
+   readable prose rather than a status line: this is where "what it is and when to hunt
+   it" actually lives. */
+#idCard .idbody{font:400 11.5px/1.45 var(--sans);color:var(--text-2);
+  margin-top:5px;padding-top:5px;border-top:1px solid var(--line);max-width:280px}
+/* PINNED. A click holds the card still so it can be read and reached with the mouse —
+   the accent border is the only difference, because it is deliberately the SAME card. */
+#idCard.pinned{pointer-events:auto;border-color:var(--accent);user-select:text}
+#idCard.pinned::after{content:'PINNED — click the map to release';display:block;
+  font:500 8.5px/1 var(--mono);letter-spacing:.14em;color:var(--accent-hi);
+  padding:6px 0 2px}
+
 /* Season filter — sits directly under the layers pill, same door-beside-the-sidebar
    idiom, because it answers the same kind of question: what am I looking at? Hidden
    outright on a single-window run; a filter that filters nothing reads as broken. */
@@ -652,6 +666,7 @@ body.weather-on .maplibregl-ctrl-bottom-left{bottom:calc(var(--weather-h,170px) 
 #idCard .idmore{margin-top:8px;padding-top:7px;border-top:1px dashed var(--line);
   font:400 10px/1.4 var(--sans);color:var(--text-3)}
 #idCard{max-height:70vh;overflow:hidden}
+#idCard.pinned{overflow:auto}
 #idCard .idhead{display:flex;align-items:center;gap:8px;font:600 12.5px/1.25 var(--sans);color:var(--text)}
 #idCard .idsub{margin-top:5px;font:400 11px/1.5 var(--sans);color:var(--text-2);text-wrap:pretty}
 #idCard .idrow{margin-top:6px;padding-top:6px;border-top:1px solid var(--line);
