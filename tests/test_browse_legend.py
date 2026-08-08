@@ -102,11 +102,18 @@ def test_both_languages_name_every_kind():
                 f"{key} is missing a language"
 
 
-def test_the_stand_map_is_not_claimed_to_carry_species():
-    """The ask included "specific species of vegetation that moose like". The
-    écoforestière map carries résineux / mélange / feuillus CLASSES. Saying "willow"
-    because a stand is feuillus would be inventing precision."""
+def test_the_row_does_not_blame_the_data_for_a_gap_that_is_ours():
+    """T10.4 shipped this row saying the stand map "has classes, not species". That was
+    WRONG, and a guide's Cartes Xperts sheet for 47.98, -77.82 is what showed it: every
+    polygon on that map is labelled with its species composition, straight out of the
+    same MFFP source this engine pulls. The WFS returns `gr_ess`;
+    acquire/ecoforestiere.py reads only `type_couv` and throws the rest away.
+
+    So the row may say the engine does not USE species. It may not say the survey does
+    not HAVE them — that is blaming the data for our own gap, and it is the sort of claim
+    that quietly closes a question that should stay open (T10.23)."""
     b = _layers()
     i = b.index("{k:'brDeciduous',")
     row = b[i:b.index("\n {k:'", i + 5)]
-    assert "classes, not species" in row
+    assert "classes, not species" not in row, "the row asserts a falsehood about the source"
+    assert "does not use yet" in row or "not use yet" in row

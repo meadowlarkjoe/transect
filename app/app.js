@@ -1404,8 +1404,12 @@ const LAYERS=[
  // twice and the parent needs no layer of its own.
  //
  // Ordered by what it is worth to the animal, and the greens run the same way.
- // NOT NAMED SPECIES: the écoforestière stand map carries résineux / mélange / feuillus
- // CLASSES, not species, so "deciduous & mixed" is as precise as the data honestly gets.
+ // NOT NAMED SPECIES YET, AND THE REASON IS US RATHER THAN THE DATA. T10.4 claimed the
+ // écoforestière map "carries classes, not species". It does not: the WFS returns
+ // `gr_ess`, and acquire/ecoforestiere.py reads only `type_couv`. Measured over the
+ // 47.98, -77.82 sheet, 46% of stands are ENEN — pure black spruce, which this engine's
+ // own methodology calls close to a food desert — and they are bucketed as "résineux"
+ // identically to ENENBP, spruce carrying birch. Ingesting it is T10.23.
  {k:'browse', group:'MODEL ZONES', kind:'stipple', edge:'none', name:'Browse / feeding',
   note:'What there is to eat, and what stage it is at.', hex:'#8FB43A', icon:'leaf',
   on:false, parent:true, count:()=>(DOC.browse_zones||[]).length},
@@ -1426,7 +1430,7 @@ const LAYERS=[
   count:()=>(DOC.browse_zones||[]).filter(z=>z.kind==='regen_closing').length},
  {k:'brDeciduous', group:'MODEL ZONES', sub:'browse', kind:'stipple', edge:'none',
   name:'Deciduous & mixed stand',
-  note:'Hardwood browse mapped by survey rather than inferred. The stand map has classes, not species.',
+  note:'Hardwood browse mapped by survey rather than inferred. The engine reads the stand map\'s cover CLASS today — the survey also names the species, which it does not use yet.',
   hex:'#3E9A63', on:false, lyr:'brDeciduous',
   count:()=>(DOC.browse_zones||[]).filter(z=>z.kind==='deciduous').length},
  {k:'brRegenNew', group:'MODEL ZONES', sub:'browse', kind:'stipple', edge:'none',
