@@ -37,7 +37,7 @@ The instruments are now written down rather than reconstructed (`focus_pool.tif`
 | 2 | **T10.13** Imagery season picker | The stale-window half is T10.16 above; this is the control and the high-res leaf-off source. |
 | 3 | **E11** Forest survey read at a fraction of its resolution | Cross-referencing a guide's Cartes Xperts sheet showed the source carries species, height, age, drainage and slope; the engine reads cover class and density. Peatland landed (rev 32); the rest touches browse, thermal, refuge, travel, routes and wants a map layer. |
 | 4 | **E12** A printed field sheet that replaces the bought map | `human` on scope — it is the largest epic here and it changes what the product IS. Shares one unsolved delivery problem with E11.6 and T10.22. |
-| 5 | **T10.22** Serve the LiDAR hillshade as a basemap | Split out of T10.12, which established that the coverage is real. Needs a per-job asset route and a RETENTION answer before any rendering — a hillshade served from the pruned geography cache 404s on a reopened plan. |
+| 5 | **T10.22** Serve the LiDAR hillshade as a basemap | Split out of T10.12, which established that the coverage is real. Delivery is solved (T0.6) — this now only needs the RENDER. |
 
 **T10.4 + T10.9 done 2026-08-07** (engine rev 31). Water became one parent over beaver
 ponds · wetlands · rivers & lakes, and the DRAW ORDER was inverted to match the rule —
@@ -1083,6 +1083,38 @@ changes what the product IS — from a thing you consult to a thing you carry.
 problem with E11.6 and T10.22. All three want the same missing piece — a way to get a
 large per-job artefact to the hunter and keep it working afterwards. That should be
 decided once, for all three, before any of them builds its own.
+
+### T0.6 — Delivery for large per-plan artefacts · `done` (2026-08-08)
+Three tickets independently needed the same missing piece and were each about to invent
+it: **E11.6** (the forest layer — 2.7 MB for an 8 km box, ~170 MB for a 35 km one),
+**T10.22** (the LiDAR hillshade) and **E12.2** (the printed field sheet). Decided once,
+in `src/moose_scout/artifacts.py`, before any of them built its own.
+
+**The trap all three would have fallen into** is serving out of the job cache. Job state
+prunes at 48 h and the geography cache prunes on its own budget, so a layer works for an
+afternoon and then quietly 404s for anyone reopening a saved plan. A JOB is an event; a
+PLAN is what someone comes back to. The store is keyed to the plan and lives under
+`/app/data`, a persistent host mount, so it survives container recreation by construction.
+
+**Measured on the live droplet before deciding:** 7 plans, 11 users, plan blobs averaging
+586 KB in sqlite (max 1.5 MB), a 3.2 GB geography cache, 59 GB free. That ruled out the
+plan blob — base64ing 170 MB into a row read in full on every plan open — and ruled out
+object storage *for now*: right at scale, wrong dependency at this size. The interface
+does not change when that flips, which is the point of having one.
+
+**What makes it safe rather than merely small:** a missing artefact is an ANSWER. `state()`
+distinguishes *evicted, re-run to rebuild* from *this plan never had one*, and the route
+answers **410 with the reason** rather than a bare 404 — because an empty layer and a
+swept layer look identical on a map, and a hunter reading the first concludes there is
+nothing on the ground. Everything else here is reversible; that is not.
+
+Also: eviction drops WHOLE plans (half a plan's layers is a map inconsistent with
+itself); the route reuses `_plan_access` so a shared plan's party sees its layers rather
+than meeting a second, quietly divergent ACL; promotion happens on SAVE so abandoned
+experiments cost no disk; deleting a plan takes its artefacts; and the worker stamps
+`meta.job_id` so a plan reopened on another device still knows which run produced it.
+
+**Unblocks E11.6, T10.22 and E12.2.** None of them should add a delivery path of its own.
 
 ### T10.22 — Serve the LiDAR hillshade as a basemap · `ready`
 T10.12 established that HRDEM coverage is real and measured per box. What is missing is a
