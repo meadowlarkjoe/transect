@@ -13,11 +13,12 @@ notes against, and deleting it because we improved the code would be a worse
 failure than showing a slightly stale one.
 """
 
-ENGINE_REVISION = 32
+ENGINE_REVISION = 33
 
 # What changed, newest first — the app shows this so "re-analyse?" is a decision,
 # not a leap of faith.
 REVISIONS = {
+    33: "\"No focus areas met the bar\" is no longer an answer. The model still holds an absolute quality bar, and ground clearing it is still marked as good — but when nothing in your box clears it, the ranking now steps down through that box's own ground until it has somewhere to send you, and says plainly that it did. You asked where to hunt in the area you chose; that question always has an answer.",
     32: "Peat bog and wet barren mapped by the forest survey now count. The stand map marks organic ground with poor drainage, and the engine had been discarding those polygons entirely — 6.5% of one real sheet — leaving peatland to a satellite layer that barely sees it. Bog is browse and it is wallow ground, so this shows up as feeding value on ground that previously scored as nothing.",
     31: "Browse is now described by what there is to EAT and what stage it is at — aquatic and riparian feeding, regeneration that is new, prime or closing in, and deciduous stands — instead of by which dataset found it. Where a logging cut or a fire dates the ground, the map says how many years ago it was disturbed. The \"Recent cuts\" layer is gone because it drew the same cutblocks twice: an aged cut IS the regeneration layer.",
     30: "Focus areas stop growing into ground that is only good by association. The "

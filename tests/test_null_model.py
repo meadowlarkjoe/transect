@@ -178,9 +178,14 @@ def test_extent_is_gated_on_the_raw_value_not_only_the_smoothed_one():
     from moose_scout import synth
     src = inspect.getsource(synth.extract_focus_areas)
     assert "EXTENT_RAW_FRAC" in src
-    assert "FLOOR * EXTENT_RAW_FRAC" in src, (
+    # Tied to THE ADMISSION BAR, not to `grow`. The identifier changed when the relative
+    # ladder landed — the admission bar is now a per-pass `floor`, because gates written
+    # as fractions of it have to relax when it does — but the relationship this test
+    # exists to protect is identical, and `floor` IS `FLOOR` on the primary pass.
+    assert "floor * EXTENT_RAW_FRAC" in src, (
         "the raw bar is tied to `grow` again — that was the first attempt and it did "
         "nothing, because grow can be as low as 0.216 while these landscapes average 0.248")
+    assert "grow * EXTENT_RAW_FRAC" not in src
 
 
 def test_the_shipped_extent_bar_is_the_one_the_evidence_supported():

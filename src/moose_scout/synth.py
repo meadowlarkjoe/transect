@@ -177,14 +177,21 @@ def extract_focus_areas(ctx, hunt, prof):
             # So extent gets its own, looser bar: ground at least GROW_FRAC_OF_FLOOR as good
             # as the admission bar, and still related to this peak. Quality is unchanged —
             # nothing is admitted that was not admitted before.
-            grow = max(FLOOR * GROW_FRAC_OF_FLOOR, float(hs[pr, pc]) * gate_f * GROW_REL)
+            # `floor`, NOT the module-level FLOOR. Both extent gates are expressed as
+            # fractions OF THE ADMISSION BAR, so when the ladder below relaxes that bar
+            # they have to relax with it. They did not, and the effect was total: with
+            # the absolute bar out of reach, the ladder duly lowered admission and then
+            # these two gates — still computed from the untouched FLOOR — rejected every
+            # cell the relaxed peaks tried to grow into. Zero areas, exactly as before,
+            # with a suite of green tests saying the feature worked.
+            grow = max(floor * GROW_FRAC_OF_FLOOR, float(hs[pr, pc]) * gate_f * GROW_REL)
             raw = near & np.isfinite(hunt) & (hs >= grow)
             if EXTENT_RAW_FRAC > 0:
                 # Relative to the ADMISSION FLOOR, not to `grow`. Tying it to `grow` was
                 # the first attempt and it did nothing: grow is already as low as 0.216,
                 # so a fraction of it lands near 0.17 — far under the ~0.248 these
                 # landscapes average, which is the very ground being excluded.
-                raw = raw & (np.nan_to_num(hunt) >= FLOOR * EXTENT_RAW_FRAC)
+                raw = raw & (np.nan_to_num(hunt) >= floor * EXTENT_RAW_FRAC)
             # Keep ONLY the connected component containing the peak, then close gaps &
             # fill holes so the ring, its centroid, and its placed sites all agree.
             lbl, _ = ndlabel(raw)
@@ -223,13 +230,63 @@ def extract_focus_areas(ctx, hunt, prof):
                       f"mean {mn:.3f}  {why}")
         return out
 
-    # Primary pass at the absolute floor, then ONE mild fallback (still absolute, not a
-    # percentile). If nothing clears even that, return ZERO areas honestly — a poor or
-    # water-locked box should say "thin ground here" (the access flags + recommendations
-    # explain the trade-off), not dress up its least-bad ground as a recommendation.
+    # THE ABSOLUTE BAR ANSWERS THE WRONG QUESTION ON ITS OWN.
+    #
+    # Reported, on ground the hunter knows holds animals: "'No focus areas met the bar'
+    # ... This is the wrong way to analyze this. I want to know what are the best places
+    # to hunt in the area I've chosen. The bar should be relative to the search area."
+    #
+    # He is right, and it is also a calibration error rather than only a design one.
+    # T6.4 measured these boxes: the BEST ACHIEVABLE contiguous area scores 0.233-0.244,
+    # against an admission bar of 0.26. The bar sits above what this landscape produces,
+    # so "nothing clears it" was close to the default answer here — and it was being
+    # presented as a finding about the ground.
+    #
+    # TWO QUESTIONS, ANSWERED SEPARATELY:
+    #   "is this ground good?"          -> the absolute bar, and the honest answer may
+    #                                      be "not especially"
+    #   "where do I go on Saturday?"    -> the best ground IN THIS BOX, always
+    #
+    # So the absolute pass runs first and anything clearing it is marked as clearing it.
+    # If that leaves fewer than TARGET_AREAS, the floor steps down through the box's OWN
+    # distribution until there is something to hunt. Every area records WHICH bar it
+    # cleared, so "best here" can never silently read as "good".
+    #
+    # This is NOT the rev-21 mistake of retuning a constant until a number looks
+    # familiar. The absolute constant is untouched; what changes is that failing it stops
+    # being the end of the conversation, and the answer says which question it answered.
+    TARGET_AREAS = int(fcfg.get("target_areas", 3))
+    bar_kind = "absolute"
     cands = _find(FLOOR, 0.82, min_km2)
     if not cands:
         cands = _find(FLOOR * 0.8, 0.70, max(1.0, min_km2 * 0.5))
+    if len(cands) < TARGET_AREAS:
+        # Percentiles of the SMOOTHED surface over ground the hunter can actually reach —
+        # the same pool the extraction draws from, so the ladder cannot wander onto cells
+        # that were never candidates.
+        pool = hs[np.isfinite(hunt)]
+        if pool.size:
+            for q in (96.0, 92.0, 88.0, 84.0, 80.0):
+                # NEVER CLIMB. A percentile floor above the absolute one would admit LESS
+                # than the pass that already ran, which is not a relaxation. Clamped
+                # rather than skipped, because the primary pass can fail on CONTIGUITY
+                # instead of height — measured, p96 of the smoothed surface is 0.425 and
+                # 0.587 on the two cached boxes, both well above the 0.26 floor, so
+                # skipping those rungs would have left a box whose ground is high but
+                # fragmented with no areas at all and no rung willing to look.
+                floor_q = min(float(np.percentile(pool, q)), FLOOR)
+                got = _find(floor_q, 0.70, max(1.0, min_km2 * 0.5))
+                if len(got) > len(cands):
+                    cands = got
+                    # Only a floor genuinely BELOW the absolute bar makes this a relative
+                    # answer. Clearing 0.26 with a smaller minimum area is still ground
+                    # that met the quality bar, and must not be caveated as if it were not.
+                    bar_kind = "relative" if floor_q < FLOOR else "absolute"
+                if len(cands) >= TARGET_AREAS:
+                    break
+            if cands and bar_kind == "relative":
+                print(f"[synth] nothing cleared the absolute bar ({FLOOR:.2f}); "
+                      f"returning the best {len(cands)} in this box instead")
     # The trigger is ONE FULL-SIZE FOCUS AREA (max_area_km2), not a multiple of the
     # minimum: you cannot subdivide something smaller than one unit of the thing you are
     # subdividing into. A 2 km hunt radius holds 11.5 km² against an 18 km² area — there
@@ -298,7 +355,14 @@ def extract_focus_areas(ctx, hunt, prof):
                            "centroid": cen,
                            # every candidate that cleared the bar is shown; this is a
                            # count of what qualified, not of what we chose to display
-                           "candidates_found": n_found},
+                           "candidates_found": n_found,
+                           # WHICH QUESTION THIS AREA ANSWERS. "absolute" — it cleared a
+                           # fixed physical bar and is good ground by any box's standard.
+                           # "relative" — it is the best available HERE, and nothing in
+                           # this box cleared that bar. Carried per area so the brief and
+                           # the map can never let the second read as the first.
+                           "bar": bar_kind,
+                           "absolute_floor": round(FLOOR, 3)},
         })
     return feats, masks
 

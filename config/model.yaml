@@ -75,6 +75,10 @@ focus_areas:
   # >= min_area_km2 of contiguous ground, and be one area-radius from the next. A
   # genuinely poor box legitimately returns FEW or ZERO areas and says so, instead of
   # dressing up its least-bad ground. However many clear the bar is the answer.
+  # How many areas the ranking tries to produce before it stops relaxing. The absolute
+  # bar below is UNCHANGED and still decides what counts as good; this decides only that
+  # "nothing here" stops being an acceptable answer to "where do I hunt in my own box".
+  target_areas: 3
   min_huntability: 0.26          # absolute floor on the SMOOTHED surface a focus area must
                                  # clear (0..1). Calibrated to the smoothing below: good QC
                                  # boreal clusters smooth to ~0.35-0.41, so 0.28 admits the

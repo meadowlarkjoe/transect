@@ -1154,6 +1154,17 @@ function buildPanel(){
         <b>No focus areas met the bar here</b>
         The model found no ground clearing its absolute thresholds in this box. That is a real
         answer, not an error — try a different area, a larger radius, or different dates.</div></div>`:'')
+    // AREAS THAT ARE THE BEST HERE RATHER THAN GOOD ANYWHERE. Nothing in this box cleared
+    // the absolute bar, so the ranking stepped down through the box's own distribution
+    // until it had something to hunt. That is the honest answer to "where do I go on
+    // Saturday" — but it must never be mistaken for "this is strong ground", which is
+    // what a silent relative ranking would imply.
+    + (relativeBar()?`<div class="callout" data-kind="info"><span class="mark">i</span><div class="body">
+        <b>Ranked against this box, not against the absolute bar</b>
+        Nothing here cleared the model's fixed quality threshold, so these are the BEST
+        ${(DOC.areas||[]).length} in the ground you chose rather than ground it calls strong.
+        Hunt them in this order — but expect ordinary country, and read the evidence on each
+        area rather than its rank alone.</div></div>`:'')
     + ((g.flags||[]).length?`<div class="callout" data-kind="warn"><span class="mark">!</span><div class="body"><b>${(g.flags||[]).length} thing${g.flags.length>1?'s':''} to confirm before you go</b>${(g.flags||[]).join('<br>')}</div></div>`:'')
     + (cf&&cf.caveats?`<div class="callout" data-kind="info"><span class="mark">i</span><div class="body">${[].concat(cf.caveats).join(' ')}</div></div>`:'')
     + (DOC.strategy&&DOC.strategy.density_per_10km2?`<div class="s" style="margin-top:8px">Density ≈ <b class="mono">${DOC.strategy.density_per_10km2}</b> moose/10 km² (${DOC.strategy.density_is_estimate?'estimate':'survey'}) — expect long silences; coverage beats sitting.</div>`:'')
@@ -3951,6 +3962,13 @@ async function loadStands(){
     STANDS_STATE={status:'error', why:'Could not load the forest survey.'};
   }
   try{ if(!document.getElementById('layersDock').classList.contains('hidden')) buildLayersDock(); }catch(e){}
+}
+/* Did the ranking fall back to the box's own distribution? (Areas carry `bar` from the
+   engine.) Older plans have no `bar` at all, and absence is NOT evidence of a fallback —
+   they are treated as absolute, which is what they were. */
+function relativeBar(){
+  const A=DOC.areas||[];
+  return A.length>0 && A.every(a=>a.bar==='relative');
 }
 function windowOf(a){
   const W=DOC.windows||[];
