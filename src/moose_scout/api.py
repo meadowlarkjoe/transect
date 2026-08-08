@@ -345,6 +345,42 @@ def cancel_job(jid: str, authorization: str = Header(default=None)):
 
 ORPHAN_S = 90.0          # ~36 missed polls at the client's 2.5 s cadence
 
+# Defined ABOVE the reaper that calls it, on purpose. The reaper thread starts at
+# import time and its body sits inside a bare `except` — so with the definition
+# below, a first tick that beat module load would have raised NameError into that
+# except and pruned nothing, forever, in silence. It sleeps 30 s first so it
+# happened to work; ordering it properly means it does not have to.
+RESCOPE_KEEP = 25          # most-recent job caches retained for re-planning
+
+
+def _prune_caches():
+    """Keep the RESCOPE_KEEP newest job_* caches; delete the rest, and the outputs beside
+    them. A job cache is ~40-160 MB, so this is what bounds the box's disk.
+
+    THIS EXISTED AND NOTHING CALLED IT. Measured live: 65 job caches against a stated keep
+    of 25, the oldest five days old, 3.2 GB total. Worth being precise about what that
+    does and does not mean, because the two halves behaved differently — the GEOGRAPHY
+    cache was bounded the whole time (`acquire` calls `geocache.prune`, 8 slots against a
+    cap of 12). It was only the per-job caches growing without limit.
+
+    With this actually running, the box's footprint is BOUNDED rather than proportional
+    to how many people use it: 25 job caches, 12 geography slots, the artifact budget,
+    and sqlite. More hunters means more plans in sqlite (~600 KB each) and more artefacts
+    inside their own budget — not more of this.
+    """
+    import os
+    root = Path(os.environ.get("MOOSE_SCOUT_CACHE", "cache"))
+    try:
+        jobs = sorted((p for p in root.glob("job_*") if p.is_dir()),
+                      key=lambda p: p.stat().st_mtime, reverse=True)
+        for old in jobs[RESCOPE_KEEP:]:
+            shutil.rmtree(old, ignore_errors=True)
+            shutil.rmtree(outputs_dir(old.name), ignore_errors=True)
+    except Exception:
+        pass
+
+
+
 
 def _reap_orphans():
     """Cancel runs nobody is watching. A scout run pegs a core for minutes; one left
@@ -368,6 +404,16 @@ def _reap_orphans():
                         except OSError:
                             pass
             jobstore.prune()
+            # ...AND THE CACHES THOSE JOBS LEFT BEHIND. `_prune_caches` was written and
+            # never called: measured on the live box, 65 job caches against a stated
+            # RESCOPE_KEEP of 25, the oldest five days old, 3.2 GB. The geography cache
+            # was bounded all along (acquire calls geocache.prune) — it was only the job
+            # caches growing forever, which is the half nobody checked.
+            #
+            # It runs on the reaper's tick because the reaper is the one thing already
+            # guaranteed to run whether or not anyone is analysing anything. Hanging it
+            # off a run would mean a quiet week leaves the disk full.
+            _prune_caches()
         except Exception:  # noqa: BLE001 — a reaper must never take the API down
             pass
 
@@ -406,25 +452,6 @@ def _resume_interrupted():
 
 
 threading.Thread(target=_resume_interrupted, daemon=True).start()
-
-
-RESCOPE_KEEP = 25          # most-recent job caches retained for re-planning
-
-
-def _prune_caches():
-    """Keep the RESCOPE_KEEP newest job_* caches; delete the rest. Disk on the box is
-    ample (a cache is ~40-160 MB, tens of GB free), so this is generous — it just
-    stops unbounded growth."""
-    import os
-    root = Path(os.environ.get("MOOSE_SCOUT_CACHE", "cache"))
-    try:
-        jobs = sorted((p for p in root.glob("job_*") if p.is_dir()),
-                      key=lambda p: p.stat().st_mtime, reverse=True)
-        for old in jobs[RESCOPE_KEEP:]:
-            shutil.rmtree(old, ignore_errors=True)
-            shutil.rmtree(outputs_dir(old.name), ignore_errors=True)
-    except Exception:
-        pass
 
 
 class RescopeReq(BaseModel):
