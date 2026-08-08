@@ -131,7 +131,7 @@ def test_the_filter_survives_an_unloaded_style():
     but the style is momentarily unavailable during ordinary updates too. Exactly the
     mistake made and corrected in `applyTerrain` an hour earlier."""
     body = _fn("applyWindowFilter")
-    assert "const st=(map&&map.getStyle)?map.getStyle():null" in body.replace(" ", "")
+    assert "constst=(map&&map.getStyle)?map.getStyle():null" in body.replace(" ", "")
     assert "if(!st||!st.layers)" in body.replace(" ", "")
     assert "map.once('idle',applyWindowFilter)" in body.replace(" ", "")
     assert "map.once('load'" not in body.replace(" ", "")
