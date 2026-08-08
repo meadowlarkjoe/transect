@@ -112,6 +112,10 @@ ESS_BROWSE = {
 # Position weights: gr_ess is ordered by dominance, so the first pair carries the stand.
 ESS_WEIGHTS = (0.5, 0.3, 0.2)
 
+# Vertex de-duplication for the DISPLAY copy, in metres. Deliberately far finer than the
+# analysis grid — see the note at the simplify call for the measurement that set it.
+VEC_SIMPLIFY_M = float(os.environ.get("ECOFOR_SIMPLIFY_M", "1.0"))
+
 
 def ess_browse(gr_ess: str) -> float:
     """0..1 browse value of a stand's species composition, dominance-weighted.
@@ -321,14 +325,32 @@ def fetch(ctx: Context) -> None:
                 if _e > 0:
                     esh.append((g, float(_e)))
                 if len(vec) < MAX_VEC:
-                    # SIMPLIFIED TO THE ANALYSIS GRID. The WFS returns full-precision
-                    # boundaries — 198 vertices per stand, measured — and the model cannot
-                    # resolve past its own cell size, so the extra detail is weight the
-                    # hunter downloads and nothing reads. Measured on an 8 km box: 5.5 MB
-                    # raw against 0.69 MB at 20 m, and a 35 km box would otherwise be
-                    # some 400 MB of map layer.
+                    # DE-DUPLICATED, NOT GENERALISED. This first shipped simplified to
+                    # the ANALYSIS GRID, on the reasoning that the model cannot resolve
+                    # past its own cell size. That reasoning was wrong: the analysis grid
+                    # bounds what the MODEL sees, not what the MAP should draw, and a
+                    # stand boundary is exactly the thing a hunter reads closely — the
+                    # cover-to-forage seam is where you put a stand. At 40 m the boundary
+                    # moved 58.8 m at worst and 34.5 m on average. On a 1:11,000 sheet
+                    # that is millimetres of visible error.
+                    #
+                    # Measured, 599 real stands at ~190 vertices each:
+                    #     tol   size    worst move
+                    #       1 m  48%       1.5 m
+                    #       2 m  35%       2.9 m
+                    #       5 m  24%       6.5 m
+                    #      40 m  11%      58.8 m
+                    # HALF the file goes in the first metre, because most of those
+                    # vertices are near-collinear redundancy. And écoforestière is
+                    # photo-interpreted at 1:20,000, so its own positional accuracy is
+                    # around ±10 m — a 1 m tolerance sits well inside the source's own
+                    # error. It removes encoding, not information.
+                    #
+                    # This does NOT solve payload and must not be mistaken for solving it:
+                    # a 35 km box is ~84,000 stands, ~170 MB even at 1 m. Shipping that to
+                    # a browser is a DELIVERY problem (E11.6), not a geometry one.
                     try:
-                        gs = g.simplify(res_m)
+                        gs = g.simplify(VEC_SIMPLIFY_M)
                         if gs.is_empty or not gs.is_valid:
                             gs = g
                     except Exception:
@@ -406,7 +428,7 @@ def fetch(ctx: Context) -> None:
                   f"{seen_stands} — the map layer is partial; the RASTERS are complete")
         json.dump({"stands": len(vec), "seen": seen_stands,
                    "truncated": bool(truncated), "cap": MAX_VEC,
-                   "simplify_m": res_m},
+                   "simplify_m": VEC_SIMPLIFY_M},
                   open(cache / "stands.json", "w"))
     except Exception as e:  # noqa: BLE001
         print(f"[ecoforestiere] stand polygons not written: {e}")

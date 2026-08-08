@@ -121,12 +121,30 @@ def test_the_attributes_merge_by_last_stand_not_by_maximum():
     assert "acc[pr > 0]" in seg
 
 
-def test_the_display_copy_is_simplified_to_the_analysis_grid():
-    """Measured: 198 vertices per stand, 5.5 MB for an 8 km box against 0.55 MB
-    simplified — and a 35 km box would otherwise be some 400 MB of map layer. The model
-    cannot resolve past its own cell size, so the extra detail is weight nobody reads."""
+def test_the_display_copy_is_de_duplicated_not_generalised():
+    """THIS SHIPPED WRONG ONCE. It simplified to the ANALYSIS GRID, reasoning that the
+    model cannot resolve past its own cell size. That bounds what the MODEL sees, not
+    what the MAP should draw — and a stand boundary is the thing a hunter reads closely,
+    because the cover-to-forage seam is where you put a stand. At 40 m the boundary moved
+    58.8 m at worst, 34.5 m on average.
+
+    Measured on 599 real stands: 1 m tolerance halves the file for a 1.5 m worst-case
+    move, because most of the ~190 vertices per stand are near-collinear redundancy. And
+    écoforestière is photo-interpreted at 1:20,000 — its own accuracy is about ±10 m, so
+    1 m removes encoding rather than information."""
     src = inspect.getsource(E.fetch)
-    assert "g.simplify(res_m)" in src
+    assert "g.simplify(VEC_SIMPLIFY_M)" in src
+    assert "g.simplify(res_m)" not in src, "back to generalising at the analysis grid"
+    assert E.VEC_SIMPLIFY_M <= 2.0, (
+        f"{E.VEC_SIMPLIFY_M} m is generalising the boundary, not de-duplicating it")
+
+
+def test_simplification_is_not_mistaken_for_solving_payload():
+    """A 35 km box is ~84,000 stands and ~170 MB even at 1 m. Coarsening the geometry
+    until it fits would trade the thing the layer is FOR against a problem that belongs
+    to delivery (E11.6)."""
+    src = inspect.getsource(E.fetch)
+    assert "DELIVERY problem" in src
 
 
 def test_the_polygon_cap_is_not_silent():

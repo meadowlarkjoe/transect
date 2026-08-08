@@ -982,6 +982,24 @@ will hold all of that and the map shows none of it.
 labels available on the hover card, and it reads as one system with the browse kinds
 rather than a second opinion beside them.
 
+**DELIVERY IS THE HARD PART, and simplification is not the answer to it.** E11.2 first
+shipped these polygons generalised to the analysis grid to keep the file small. That was
+the wrong trade and Joe caught it: the analysis grid bounds what the MODEL sees, not what
+the MAP should draw, and a stand boundary is exactly what a hunter reads closely — the
+cover-to-forage seam is where you put a stand. Measured at 40 m the boundary moved 58.8 m
+at worst, 34.5 m on average; on a 1:11,000 sheet that is millimetres of visible error.
+
+It is de-duplicated at 1 m now — 48% of raw for a 1.5 m worst-case move, because most of
+the ~190 vertices per stand are near-collinear redundancy, and écoforestière's own
+photo-interpreted accuracy is about ±10 m. That removes encoding, not information.
+
+Which leaves the real number: **a 35 km box is roughly 84,000 stands and ~170 MB even at
+1 m.** That cannot go to a browser whole, and coarsening it until it fits would trade away
+the thing the layer is FOR. So this ticket owns a delivery decision — clip to the focus
+areas, serve on demand by viewport, or vector-tile it — and it shares that decision with
+T10.22, which needs a per-job asset route for the same reason. Neither should invent its
+own.
+
 **The standing risk across all of it.** Écoforestière thins out north of ~52°N and stops.
 Every model that starts reading these fields has to degrade to the satellite path outside
 the coverage, and the manifest has to say which one answered — or a northern box will
