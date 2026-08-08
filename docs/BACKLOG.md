@@ -1239,3 +1239,29 @@ done:**
    BUDGET, which is a worker-memory measurement, not a modelling call.
 
 The instrument is `scripts/ab_necks.py` — written down, not reconstructed.
+
+**2026-08-07, later — both of those turned out to be work rather than decisions, and one
+of them was another constant.**
+
+*Memory.* The detector alone, peak RSS in a 4 GB container: 0.31 GB at 1×, 0.69 GB at 2×,
+1.35 GB at 3× on a 3.1 Mpx box; 0.42 / 1.20 GB at 1×/2× on a 6.5 Mpx one. 4× on a mid box
+is killed. Affordable — but this is the detector in isolation, not a full run with the
+habitat stack live, so it is a FLOOR and not yet a verdict on the budget.
+`scripts/necks_memory.py`.
+
+*And a real defect fell out of it.* `_constriction` asks for a medial-axis window of
+`3 * grid_res` metres and realises it as `maximum_filter(size=rw)`, which must be an ODD
+cell count to be symmetric — so the exact count `3*step` is forced UP whenever it is even.
+At 2× that turns the 120 m window into 140 m: 17% wider, a stricter ridge test, and FEWER
+candidates on a FINER grid. Measured on fire_lake: candidates 9813 at 1×, **6966 at 2×**,
+10463 at 3×. Even steps are now snapped down — a 2× grid measures worse than the 1× grid
+it would replace. This is also what rouyn's 222 → 125 at 2× was, which had looked like the
+old collapse returning.
+
+*Places, not statistics.* `scripts/neck_disagreements.py` writes a GPX of the ten
+highest-scoring necks the fine grid ADDS and the ten it DROPS, each with its measured
+width — `outputs/neck_disagreements_fire_lake.gpx`. The pattern is favourable but is not
+proof: adds score 0.74–0.83 at 138–304 m necks; drops score 0.35–0.50 and several are
+2–7 cell fragments. **Caveat that matters: fire_lake is 52.34°N, −67.36 — it is the only
+cached box carrying the water vectors the fine grid needs, and it is almost certainly not
+ground Joe has walked.** Producing this list for his own country needs a run there first.
