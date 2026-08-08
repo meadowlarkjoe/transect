@@ -71,14 +71,19 @@ def test_a_child_switching_on_switches_its_parent_on():
 
 
 def test_open_water_is_pushed_under_the_wetlands():
-    """THE RULE, as draw order. And it must be done by pushing open water DOWN — a bare
-    moveLayer() raises to the very top, which would put lake fill over the camps, staging
-    pins, crossings and area badges added before that point."""
+    """THE RULE, as draw order — specific over general.
+
+    The mechanism moved once. T10.4 pushed open water below `wetlandZones`; a live run
+    then showed the whole water group sitting ABOVE the model and hiding it, so the group
+    now moves together to below `huntZones`. Same rule, one move: listing them
+    lakes → rivers → wetland and inserting each before `huntZones` leaves them in exactly
+    that order underneath it."""
     src = APP.read_text()
-    i = src.index("['lakes','lakes-line','rivers'].forEach")
-    seg = src[i:i + 240]
-    assert "map.moveLayer(id,'wetlandZones')" in seg, \
-        "open water is not being placed beneath the wetlands"
+    i = src.index("['lakes','lakes-line','rivers','wetlandZones','wetlandZones-line']")
+    lst = src[i:src.index("]", i)]
+    assert lst.index("lakes") < lst.index("rivers") < lst.index("wetlandZones")
+    seg = src[i:i + 260]
+    assert "map.moveLayer(id,'huntZones')" in seg.replace(" ", "")
     assert "map.moveLayer(id)" not in seg, \
         "a bare moveLayer raises to the top, over the site symbology"
 
@@ -86,8 +91,8 @@ def test_open_water_is_pushed_under_the_wetlands():
 def test_the_reorder_runs_after_every_water_layer_exists():
     """moveLayer on a layer that is not added yet is a no-op that fails silently."""
     src = APP.read_text()
-    reorder = src.index("['lakes','lakes-line','rivers'].forEach")
-    for lid in ("lakes", "lakes-line", "rivers", "wetlandZones", "beaverPonds"):
+    reorder = src.index("['lakes','lakes-line','rivers','wetlandZones','wetlandZones-line']")
+    for lid in ("lakes", "lakes-line", "rivers", "wetlandZones", "beaverPonds", "huntZones"):
         assert src.index(f"addLayer({{id:'{lid}'") < reorder, \
             f"{lid} is added after the reorder, so the move silently does nothing"
 

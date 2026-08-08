@@ -5312,6 +5312,44 @@ const IDENTIFY = [
                                                    :'Inferred from the waterway class alone — no width or ford data ships here.',
                                p.route?`On the ${p.route.replace('route_','')} leg.`:''
                               ].filter(Boolean).join(' ')},
+  // THE FEEDING EDGE is a band, not a dot — the point markers say where to sit, this is
+  // its real extent.
+  {lyr:'feedEdgeZones',row:'st-saline', title:()=>'Feeding edge',
+                       sub:p=>`${p.area_km2!=null?p.area_km2+' km² · ':''}the cover-to-forage seam`,
+                       body:()=>'Where security cover meets something worth eating. Moose feed '
+                                +'along the edge rather than out in the open, so the SEAM is the '
+                                +'feature, not the opening.'},
+  // THERMAL DRIFT — the one layer whose meaning changes with the hour you have scrubbed
+  // to, which is exactly why it needs to be askable rather than inferred from arrows.
+  {lyr:'thermal',      row:'thermal',  title:()=>'Thermal drift',
+                       sub:()=>isThermalWindow(selectedHour)
+                         ?'First/last light — the slope governs, not the forecast'
+                         :'Midday — the forecast wind governs, not this',
+                       body:()=>'Cold air slides DOWNHILL at first and last light and rises '
+                                +'through the day. In those windows your scent follows the slope '
+                                +'whatever the forecast says, so come at a stand from below.'},
+  // THE TRAVEL LEGS. Each says what it is travelled BY and how far, because that is the
+  // difference between a walk and a carry with a bull down (T10.20).
+  {lyr:'route-ride-atv',  row:'mode-ride',   title:()=>'Ridden — ATV/SxS',
+                       sub:p=>p.leg_km!=null?`${p.leg_km} km on the machine`:'ridden leg',
+                       body:()=>'The machine stays where you step off it. Nothing past this '
+                                +'point is ridden, on the way in or the way out.'},
+  {lyr:'route-ride-boat', row:'mode-boat',   title:()=>'On the water',
+                       sub:p=>p.leg_km!=null?`${p.leg_km} km afloat`:'water leg',
+                       body:()=>'Travelled by boat. The boat stays at the far end until you '
+                                +'come back to it.'},
+  {lyr:'route-foot-trail',row:'mode-trail',  title:()=>'Walked — trail or road',
+                       sub:p=>p.leg_km!=null?`${p.leg_km} km on a track`:'walked on a track',
+                       body:()=>'On a road, trail or sentier — the cheap walking, and the part '
+                                +'a loaded pack-out can actually use.'},
+  {lyr:'route-foot-bush', row:'mode-bush',   title:()=>'Walked — bushwhack',
+                       sub:p=>p.leg_km!=null?`${p.leg_km} km off-trail`:'off-trail',
+                       body:()=>'No track here. Slow going in, and the part that decides whether '
+                                +'a pack-out is a long evening or two trips.'},
+  {lyr:'route-portage',   row:'mode-portage',title:()=>'Portage',
+                       sub:p=>p.leg_km!=null?`${p.leg_km} km carrying the canoe`:'carried',
+                       body:()=>'The canoe is carried over this. Fine on the way in — think '
+                                +'hard about it as an extraction route with a bull down.'},
   {lyr:'refugeZones',  row:'refuge',   title:()=>'Thermal refuge',   sub:p=>`${p.area_km2} km²`,
                        body:()=>ZONE_WHY.refuge},
   // SPECIFIC BEFORE BLANKET. IDENTIFY takes the FIRST match under the cursor, so with
