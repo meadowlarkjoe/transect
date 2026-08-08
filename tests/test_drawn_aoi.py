@@ -261,10 +261,15 @@ def test_the_client_padding_matches_the_engine():
 def test_the_radius_slider_handler_is_guarded():
     """It does not exist in drawn mode, and `rad.oninput` on null throws — which would
     kill every handler wired after it, silently, the moment you switched modes."""
-    src = _APP.read_text()
+    # COMMENTS STRIPPED FIRST. The comment above the guard explains the bug by naming
+    # `rad.oninput`, so searching the raw file lands inside the prose and concludes the
+    # guard is missing. Third time this file pattern has bitten: read code, not writing.
+    src = _code()
     i = src.index("const rad=document.getElementById('radius');")
-    seg = src[i:i + 1200]
-    assert "if(rad){" in seg
+    j = src.index("rad.oninput", i)
+    # Structural, not positional: the guard sits between the lookup and the first use.
+    # A fixed character window just measures how much comment is in between.
+    assert "if(rad){" in src[i:j], "the radius handler is unguarded in drawn mode"
 
 
 def test_the_request_carries_the_ring_and_still_carries_a_radius():
@@ -306,3 +311,25 @@ def test_setup_is_rebuilt_when_you_arrive_at_it():
     i = src.index("function setTab(")
     body = src[i:src.index("\n}", i)]
     assert "if(name==='setup') renderSetup();" in body
+
+
+def test_the_pending_flag_is_set_after_the_tool_is_armed_not_before():
+    """`setDrawTool` opens with `finishDraw()` to commit whatever was in progress. With
+    the flag set first, that commit consumed it — measured live, the flag read false the
+    instant after arming — and the boundary the hunter then drew arrived with nothing
+    waiting for it."""
+    src = _code()
+    i = src.index("_adb.onclick")
+    seg = src[i:i + 500]
+    assert seg.index("setDrawTool('area')") < seg.index("window._aoiDrawPending=true"), \
+        "the flag is set before arming again, where finishDraw eats it"
+
+
+def test_the_ring_fallback_does_not_pretend_to_be_a_choice():
+    """`selectedRing` falls back to the first shape when the chosen one is gone, which is
+    right for a deleted shape and was ALSO masking the ordering bug above: nothing had
+    selected a ring and this quietly picked the only one there was. With several drawn it
+    would have quietly picked the wrong one."""
+    body = _fn("selectedRing")
+    assert "draft.ringId=f.properties.id" in body.replace(" ", ""), \
+        "the fallback does not write back, so the selection stays a guess"

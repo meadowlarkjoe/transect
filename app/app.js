@@ -2811,7 +2811,12 @@ function drawnAreas(){
 function selectedRing(){
   if(aoiMode()!=='drawn') return null;
   const list=drawnAreas();
+  // The fallback to list[0] is for a plan whose chosen shape was deleted — NOT a
+  // substitute for choosing. It masked an ordering bug once (the ring was never
+  // selected and this quietly picked the only shape there was), and with several
+  // drawn it would have quietly picked the wrong one.
   const f=list.find(x=>x.properties.id===draft.ringId)||list[0];
+  if(f && draft.ringId!==f.properties.id) draft.ringId=f.properties.id;
   return f?f.geometry.coordinates[0]:null;
 }
 /* The half-width of the box that will actually be ANALYSED, in km — the drawn ring's
@@ -3133,11 +3138,15 @@ function renderSetup(){
   const _adb=document.getElementById('aoiDrawBtn');
   if(_adb) _adb.onclick=e=>{
     e.preventDefault();
-    // Remember that this drawing is FOR the analysis boundary. Without it, finishing the
-    // polygon leaves you on the map with no idea the form is waiting for you — and
-    // drawing an area for a note would yank you into Setup, which is worse.
-    window._aoiDrawPending=true;
+    // ORDER MATTERS HERE. `setDrawTool` opens with `finishDraw()` to commit whatever was
+    // in progress — so setting the flag BEFORE it let that commit consume the flag, and
+    // the boundary the hunter then drew arrived with nothing waiting for it. Measured
+    // live: the flag read false the instant after arming.
     setTab('overview'); setDrawTool('area');
+    // Remember that THIS drawing is for the analysis boundary. Without it, finishing the
+    // polygon leaves you on the map with no idea the form is waiting for you — and every
+    // area drawn for a note would yank you into Setup, which is worse.
+    window._aoiDrawPending=true;
   };
   // THE RADIUS SLIDER ONLY EXISTS IN RADIUS MODE. Everything from here to the end of
   // this block reads it, and `rad.oninput` on null throws — which would kill every
